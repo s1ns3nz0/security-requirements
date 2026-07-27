@@ -332,6 +332,23 @@ SLUG_RE = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)*$")
 def issue_id(slug: str, state: dict) -> str:
     """Return the stable identifier for a content slug, allocating if new."""
     issued = state.setdefault("issued", {})
+    if not isinstance(issued, dict):
+        raise ValueError(
+            f"the state file's `issued` is a {type(issued).__name__}; it maps a content "
+            f"slug to the identifier that was allocated for it."
+        )
+    # The state file is hand-editable and shared across a team, and a value that
+    # is not an identifier produced a raw AttributeError from inside the
+    # allocator. Every other input in this repository gets a sentence.
+    wrong = {k: v for k, v in issued.items() if not isinstance(v, str)}
+    if wrong:
+        first = next(iter(wrong))
+        raise ValueError(
+            f"the state file maps {first!r} to {wrong[first]!r}, which is not an "
+            f"identifier. Each entry is slug -> REQ-<SLUG>-NN, written by this tool; "
+            f"editing it by hand is how the mapping stops being the one the document "
+            f"was issued against."
+        )
     if slug in issued:
         return issued[slug]
     used = {v for v in issued.values() if v.startswith(f"REQ-{slug}-")}
@@ -537,7 +554,11 @@ def main() -> int:
     state = load_yaml(args.state, {"issued": {}})
 
     try:
-        result = apply_merge(draft_items, existing, state)
+        try:
+            result = apply_merge(draft_items, existing, state)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

@@ -4240,3 +4240,101 @@ def test_a_statement_about_what_the_data_is_wins_over_an_adjustment():
                  if isinstance((spec.get("effect") or {}).get("confidentiality"), str)]
     assert len(absolutes) == 1, \
         f"if a second absolute modifier is added, the conflict path needs a test: {absolutes}"
+
+
+# --- the refresh, end to end at the command line -------------------------------
+
+def _refresh_workspace(tmp_path):
+    existing = {"requirements": [
+        {"id": "REQ-PKI-SIGNING-KEY-01",
+         "managed": {"statement": "The signing key must be non-exportable.",
+                     "csf": ["PR.DS-01"], "sources": ["SC-12"], "responsibility": "team"},
+         "human": {}},
+        {"id": "REQ-PKI-LOG-SHIP-01",
+         "managed": {"statement": "Issuance records must ship off host.",
+                     "csf": ["DE.CM-09"], "sources": ["AU-9"], "responsibility": "team"},
+         "human": {"status": "accepted_risk", "note": "deferred to Q3", "owner": "platform"}},
+        {"id": "REQ-PKI-GONE-01",
+         "managed": {"statement": "An old thing.", "csf": ["PR.DS-01"],
+                     "sources": ["SC-28"], "responsibility": "team"},
+         "human": {}},
+    ]}
+    (tmp_path / "requirements.yaml").write_text(yaml.safe_dump(existing, sort_keys=False),
+                                                encoding="utf-8")
+    (tmp_path / "state.yaml").write_text("issued: {}\n", encoding="utf-8")
+    draft = {"requirements": [
+        {"slug": "PKI-SIGNING-KEY", "managed": existing["requirements"][0]["managed"]},
+        {"slug": "PKI-LOG-SHIP",
+         "managed": {**existing["requirements"][1]["managed"],
+                     "statement": "Issuance records must ship off host within one minute."}},
+        {"slug": "PKI-NEW-HSM",
+         "managed": {"statement": "The module must attest the key it generated.",
+                     "csf": ["PR.DS-01"], "sources": ["SC-12(1)"], "responsibility": "team"}},
+    ]}
+    (tmp_path / "draft.json").write_text(json.dumps(draft), encoding="utf-8")
+    return tmp_path
+
+
+def test_a_refresh_keeps_what_a_human_decided(tmp_path):
+    """The refresh machinery -- retire, reopen, pending_review -- had run only
+    inside unit calls. Through the command line, on a document where a human had
+    accepted a risk and written a note against it."""
+    work = _refresh_workspace(tmp_path)
+    r = _run_cli("merge.py", "--apply", "--draft", str(work / "draft.json"),
+                 "--existing", str(work / "requirements.yaml"),
+                 "--state", str(work / "state.yaml"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "added          1" in r.stdout
+    assert "proposed       1" in r.stdout
+    assert "unchanged      1" in r.stdout
+    assert "retired        1" in r.stdout
+
+    written = yaml.safe_load((work / "requirements.yaml").read_text(encoding="utf-8"))
+    by_id = {req["id"]: req for req in written["requirements"]}
+
+    # The human's decision and note survive, and the re-derived text waits.
+    kept = by_id["REQ-PKI-LOG-SHIP-01"]
+    assert kept["human"]["note"] == "deferred to Q3"
+    assert kept["human"]["owner"] == "platform"
+    assert kept["human"]["status"] == "accepted_risk"
+    assert "pending_review" in kept, "the new text is proposed, not applied over a human edit"
+
+    # What no longer derives is retired rather than deleted.
+    assert by_id["REQ-PKI-GONE-01"]["human"]["status"] == "retired"
+    assert "REQ-PKI-NEW-HSM-01" in by_id
+
+    # And the state file records the allocation, so the next run matches.
+    state = yaml.safe_load((work / "state.yaml").read_text(encoding="utf-8"))
+    assert state["issued"]["PKI-NEW-HSM"] == "REQ-PKI-NEW-HSM-01"
+
+
+def test_a_second_refresh_with_no_change_moves_nothing(tmp_path):
+    """Idempotence is the property that makes a refresh safe to run."""
+    work = _refresh_workspace(tmp_path)
+    first = _run_cli("merge.py", "--apply", "--draft", str(work / "draft.json"),
+                     "--existing", str(work / "requirements.yaml"),
+                     "--state", str(work / "state.yaml"))
+    assert first.returncode == 0
+    second = _run_cli("merge.py", "--apply", "--draft", str(work / "draft.json"),
+                      "--existing", str(work / "requirements.yaml"),
+                      "--state", str(work / "state.yaml"))
+    assert second.returncode == 0, second.stdout + second.stderr
+    assert "added          0" in second.stdout
+    assert "retired        0" in second.stdout
+
+
+@pytest.mark.parametrize("broken,expected", [
+    ("issued:\n  PKI-SIGNING-KEY: 1\n", "is not an identifier"),
+    ("issued: [a, b]\n", "is a list"),
+])
+def test_a_hand_edited_state_file_gets_a_sentence(tmp_path, broken, expected):
+    """It is shared across a team and edited by hand, and a value that is not an
+    identifier produced a raw AttributeError from inside the allocator."""
+    work = _refresh_workspace(tmp_path)
+    (work / "state.yaml").write_text(broken, encoding="utf-8")
+    r = _run_cli("merge.py", "--apply", "--draft", str(work / "draft.json"),
+                 "--existing", str(work / "requirements.yaml"),
+                 "--state", str(work / "state.yaml"))
+    assert r.returncode == 2
+    assert "Traceback" not in r.stderr
+    assert expected in r.stderr
