@@ -5710,6 +5710,56 @@ def test_a_trailing_dot_is_the_same_host():
     assert lint_mod.url_problem("https://CSRC.NIST.GOV./x") is None
 
 
+@pytest.mark.parametrize("url", [
+    # The apostrophe and the comma are sentence punctuation and are also legal
+    # in userinfo. A parser that trims them before it validates hands the
+    # allowlist to whoever writes one.
+    "https://csrc.nist.gov'@evil.com/secret",
+    "https://csrc.nist.gov,@evil.com/secret",
+    "https://csrc.nist.gov/?x-amz-%73ignature=secret",   # percent-encoded name
+    "https://csrc.nist.gov/#token=secret",               # in the fragment
+    "https://csrc.nist.gov:99999/x",                     # a port no client accepts
+])
+def test_the_allowlist_survives_a_parser_that_disagrees_with_a_client(url):
+    """This is the rule that grants publication, so every place it reads a URL
+    differently from the client that will fetch it is a way to publish. It
+    parses with urlsplit and refuses anything it cannot read; the hand-written
+    version it replaced trimmed punctuation before validating and truncated the
+    first two of these to a recognised citation host."""
+    assert lint_mod.url_problem(url) is not None, f"{url} was granted publication"
+
+
+@pytest.mark.parametrize("url", [
+    "https://csrc.nist.gov?topic=encryption",   # a query with no path
+    "https://owasp.org/asvs/.",                 # ending a sentence
+    "https://datatracker.ietf.org/doc/html/rfc7519,",
+])
+def test_an_ordinary_citation_is_not_mangled_into_a_refusal(url):
+    """The hand-written parser read the host of the first as the whole string.
+    A rule that blocks correct documents gets switched off."""
+    assert lint_mod.url_problem(url) is None, url
+
+
+@pytest.mark.parametrize("rationale", ["TODO", "n/a", "later", ".", "미정"])
+def test_a_placeholder_is_not_a_basis(rationale):
+    """A rationale is allowed to stand in for a control identifier because a
+    reason a reader can evaluate is worth more than an invented number. "TODO"
+    is neither."""
+    doc = _doc(sources=[], threat_refs=[], rationale=rationale)
+    findings = [f for f in lint_mod.lint(doc, "en", None) if f.rule == "no-basis"]
+    assert findings and findings[0].level == "ERROR", rationale
+
+
+def test_every_disclosure_in_a_field_is_reported_at_once():
+    """One at a time turns a draft with three disclosures into three rounds of
+    lint, fix, lint, and the author never learns how many are left."""
+    doc = _doc(rationale=(
+        "see arn:aws:s3:::acme-exports and https://acme.example.com/runbook "
+        "and vault-01.corp"))
+    named = [f for f in lint_mod.lint(doc, "en", None) if f.rule == "names-an-instance"]
+    assert len(named) >= 3, [f.message for f in named]
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and

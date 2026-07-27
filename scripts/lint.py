@@ -125,6 +125,24 @@ IMPLEMENTATION_HINTS = [
 ]
 
 
+# A rationale that is the only thing holding a requirement up has to be readable
+# as a reason. "TODO" satisfies a strip() and satisfies nobody else.
+PLACEHOLDER_RATIONALE = frozenset({
+    "todo", "tbd", "tba", "n/a", "na", "none", "nil", "later", "fixme", "xxx",
+    "wip", "pending", "unknown", "?", "미정", "추후", "없음", "해당없음",
+})
+
+
+def is_substantive(text) -> bool:
+    """Whether a rationale says anything a reader could evaluate."""
+    stripped = str(text or "").strip().strip(".-\u2014\u00b7 ")
+    if not stripped or stripped.lower() in PLACEHOLDER_RATIONALE:
+        return False
+    # Ten characters, not five words: a short Korean clause is a real reason and
+    # counts two words where the English equivalent counts eight.
+    return len(stripped) >= 10
+
+
 class Finding:
     def __init__(self, level: str, req_id: str, rule: str, message: str):
         self.level, self.req_id, self.rule, self.message = level, req_id, rule, message
@@ -340,13 +358,25 @@ CITATION_HOSTS = frozenset({
     "docs.aws.amazon.com", "learn.microsoft.com", "cloud.google.com",
 })
 
-# Query parameters that turn a link into a credential.
-SIGNED_PARAMS = re.compile(
-    r"(?:^|[?&])(?:x-amz-signature|x-amz-credential|x-amz-security-token|sig|"
-    r"signature|token|access_token|api_key|apikey|key|password|sas)=",
-    re.IGNORECASE)
+# Parameter names that turn a link into a credential. Compared against decoded
+# names, because `x-amz-%73ignature` is the same parameter.
+SIGNED_PARAM_NAMES = frozenset({
+    "x-amz-signature", "x-amz-credential", "x-amz-security-token", "x-amz-algorithm",
+    "sig", "signature", "token", "access_token", "id_token", "refresh_token",
+    "api_key", "apikey", "key", "password", "passwd", "secret", "sas", "code",
+})
 
-URL_IN_TEXT = re.compile(r"\bhttps?://[^\s<>\)\]\"'`,]+", re.IGNORECASE)
+# To the next whitespace, and no further. The first version stopped at the
+# characters that cannot appear in an authority -- an apostrophe, a comma, a
+# closing bracket -- reasoning that they are sentence punctuation. They are also
+# legal in userinfo, so `https://csrc.nist.gov\'@evil.com/secret` was truncated
+# to a recognised citation host and published, while every real client resolves
+# it to evil.com. A permission-granting parser cannot trim before it validates.
+URL_IN_TEXT = re.compile(r"https?://\S+", re.IGNORECASE)
+
+# Punctuation that ends a sentence rather than a URL. Stripped only from the
+# very end of a candidate, where there is nothing after it to be confused by.
+TRAILING_PUNCTUATION = ".,;:!?)]}>\"'\u201d\u2019`"
 
 
 def url_problem(url: str) -> str | None:
@@ -357,16 +387,55 @@ def url_problem(url: str) -> str | None:
     a URL can be dangerous -- is the list that let a custom tenant domain, a git
     remote, an issue-tracker link naming an internal project, and a bare IP
     literal all through in the same afternoon.
+
+    This grants publication, so it parses with urlsplit rather than by hand and
+    refuses anything it cannot read the same way a client would. The hand-written
+    version disagreed with real clients about backslashes, percent-encoded
+    separators, and where a query begins -- it read the host of
+    `https://csrc.nist.gov?topic=encryption` as the whole string and blocked a
+    legitimate citation, and it read the host of the userinfo attack above as the
+    part before the apostrophe.
     """
-    remainder = url.split("://", 1)[1]
-    authority = remainder.split("/", 1)[0]
-    if "@" in authority:
+    from urllib.parse import urlsplit, parse_qsl, unquote
+
+    candidate = url.rstrip(TRAILING_PUNCTUATION)
+
+    # A backslash is a path separator to every browser and not to urlsplit, so a
+    # string containing one does not mean here what it means there.
+    if "\\" in candidate:
+        return "a URL containing a backslash, which clients read as a path separator"
+    if any(ord(c) < 0x20 or ord(c) == 0x7f for c in candidate):
+        return "a URL containing a control character"
+
+    try:
+        parts = urlsplit(candidate)
+        host = parts.hostname
+        parts.port  # raises on a malformed port
+    except ValueError:
+        return "a URL this tool cannot parse, and so cannot vouch for"
+
+    if parts.scheme.lower() not in ("http", "https") or not host:
+        return "a URL this tool cannot parse, and so cannot vouch for"
+    if parts.username or parts.password:
         return "a URL carrying credentials"
-    host = authority.split(":", 1)[0].lower().rstrip(".")
+    if "%" in parts.netloc:
+        return "a URL with a percent-encoded authority"
+
+    host = host.rstrip(".")
+    if not host.isascii():
+        # A homograph is indistinguishable from the host it imitates at this
+        # distance, and encoding it to IDNA to compare would grant permission on
+        # the strength of a comparison the reader cannot make.
+        return "a URL whose host is not ASCII"
     if host not in CITATION_HOSTS:
         return "a URL to a host that is not a recognised citation source"
-    if SIGNED_PARAMS.search(url):
-        return "a URL carrying a signature or token"
+
+    for blob in (parts.query, parts.fragment):
+        if not blob:
+            continue
+        for name, _ in parse_qsl(blob, keep_blank_values=True):
+            if unquote(name).strip().lower() in SIGNED_PARAM_NAMES:
+                return "a URL carrying a signature or token"
     return None
 
 
@@ -404,18 +473,19 @@ def check_public_safety(req_id: str, managed: dict) -> list[Finding]:
 
     for name, value in fields.items():
         text = "; ".join(map(str, value)) if isinstance(value, (list, tuple)) else str(value or "")
-        found = None
+        # Every distinct problem in the field, not the first. Reporting one at a
+        # time turns a draft with three disclosures into three rounds of lint,
+        # fix, lint -- and the author has no way to know how many are left.
+        problems = []
         for pattern, what in INSTANCE_FORMS:
-            if pattern.search(text):
-                found = what
-                break
-        if found is None:
-            for url in URL_IN_TEXT.findall(text):
-                found = url_problem(url)
-                if found:
-                    break
-        if found:
-            report(name, found)
+            if pattern.search(text) and what not in problems:
+                problems.append(what)
+        for url in URL_IN_TEXT.findall(text):
+            problem = url_problem(url)
+            if problem and problem not in problems:
+                problems.append(problem)
+        for problem in problems:
+            report(name, problem)
     return findings
 
 
@@ -610,7 +680,7 @@ def lint(doc: dict, locale: str, threats: dict | None) -> list[Finding]:
         # repository was built to prevent. A reason a reader can evaluate is a
         # basis; a fabricated control number is not.
         if not managed.get("sources") and not managed.get("threat_refs"):
-            if (managed.get("rationale") or "").strip():
+            if is_substantive(managed.get("rationale")):
                 findings.append(Finding(
                     "WARN", req_id, "no-basis",
                     "cites neither a control nor a threat, and traces only to its "
