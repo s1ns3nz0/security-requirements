@@ -241,6 +241,41 @@ def test_safety_critical_forces_high_availability(profile):
     assert sb.run(critical)["impact"]["availability"]["level"] == "high"
 
 
+def test_single_axis_driver_is_surfaced():
+    """Found by running against a real repository.
+
+    A document store whose data was Low on both confidentiality and integrity
+    still landed on Moderate, because it should recover within the business
+    day. The high water mark is the rule, but it hides which answer did the
+    work -- and that one interview answer is the difference between 149
+    controls and 287. Without naming it, the only reviewable thing about the
+    categorisation is its conclusion.
+    """
+    single = {
+        "declared": {
+            "data_types": [{"id": "internal_ops"}, {"id": "app_logs"}],
+            "availability": {"rto": "rto_hours", "rpo": "rpo_hours_plus", "amplifiers": []},
+            "user_regions": ["KR"],
+        }
+    }
+    driver = sb.run(single)["impact"]["driver"]
+    assert driver is not None
+    assert driver["axis"] == "availability"
+    assert driver["level_without"] == "low"
+    assert driver["control_count_without"] < driver["control_count"]
+
+
+@pytest.mark.parametrize("name", sorted(EXPECTED_IMPACT))
+def test_no_spurious_single_axis_claim(name):
+    """Silent when two or more axes sit at the system level -- otherwise the
+    warning appears everywhere and stops being read."""
+    result = sb.run(load_golden(name))
+    impact = result["impact"]
+    axes = [impact[a]["level"] for a in ("confidentiality", "integrity", "availability")]
+    if axes.count(impact["system"]) > 1:
+        assert impact["driver"] is None
+
+
 def test_user_override_is_recorded(profile):
     overridden = copy.deepcopy(profile)
     overridden["derived"] = {"impact": {"override": {"system": "low", "reason": "pilot only"}}}
@@ -361,6 +396,28 @@ def test_patching_moves_with_the_deployment_model(profile):
     iaas["inferred"]["deployment_model"] = "iaas"
     iaas["inferred"]["managed_services"] = []
     assert classify_resp.classify(iaas, ["SI-2"])["controls"][0]["responsibility"] == "team"
+
+
+def test_service_entry_can_be_conditional_on_deployment_model(profile):
+    """Found by running against a real repository.
+
+    aws-ecs.yaml claimed SC-39 as provider-isolated unconditionally, with the
+    EC2 caveat written only as a prose note. Against an EC2 launch type service
+    the classifier therefore asserted an isolation boundary that does not exist
+    -- the exact failure this tool is built to prevent, committed by its own
+    curation. An entry that does not apply must fall through to the layer.
+    """
+    on_ecs = copy.deepcopy(profile)
+    on_ecs["inferred"]["managed_services"] = [{"id": "aws-ecs"}]
+
+    fargate = classify_resp.classify(on_ecs, ["SC-39"])["controls"][0]
+    assert fargate["responsibility"] == "csp_claimed"
+    assert fargate["source"] == "services/aws-ecs.yaml"
+
+    on_ecs["inferred"]["deployment_model"] = "iaas"
+    ec2 = classify_resp.classify(on_ecs, ["SC-39"])["controls"][0]
+    assert ec2["responsibility"] == "team"
+    assert ec2["source"] == "layers.yaml:iaas"
 
 
 def test_family_default_covers_unlisted_controls(profile):

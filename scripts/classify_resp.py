@@ -78,6 +78,29 @@ def load_services(profile: dict) -> tuple[dict, list[str], list[str]]:
     return specs, curated, uncurated
 
 
+def entry_applies(detail: dict, deployment_model: str | None) -> bool:
+    """Whether a curated control entry holds for this deployment model.
+
+    Several services answer differently depending on how they are run. ECS is
+    the clearest: on Fargate the provider isolates tasks and patches the host,
+    on the EC2 launch type it does neither. Encoding that only in a prose note
+    means the classifier asserts provider inheritance for a deployment where it
+    does not hold -- the exact failure this tool exists to prevent, committed by
+    its own curation.
+
+    An entry with no `applies_when` holds everywhere.
+    """
+    condition = detail.get("applies_when")
+    if not condition:
+        return True
+    models = condition.get("deployment_model")
+    if not models:
+        return True
+    if deployment_model is None:
+        return False
+    return deployment_model in models
+
+
 def resolve_layer(control_id: str, layers: dict, deployment_model: str | None) -> tuple[str | None, str | None]:
     """Return (responsibility, source) for a control, most specific rule first.
 
@@ -135,6 +158,11 @@ def classify(profile: dict, controls: list[str]) -> dict:
         for sid, spec in specs.items():
             detail = (spec.get("controls") or {}).get(control_id)
             if not detail:
+                continue
+            if not entry_applies(detail, deployment_model):
+                # The service curates this control, but not for how it is being
+                # deployed. Fall through to the layer rather than asserting an
+                # inheritance that does not hold here.
                 continue
             entry["services"].append({
                 "service": sid,

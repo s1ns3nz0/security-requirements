@@ -10,9 +10,9 @@ controls:
 
   SI-2:
     responsibility: shared
-    csp_part: >-
-      On Fargate, patches the host and the container runtime. On the EC2 launch
-      type it patches neither -- the container instances are yours.
+    applies_when:
+      deployment_model: [serverless, paas]
+    csp_part: "On Fargate, patches the host and the container runtime."
     team_part: >-
       Rebuild and redeploy the container image to pick up base image and
       dependency patches. A long-running task keeps whatever it started with,
@@ -23,6 +23,10 @@ controls:
       method: iac_inspect
       target: "task definition image tag"
       expect: "an immutable digest or a version tag, not :latest"
+    note: >-
+      On the EC2 launch type the container instances are yours and the provider
+      patches neither host nor runtime, so this entry does not apply and the
+      deployment model layer assigns the control to the team.
 
   AC-6:
     responsibility: team
@@ -48,13 +52,18 @@ controls:
 
   SC-39:
     responsibility: csp_claimed
+    applies_when:
+      deployment_model: [serverless, paas]
     csp_part: "On Fargate, each task runs in its own isolation boundary with no shared kernel between tasks."
     evidence:
       - "AWS SOC 2 Type II report"
       - "AWS Fargate security overview"
     note: >-
-      On the EC2 launch type this is not inherited: tasks on the same instance
-      share a kernel, and the responsibility returns to the team.
+      On the EC2 launch type this is not inherited -- tasks on the same instance
+      share a kernel -- so the entry does not apply and the control returns to
+      the team through the deployment model layer. Stating that only in prose,
+      as this file first did, let the classifier claim provider isolation for a
+      deployment where it does not exist.
 
   SC-7:
     responsibility: shared

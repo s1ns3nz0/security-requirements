@@ -67,10 +67,14 @@ VAGUE = {
     ],
 }
 
-# Conjunctions that usually mean two obligations were fused into one.
-CONJUNCTION = {
-    "en": [r"\band\b", r"\bas well as\b", r"\balong with\b"],
-    "ko": [r"하고\s", r"하며", r"및\s", r"와\s+함께"],
+# Two obligations fused into one. Keyed on repeated modal verbs rather than on
+# conjunctions: "naming the caller, the document, and the time" is one
+# obligation with three parts, while "X must ... and Y must ..." is two. Testing
+# for `and` alone flags every enumeration and trains the reader to skip the
+# warning.
+MODAL = {
+    "en": r"\b(?:must|shall|is required to|are required to)\b",
+    "ko": r"(?:해야 한다|하여야 한다|되어야 한다|돼야 한다)",
 }
 
 # Implementation detail that belongs in guidance rather than the statement.
@@ -169,11 +173,13 @@ def check_statement(req_id: str, statement: str, locale: str) -> list[Finding]:
                                     f"{term!r} makes the requirement undecidable"))
             break
 
-    for pattern in CONJUNCTION.get(locale, []) + CONJUNCTION["en"]:
-        if re.search(pattern, statement, re.IGNORECASE):
-            findings.append(Finding("WARN", req_id, "not-atomic",
-                                    "looks like two obligations; consider splitting"))
-            break
+    modal = MODAL.get(locale, MODAL["en"])
+    modal_count = len(re.findall(modal, statement, re.IGNORECASE))
+    if locale != "en":
+        modal_count += len(re.findall(MODAL["en"], statement, re.IGNORECASE))
+    if modal_count > 1:
+        findings.append(Finding("WARN", req_id, "not-atomic",
+                                "more than one obligation in a single statement; split it"))
 
     for hint in IMPLEMENTATION_HINTS:
         if hint in lowered:

@@ -279,6 +279,43 @@ def load_catalog() -> dict[str, dict]:
     return records
 
 
+def single_axis_driver(impact: dict, system: str) -> dict | None:
+    """Identify a level set by one axis alone, and say what it costs.
+
+    The high water mark is the rule, but it hides which answer did the work. A
+    document store whose data is Low on both confidentiality and integrity can
+    still land on Moderate because it should recover within the business day --
+    and that single interview answer is the difference between 149 controls and
+    287. The reader has to be told which answer to challenge, or the only
+    reviewable thing about the categorisation is its conclusion.
+    """
+    axes = {
+        "confidentiality": impact["confidentiality"]["level"],
+        "integrity": impact["integrity"]["level"],
+        "availability": impact["availability"]["level"],
+    }
+    at_system = [name for name, level in axes.items() if level == system]
+    if len(at_system) != 1:
+        return None
+
+    driver = at_system[0]
+    others = [level for name, level in axes.items() if name != driver]
+    without = highest(others)
+    if without == system:
+        return None
+
+    baselines = json.loads((CATALOG_DIR / "baselines.json").read_text(encoding="utf-8"))
+    return {
+        "axis": driver,
+        "level": system,
+        "level_without": without,
+        "baseline_without": BASELINE_FOR_IMPACT[without],
+        "control_count": len(baselines[BASELINE_KEY[BASELINE_FOR_IMPACT[system]]]),
+        "control_count_without": len(baselines[BASELINE_KEY[BASELINE_FOR_IMPACT[without]]]),
+        "reasons": impact[driver]["because"],
+    }
+
+
 def resolve_baseline(baseline: str, catalog: dict) -> tuple[list[dict], list[str]]:
     """Return (bundled controls, identifiers whose family is not bundled).
 
@@ -349,15 +386,18 @@ def run(profile: dict) -> dict:
 
     cross_border = detect_cross_border(profile, user_regions)
 
+    impact = {
+        "confidentiality": confidentiality,
+        "integrity": integrity,
+        "availability": availability,
+        "system": system,
+        "overridden_by_user": overridden,
+        "override_reason": (override or {}).get("reason"),
+    }
+    impact["driver"] = None if overridden else single_axis_driver(impact, system)
+
     return {
-        "impact": {
-            "confidentiality": confidentiality,
-            "integrity": integrity,
-            "availability": availability,
-            "system": system,
-            "overridden_by_user": overridden,
-            "override_reason": (override or {}).get("reason"),
-        },
+        "impact": impact,
         "baseline": baseline,
         "asvs_level": ASVS_FOR_IMPACT[system],
         "threat_flags": flags,
@@ -381,6 +421,17 @@ def render_gate(result: dict) -> str:
     out.append(f"  System impact: {imp['system'].upper()}  (high water mark)")
     if imp["overridden_by_user"]:
         out.append(f"  OVERRIDDEN by user: {imp['override_reason'] or 'no reason recorded'}")
+
+    driver = imp.get("driver")
+    if driver:
+        out += [
+            "",
+            f"  Set by {driver['axis']} alone. The other two axes are lower.",
+            f"  Without it the system would be {driver['level_without'].upper()} "
+            f"-- {driver['control_count_without']} controls instead of {driver['control_count']}.",
+            "  Check that answer before confirming:",
+        ]
+        out += [f"      <- {reason}" for reason in driver["reasons"]]
     out.append(f"  Baseline: {result['baseline']}  ->  {result['control_count']} controls bundled")
     if result["controls_unavailable"]:
         n = len(result["controls_unavailable"])
