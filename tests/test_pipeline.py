@@ -4545,3 +4545,65 @@ def test_a_thin_document_fails_on_the_topics_a_baseline_cannot_reach(tmp_path):
     assert "Critical topics missing" in r.stdout
     assert "Recall below threshold" in r.stdout
     assert "baseline-only run cannot reach" in r.stdout
+
+
+# --- the CFR parser, which turns a regulation into clauses --------------------
+
+def _cfr(paragraphs, section="164.308"):
+    """A source document carrying one section's paragraphs."""
+    import xml.etree.ElementTree as ET
+    root = ET.Element("root")
+    for sid in hipaa_mod.SECTIONS:
+        div = ET.SubElement(root, "DIV8")
+        div.set("N", sid)
+        for text in (paragraphs if sid == section else []):
+            ET.SubElement(div, "P").text = text
+    return root
+
+
+def test_a_standard_is_read_as_a_standard():
+    """The regulation labels them, and the label is what separates a standard
+    from the specifications beneath it."""
+    records, _ = hipaa_mod.extract(_cfr([
+        "(a)(1)(i) Standard: Security management process. Implement policies and procedures."]))
+    assert len(records) == 1
+    assert records[0]["kind"] == "standard"
+    assert records[0]["clause"] == "164.308(a)(1)(i)"
+    assert records[0]["title"] == "Security management process"
+    assert records[0]["designation"] is None
+
+
+def test_an_implementation_specification_carries_its_designation():
+    """Required and Addressable are not decoration: Addressable means a covered
+    entity may document why it did something else, and Required means it may
+    not."""
+    records, seen = hipaa_mod.extract(_cfr([
+        "(a)(1)(ii)(A) Risk analysis (Required). Conduct an accurate assessment."]))
+    assert seen == 1
+    assert records[0]["kind"] == "implementation_specification"
+    assert records[0]["designation"] == "Required"
+    assert records[0]["designation_source"] == "inline"
+
+
+def test_a_group_heading_lends_its_designation_to_what_is_under_it():
+    """Two headings carry a designation that belongs to the specifications
+    beneath them rather than to themselves, and the specification is nested one
+    level deeper -- read flat, the contract terms listed under it would be
+    recorded as though they were specifications of their own."""
+    records, _ = hipaa_mod.extract(_cfr([
+        "(a)(1)(ii) Implementation specifications (Required) — (A) Risk analysis. "
+        "Conduct an assessment."]))
+    assert len(records) == 1
+    assert records[0]["clause"] == "164.308(a)(1)(ii)(A)"
+    assert records[0]["designation"] == "Required"
+    assert records[0]["designation_source"] == "group heading"
+
+
+def test_a_source_missing_a_section_is_refused():
+    """The regulation has five sections in scope. A source that does not carry
+    one of them cannot produce the clause list, and a short list nobody counts
+    is the failure the build exists to prevent."""
+    import xml.etree.ElementTree as ET
+    with pytest.raises(SystemExit) as exc:
+        hipaa_mod.extract(ET.Element("root"))
+    assert "not present in the source" in str(exc.value)
