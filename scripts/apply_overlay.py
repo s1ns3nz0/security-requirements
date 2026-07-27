@@ -75,6 +75,19 @@ def load(overlay_id: str) -> dict:
     return {"id": overlay_id, "meta": meta, "criteria": criteria, "mappings": mappings}
 
 
+def _personal_types(declared_ids: set[str]) -> set[str]:
+    """Which of the declared types the classification table flags as personal.
+
+    Used only when the overlay is run without a derivation; select_baseline
+    normally supplies the same set as `personal_data_types`.
+    """
+    import yaml
+    table = yaml.safe_load(
+        (REPO_ROOT / "catalogs" / "data-types" / "classification.yaml").read_text(encoding="utf-8"))
+    flagged = {e["id"] for e in table["types"] if e.get("personal_data")}
+    return declared_ids & flagged
+
+
 def applies(overlay: dict, profile: dict, derived: dict | None = None) -> tuple[bool, str, dict]:
     """Whether the overlay applies, and at which certification scope.
 
@@ -110,6 +123,18 @@ def applies(overlay: dict, profile: dict, derived: dict | None = None) -> tuple[
     wanted_types = set(condition.get("data_types_any") or [])
     if wanted_types and not (wanted_types & types):
         return False, "no declared data type this regime covers", {}
+
+    # A regime whose scope simply *is* personal data says so, rather than
+    # restating the classification table's personal_data flag as a list. GDPR
+    # did restate it, and the restatement was one type short: a service holding
+    # EU users' own content was told the Regulation did not reach it.
+    if condition.get("data_types_personal"):
+        if derived is None:
+            personal = _personal_types(types)
+        else:
+            personal = set(derived.get("personal_data_types") or [])
+        if not personal:
+            return False, "no declared data type is personal data", {}
 
     # Only regimes that assess at more than one scope declare a selector, and
     # the axis differs by regime: ISMS-P splits on whether personal data is

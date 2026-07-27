@@ -1828,3 +1828,132 @@ def test_asvs_follows_the_application_surface_not_the_shape():
     # A stack signal carries the same meaning where the entrypoints are written
     # in a language the token list does not cover.
     assert _shape(["接口: 订单查询"], ["spring-boot"])["asvs_level"] == 2
+
+
+# --- self-hosted Kubernetes: two defects found on Airflow and Jaeger ----------
+#
+# Both repositories run on Kubernetes with no cloud provider, which is how a
+# great many services actually run. The tool had two things wrong about them.
+
+def _selfhosted_k8s_profile():
+    return {
+        "inferred": {"csp": "none", "deployment_model": "kubernetes",
+                     "stack": ["python"], "entrypoints": ["http: REST API"]},
+        "declared": {"data_types": [{"id": "internal_ops"}], "users": ["internal_staff"]},
+    }
+
+
+def test_kubernetes_does_not_presume_a_cloud_provider():
+    """Kubernetes runs on bare metal, on kind, on k3s in a cupboard.
+
+    It sat on the list beside serverless, paas, and saas -- models that
+    genuinely cannot exist without a provider -- so every self-hosted cluster
+    was told its profile was incoherent and that controls had been reassigned
+    as though something had gone wrong. Nothing had.
+    """
+    profile = _selfhosted_k8s_profile()
+    result = classify_resp.classify(profile, ["AC-2", "SC-13", "SI-2"])
+    assert result["csp_model_inconsistent"] is False
+    assert "presumes a cloud provider" not in classify_resp.render(result)
+
+
+def test_shared_collapses_to_team_when_there_is_no_provider():
+    """A division needs two parties.
+
+    The phantom-claimant rule was written for csp_claimed and stopped there, so
+    a self-hosted cluster carried forty-eight controls shared with nobody. Where
+    a control was split between a provider and the team and there is no
+    provider, the team holds both halves.
+    """
+    profile = _selfhosted_k8s_profile()
+    result = classify_resp.classify(profile, ["AC-2", "SC-13", "SI-2", "AU-2"])
+    assert not [e for e in result["controls"]
+                if e["responsibility"] in ("shared", "csp_claimed")]
+
+
+def test_shared_survives_when_a_provider_is_present():
+    """The collapse must be conditional on the absence, not unconditional."""
+    profile = _selfhosted_k8s_profile()
+    profile["inferred"]["csp"] = "aws"
+    profile["inferred"]["managed_services"] = [{"id": "aws-eks"}]
+    result = classify_resp.classify(profile, ["AC-2", "SC-13", "SI-2", "AU-2"])
+    assert [e for e in result["controls"] if e["responsibility"] == "shared"]
+
+
+# --- one flag, not three lists -----------------------------------------------
+#
+# "What makes GDPR apply" was written down three times: the classification
+# table's personal_data flag (nine types), the same table's per-type
+# regulatory_triggers routing (three), and the overlay's own applies_when list
+# (eight). Three copies, three answers, and the smallest of them decided
+# routing. Found on a profile holding EU users' own content.
+
+def _catalog_types():
+    import yaml
+    from pathlib import Path
+    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+                            "classification.yaml").read_text(encoding="utf-8"))
+    return table, {e["id"]: e for e in table["types"]}
+
+
+def test_gdpr_scope_is_not_a_copy_of_the_personal_data_flag():
+    """The overlay must read the flag, not restate it.
+
+    Restated, it drifted by one type and the drift failed silently in the
+    direction that says a regulation does not apply.
+    """
+    import yaml
+    meta = yaml.safe_load((REPO_ROOT / "overlays" / "gdpr" /
+                           "meta.yaml").read_text(encoding="utf-8"))
+    condition = meta["applies_when"]
+    assert condition.get("data_types_personal") is True
+    assert "data_types_any" not in condition
+
+
+def test_every_personal_type_routes_to_gdpr():
+    """The routing follows the flag for all nine types, not the three that named it."""
+    table, types = _catalog_types()
+    flagged = [k for k, v in types.items() if v.get("personal_data")]
+    assert len(flagged) >= 9
+    for type_id in flagged:
+        profile = {
+            "version": "0.1.0",
+            "inferred": {"csp": "none", "deployment_model": "onprem",
+                         "stack": ["python"], "entrypoints": ["http: REST API"]},
+            "declared": {"data_types": [{"id": type_id}], "users": ["public_users"],
+                         "user_regions": ["DE"],
+                         "availability": {"rto": "rto_hours", "rpo": "rpo_minutes"}},
+        }
+        result = sb.run(profile)
+        assert "gdpr" in {o["id"] for o in result["overlay_triggers"]}, \
+            f"{type_id} is flagged personal data but did not route to GDPR"
+
+
+def test_a_regime_whose_scope_is_not_personal_data_keeps_its_own_list():
+    """HIPAA and PCI list types because that *is* their scope.
+
+    Protected health information and account data are not "personal data with a
+    narrower list"; collapsing them onto the flag would put GDPR's scope on a US
+    health regulation. The fix applies to the regime that drifted, not to all.
+    """
+    import yaml
+    for overlay_id, expected in (("hipaa-security-rule", "health_records"),
+                                 ("pci-dss", "payment_card_raw")):
+        meta = yaml.safe_load((REPO_ROOT / "overlays" / overlay_id /
+                               "meta.yaml").read_text(encoding="utf-8"))
+        assert expected in meta["applies_when"]["data_types_any"]
+        assert not meta["applies_when"].get("data_types_personal")
+
+
+def test_gdpr_still_declines_where_nothing_personal_is_declared():
+    """Reading the flag must not turn the trigger into "always"."""
+    profile = {
+        "version": "0.1.0",
+        "inferred": {"csp": "none", "deployment_model": "onprem",
+                     "stack": ["java"], "entrypoints": ["http: web UI"]},
+        "declared": {"data_types": [{"id": "config_secrets"}, {"id": "audit_logs"}],
+                     "users": ["internal_staff"], "user_regions": ["FR"],
+                     "availability": {"rto": "rto_hours", "rpo": "rpo_minutes"}},
+    }
+    result = sb.run(profile)
+    assert "gdpr" not in {o["id"] for o in result["overlay_triggers"]}

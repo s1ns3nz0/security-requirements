@@ -523,6 +523,16 @@ def run(profile: dict) -> dict:
     types_table_types = {t["id"]: t for t in types_table["types"]}
     personal = [e["id"] for e in (profile.get("declared") or {}).get("data_types", [])
                 if types_table_types.get(e["id"] if isinstance(e, dict) else e, {}).get("personal_data")]
+    # A trigger marked all_personal_data follows the classification table's
+    # personal_data flag rather than waiting to be named by each type. Written
+    # the other way round, the GDPR trigger reached three of the nine types the
+    # table calls personal data, so a service holding user content, biometrics,
+    # or health records went unrouted.
+    if personal:
+        for name, spec in (types_table.get("regulatory_triggers") or {}).items():
+            if spec.get("all_personal_data") and name not in triggers:
+                triggers.append(name)
+        triggers = sorted(set(triggers))
     privacy_controls, privacy_unavailable = ([], [])
     if personal:
         baselines = json.loads((CATALOG_DIR / "baselines.json").read_text(encoding="utf-8"))

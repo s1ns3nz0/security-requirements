@@ -40,15 +40,11 @@ license:
 
 applies_when:
   user_regions_any: [EU, EEA, UK, DE, FR, IE, NL, ES, IT, SE, PL, BE, AT, DK, FI, PT, CZ, GR, RO, HU]
-  data_types_any:
-    - basic_contact
-    - government_id
-    - sensitive_attributes
-    - biometric
-    - minors_data
-    - precise_location
-    - health_records
-    - analytics_pseudonymous
+  # Not a list. Personal data is what the Regulation is about, so any list here
+  # is a copy of the table's personal_data flag -- and the copy was already one
+  # short, which told a service holding EU users' own content that GDPR did not
+  # apply to it.
+  data_types_personal: true
 
 baseline_effect: {}   # the Regulation does not itself raise the FIPS 199 categorisation
 

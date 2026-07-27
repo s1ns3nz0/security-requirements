@@ -254,14 +254,18 @@ def classify(profile: dict, controls: list[str]) -> dict:
         if control_id in org_covered and entry["responsibility"] in ("org", "team", "shared"):
             entry["org_control_declared"] = True
 
-        # A claim needs a claimant. With no cloud provider in the profile,
-        # csp_claimed is not a legal outcome -- the facility, the hardware, and
-        # the media are the organisation's own. Found by sweeping an on-premise
-        # profile: fifteen controls were assigned to a provider that does not
-        # exist, because the onprem override list enumerated some PE/MP
-        # controls and missed the rest. A structural rule beats a longer list.
-        if entry["responsibility"] == "csp_claimed" and csp is None:
-            entry["responsibility"] = "org"
+        # A claim needs a claimant, and a division needs two parties. With no
+        # cloud provider in the profile neither csp_claimed nor shared is a
+        # legal outcome: the facility, the hardware, and the media are the
+        # organisation's own, and where a control was split between a provider
+        # and the team, the team holds both halves.
+        #
+        # The csp_claimed half of this was fixed when an on-premise sweep found
+        # fifteen controls assigned to a provider that does not exist. The
+        # shared half survived, and a self-hosted Kubernetes profile carried
+        # forty-eight controls shared with nobody.
+        if csp is None and entry["responsibility"] in ("csp_claimed", "shared"):
+            entry["responsibility"] = "org" if entry["responsibility"] == "csp_claimed" else "team"
             entry["source"] = f"{entry['source']}+no-csp"
 
         results.append(entry)
@@ -282,7 +286,10 @@ def classify(profile: dict, controls: list[str]) -> dict:
     # converts every inherited control to organisational. Found on a static site
     # profile that said saas with csp: none and produced 156 organisational
     # controls without comment.
-    PROVIDER_MODELS = {"serverless", "paas", "saas", "kubernetes"}
+    # Kubernetes is not on this list. It runs on bare metal, on kind, on k3s in
+    # a cupboard -- naming it alongside the models that genuinely presume a
+    # provider told every self-hosted cluster its profile was incoherent.
+    PROVIDER_MODELS = {"serverless", "paas", "saas"}
     inconsistent = (deployment_model in PROVIDER_MODELS and csp is None)
 
     return {

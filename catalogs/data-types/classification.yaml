@@ -425,6 +425,12 @@ regulatory_triggers:
     overlay: gdpr
     label: "GDPR"
     covered: false
+    # Fires for every type the table flags personal_data, rather than for the
+    # three that happened to list it. The Regulation's scope is the definition
+    # of personal data, so restating that scope as a per-type list was a copy of
+    # the flag that had already drifted: nine types were flagged, three routed
+    # here, and the overlay's own trigger list held a third number, eight.
+    all_personal_data: true
     applies_when: {user_regions_any: [EU, EEA, UK, DE, FR, IE, NL, ES, IT, SE, PL]}
 
   gdpr_special_category:
