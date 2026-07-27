@@ -35,7 +35,24 @@ for each, produce a draft mapping and write it to
 `responsibility/services/<id>.yaml` with `reviewed: false`. It is cached for
 later runs and shown as unverified wherever it appears.
 
-## 3. Cross and prioritise
+## 3. Regulatory overlay, where one applies
+
+```
+python3 scripts/apply_overlay.py pipa-isms-p \
+    .security-requirements/profile.yaml \
+    .security-requirements/controls.json \
+    --json .security-requirements/overlay.json
+```
+
+Run this for any overlay the profile triggers. The output has two halves and
+the second is the one to read: clauses no control expresses at all. Those are
+what an audit asks about and a 800-53 derivation cannot produce, so each needs
+a requirement written from the clause rather than from a control.
+
+The mapping is this repository's reading, not a published crosswalk. Say so
+when you carry it into the document.
+
+## 4. Cross and prioritise
 
 ```
 python3 scripts/merge.py --cross \
@@ -49,7 +66,7 @@ The `threat only` bucket is the point of the exercise. If it is empty, the
 threat model was generic — go back to step 1 rather than shipping a filtered
 baseline.
 
-## 4. Write the requirements
+## 5. Write the requirements
 
 Follow `references/requirement-style.md`. Verifiable, atomic, property not
 implementation.
@@ -62,7 +79,7 @@ carry 800-53 and ASVS identifiers as evidence.
 Generate the `forces_requirements` entries from the declared data types even
 where no threat matched them.
 
-## 5. Merge and render
+## 6. Merge and render
 
 ```
 python3 scripts/merge.py --apply \
@@ -74,7 +91,7 @@ python3 scripts/render.py .security-requirements/requirements.yaml \
     --out docs/security/
 ```
 
-## 6. Lint
+## 7. Lint
 
 ```
 python3 scripts/lint.py .security-requirements/requirements.yaml
@@ -84,11 +101,13 @@ A failure here is a blocker, not a warning. In particular, a cited control
 identifier that is absent from the catalog means the requirement was invented,
 and one invented identifier discredits the whole document.
 
-## 7. Report
+## 8. Report
 
 State plainly:
 
 - how many controls reached the delivery team, out of the baseline
 - which services were unverified
-- which detected regulations are not covered
+- which regulatory overlays applied, at what scope, and which of their
+  clauses no control reaches
+- which detected regulations have no overlay at all
 - what remains UNDETERMINED and what it cost

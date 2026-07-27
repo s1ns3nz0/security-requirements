@@ -1,9 +1,10 @@
 # Regulatory overlay schema
 
 An overlay adds a regulation's requirements on top of the core derivation.
-**None ship in v1.** The extension point exists so the core can be validated
-before a second catalogue is attached, and so the shape is fixed before the
-first contribution.
+
+**One ships: `pipa-isms-p`.** It was chosen on the two grounds this file set
+out -- the source is bundleable, and the audience is real. See that directory
+for a worked example of every rule below.
 
 Until an overlay exists for a regulation, detection produces a declaration:
 

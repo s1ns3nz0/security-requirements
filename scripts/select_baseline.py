@@ -461,7 +461,7 @@ def run(profile: dict) -> dict:
     trigger_specs = types_table.get("regulatory_triggers", {})
     user_regions = {r.upper() for r in (profile.get("declared") or {}).get("user_regions", []) or []}
 
-    uncovered = []
+    uncovered, overlays = [], []
     for trigger in triggers:
         spec = trigger_specs.get(trigger, {})
         if spec.get("covered", False):
@@ -469,6 +469,12 @@ def run(profile: dict) -> dict:
         if not applies_in_jurisdiction(spec, user_regions):
             continue
         label = spec.get("label", trigger)
+        # A trigger with an overlay is no longer an admission of no coverage.
+        # Leaving it in the uncovered list after the overlay exists would keep
+        # declaring a gap the repository has since closed.
+        if spec.get("overlay"):
+            overlays.append({"id": spec["overlay"], "trigger": trigger, "label": label})
+            continue
         uncovered.append({
             "id": trigger,
             "label": label,
@@ -502,6 +508,8 @@ def run(profile: dict) -> dict:
         "schema_warnings": schema_warnings,
         "regulatory_flags": triggers,
         "uncovered_regulations": uncovered,
+        "applicable_overlays": sorted({o["id"] for o in overlays}),
+        "overlay_triggers": overlays,
         "cross_border": cross_border,
         "controls": [c["id"] for c in controls],
         "controls_unavailable": unavailable,
@@ -563,6 +571,10 @@ def render_gate(result: dict) -> str:
             "  for the system this code defines or is embedded in, not for the",
             "  repository itself.",
         ]
+    if result.get("applicable_overlays"):
+        out += ["", "Regulatory overlays that apply"]
+        for item in result["overlay_triggers"]:
+            out.append(f"  + {item['label']}  ->  scripts/apply_overlay.py {item['id']}")
     if result["uncovered_regulations"]:
         out += ["", "Uncovered regulations detected"]
         for item in result["uncovered_regulations"]:

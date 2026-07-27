@@ -368,27 +368,32 @@ regulatory_triggers:
     applies_when: {user_regions_any: [US]}
 
   pipa_general:
+    overlay: pipa-isms-p
     label: "PIPA (Korea), general provisions"
     covered: false
     applies_when: {user_regions_any: [KR]}
 
   pipa_unique_identifier:
+    overlay: pipa-isms-p
     label: "PIPA (Korea), unique identifying information"
     covered: false
     applies_when: {user_regions_any: [KR]}
     message: "Unique identifying information detected. Confirm the separate legal basis and encryption duty under PIPA."
 
   pipa_sensitive:
+    overlay: pipa-isms-p
     label: "PIPA (Korea), sensitive information"
     covered: false
     applies_when: {user_regions_any: [KR]}
 
   pipa_minor:
+    overlay: pipa-isms-p
     label: "PIPA (Korea), children's data"
     covered: false
     applies_when: {user_regions_any: [KR]}
 
   pipa_location:
+    overlay: pipa-isms-p
     label: "Location Information Act (Korea)"
     covered: false
     applies_when: {user_regions_any: [KR]}

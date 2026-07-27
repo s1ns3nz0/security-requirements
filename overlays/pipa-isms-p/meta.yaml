@@ -1,0 +1,69 @@
+id: pipa-isms-p
+name: "ISMS-P — 정보보호 및 개인정보보호 관리체계 인증기준"
+name_en: "Korean Information Security and Personal Information Protection Management System"
+version: "2023.11.23"
+criteria_count: 101
+
+source:
+  authority: "과학기술정보통신부·개인정보보호위원회 고시, 별표 (인증기준)"
+  law_reference: "정보보호 및 개인정보보호 관리체계 인증 등에 관한 고시"
+  structured_from: "https://github.com/Gaeduck-0908/isms-p-criteria-dataset"
+  structured_from_note: >-
+    The clause text was taken from a third-party structuring of the KISA guide
+    rather than from the notice directly, because the authoritative endpoints
+    could not be reached. It was accepted only after the structure was checked
+    against the published shape -- 16 / 64 / 21 clauses across the three areas,
+    totalling 101, which matches the 2023.11.23 revision that removed the
+    dormant-account clause. Treat it as verified in structure, not in wording.
+    Re-derive from the notice before relying on the text for an audit.
+
+license:
+  criteria_text: >-
+    The certification criteria are a schedule to a ministerial notice.
+    Article 7 of the Copyright Act excludes statutes, notices, and public
+    announcements from protection, so the clause text is bundled.
+  excluded: >-
+    The KISA 인증기준 안내서 -- its 주요 확인사항 and 세부설명 -- is a separate
+    copyrighted work and is deliberately not carried over. Only clause number,
+    title, and the criterion statement itself appear here.
+
+# The certification has two scopes, and gating the whole overlay on personal
+# data was wrong: a service holding none can still be ISMS-certified.
+#
+#   ISMS    areas 1 and 2, 80 clauses -- management system and safeguards
+#   ISMS-P  all three areas, 101 clauses -- adds the personal data lifecycle
+applies_when:
+  user_regions_any: [KR]
+
+scope_selector:
+  personal_data_types:
+    - basic_contact
+    - government_id
+    - sensitive_attributes
+    - biometric
+    - minors_data
+    - precise_location
+    - health_records
+  without_personal_data: {scope: ISMS, areas: ["관리체계 수립 및 운영", "보호대책 요구사항"]}
+  with_personal_data: {scope: ISMS-P, areas: null}
+
+baseline_effect: {}   # ISMS-P does not raise the FIPS 199 categorisation
+
+mapping:
+  authored: true
+  published_crosswalk_exists: false
+  note: >-
+    Neither NIST nor KISA publishes a crosswalk between these criteria and
+    SP 800-53. The `controls` lists are this repository's reading, recorded so
+    that a reader can disagree with a specific line rather than with the whole.
+    Six clauses carry no controls at all: they state duties -- resident
+    registration number handling, indirect collection, fixed visual devices,
+    application permissions, transfer on sale of a business, cross-border
+    transfer -- that no control in the catalogue expresses. Those are the
+    clauses an ISMS-P audit will ask about and a 800-53 derivation will not
+    produce, which is the whole reason to attach an overlay.
+
+disclaimer: >-
+  Mapping statutory obligations onto technical controls is interpretation, not
+  legal advice. This overlay does not establish ISMS-P compliance and does not
+  substitute for certification by an accredited body.

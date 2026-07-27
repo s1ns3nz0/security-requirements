@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""Attach a regulatory overlay to a derived requirement set.
+
+An overlay answers a question the core derivation cannot: which clauses of a
+named regime the derived controls already satisfy, and which they do not reach
+at all. The second list is the point. A team asked to certify against ISMS-P
+and handed a SP 800-53 derivation has to work out by hand which of the 101
+clauses are covered; the clauses nothing covers are the ones that surprise them
+in an audit.
+
+The mapping is authored, not published -- NIST and KISA publish no crosswalk --
+so every control identifier it cites is link-checked against the bundled
+catalog on load. An overlay that cited a control that does not exist would
+launder a fabricated identifier into the deliverable through the side door.
+
+Usage
+-----
+    python3 scripts/apply_overlay.py pipa-isms-p PROFILE CONTROLS_JSON [--json OUT]
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+import yaml
+
+from profile_schema import normalise
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+OVERLAYS = REPO_ROOT / "overlays"
+CATALOG_DIR = REPO_ROOT / "catalogs" / "nist-800-53r5"
+
+
+class OverlayError(Exception):
+    pass
+
+
+def catalog_ids() -> set[str]:
+    ids = set()
+    for path in CATALOG_DIR.glob("*.jsonl"):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                ids.add(json.loads(line)["id"])
+    return ids
+
+
+def load(overlay_id: str) -> dict:
+    root = OVERLAYS / overlay_id
+    if not root.exists():
+        available = sorted(p.name for p in OVERLAYS.iterdir() if p.is_dir())
+        raise OverlayError(f"no overlay {overlay_id!r}; available: {', '.join(available) or 'none'}")
+
+    meta = yaml.safe_load((root / "meta.yaml").read_text(encoding="utf-8"))
+    criteria = {json.loads(l)["clause"]: json.loads(l)
+                for l in (root / "criteria.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()}
+    mappings = [json.loads(l) for l in
+                (root / "mappings.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+
+    known = catalog_ids()
+    invented = sorted({c for m in mappings for c in m["controls"] if c not in known})
+    if invented:
+        raise OverlayError(
+            f"overlay {overlay_id!r} cites controls that do not exist: {', '.join(invented)}. "
+            f"An overlay is not a way round the catalog check."
+        )
+
+    unmapped = sorted(set(criteria) - {m["clause"] for m in mappings})
+    if unmapped:
+        raise OverlayError(f"overlay {overlay_id!r} leaves clauses unmapped: {', '.join(unmapped)}")
+
+    return {"id": overlay_id, "meta": meta, "criteria": criteria, "mappings": mappings}
+
+
+def applies(overlay: dict, profile: dict) -> tuple[bool, str, dict]:
+    """Whether the overlay applies, and at which certification scope.
+
+    Gating the whole overlay on personal data was wrong: ISMS-P has two scopes,
+    and a service holding no personal data can still be ISMS-certified against
+    the first eighty clauses.
+    """
+    meta = overlay["meta"]
+    condition = meta.get("applies_when") or {}
+    declared = profile.get("declared") or {}
+    regions = {str(r).strip().upper() for r in declared.get("user_regions") or []}
+    types = {e["id"] if isinstance(e, dict) else e for e in declared.get("data_types") or []}
+
+    wanted_regions = {r.upper() for r in condition.get("user_regions_any") or []}
+    if wanted_regions and regions and not (wanted_regions & regions):
+        return False, f"no user region in {sorted(wanted_regions)}", {}
+
+    selector = meta.get("scope_selector") or {}
+    personal = set(selector.get("personal_data_types") or [])
+    if personal & types:
+        scope = selector.get("with_personal_data") or {"scope": "ISMS-P", "areas": None}
+        reason = "Korean users, and personal data is processed"
+    else:
+        scope = selector.get("without_personal_data") or {"scope": "ISMS", "areas": None}
+        reason = "Korean users; no personal data declared, so the personal data area is out of scope"
+    return True, reason, scope
+
+
+def evaluate(overlay: dict, derived_controls: list[str], scope: dict | None = None) -> dict:
+    baseline = set(derived_controls)
+    areas = (scope or {}).get("areas")
+    criteria = overlay["criteria"]
+    covered, partial, uncovered, standalone = [], [], [], []
+
+    for m in overlay["mappings"]:
+        if areas and criteria[m["clause"]]["area"] not in areas:
+            continue
+        row = {"clause": m["clause"], "title": m["title"],
+               "controls": m["controls"],
+               "responsibility_hint": m.get("responsibility_hint"),
+               "notes": m.get("notes")}
+        if m["standalone"]:
+            standalone.append(row)
+            continue
+        present = [c for c in m["controls"] if c in baseline]
+        row["controls_in_baseline"] = present
+        row["controls_absent"] = [c for c in m["controls"] if c not in baseline]
+        if not present:
+            uncovered.append(row)
+        elif row["controls_absent"]:
+            partial.append(row)
+        else:
+            covered.append(row)
+
+    return {
+        "overlay": overlay["id"],
+        "scope": (scope or {}).get("scope", "ISMS-P"),
+        "name": overlay["meta"]["name"],
+        "version": overlay["meta"]["version"],
+        "clause_count": len(covered) + len(partial) + len(uncovered) + len(standalone),
+        "covered": covered,
+        "partial": partial,
+        "uncovered": uncovered,
+        "standalone": standalone,
+        "disclaimer": overlay["meta"]["disclaimer"],
+    }
+
+
+def render(result: dict, reason: str) -> str:
+    out = [f"{result['name']} ({result['version']})",
+           f"  scope: {result['scope']} -- {reason}", ""]
+    out.append(f"  {len(result['covered']):>4}  fully covered by the derived baseline")
+    out.append(f"  {len(result['partial']):>4}  partly covered -- some mapped controls are outside it")
+    out.append(f"  {len(result['uncovered']):>4}  mapped, but no mapped control is in the baseline")
+    out.append(f"  {len(result['standalone']):>4}  no control expresses them at all")
+    out.append(f"  {'-' * 4}")
+    out.append(f"  {result['clause_count']:>4}  clauses")
+
+    if result["standalone"]:
+        out += ["", "Clauses the derivation cannot produce -- these are the audit surprises:"]
+        for row in result["standalone"]:
+            out.append(f"  * {row['clause']}  {row['title']}")
+            if row.get("notes"):
+                out.append(f"      {row['notes']}")
+
+    if result["uncovered"]:
+        out += ["", "Mapped clauses whose controls fall outside this baseline:"]
+        for row in result["uncovered"]:
+            out.append(f"  ! {row['clause']}  {row['title']}  -> {', '.join(row['controls'])}")
+
+    out += ["", f"  {result['disclaimer'].strip()}"]
+    return "\n".join(out)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("overlay")
+    ap.add_argument("profile", type=Path)
+    ap.add_argument("controls", type=Path, help="select_baseline.py --json output")
+    ap.add_argument("--json", type=Path)
+    ap.add_argument("--force", action="store_true", help="evaluate even if the applicability test fails")
+    args = ap.parse_args()
+
+    profile, _ = normalise(yaml.safe_load(args.profile.read_text(encoding="utf-8")))
+    controls = json.loads(args.controls.read_text(encoding="utf-8"))["controls"]
+
+    try:
+        overlay = load(args.overlay)
+    except OverlayError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    ok, reason, scope = applies(overlay, profile)
+    if not ok and not args.force:
+        print(f"{overlay['meta']['name']} does not apply to this profile: {reason}")
+        print("Pass --force to evaluate anyway.")
+        return 0
+
+    result = evaluate(overlay, controls, scope)
+    print(render(result, reason))
+    if args.json:
+        args.json.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

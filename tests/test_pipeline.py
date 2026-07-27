@@ -295,9 +295,12 @@ def test_gdpr_does_not_fire_for_korean_and_japanese_users(derived):
 
     A false trigger costs the reader's trust in every other finding.
     """
-    ids = {item["id"] for item in derived["uncovered_regulations"]}
-    assert "gdpr_personal_data" not in ids
-    assert "pipa_general" in ids
+    uncovered = {item["id"] for item in derived["uncovered_regulations"]}
+    triggered = uncovered | {item["trigger"] for item in derived["overlay_triggers"]}
+    assert "gdpr_personal_data" not in triggered
+    # PIPA now routes to its overlay rather than being declared uncovered, but
+    # the trigger must still fire.
+    assert "pipa_general" in triggered
 
 
 def test_gdpr_fires_for_eu_users(profile):
@@ -462,8 +465,10 @@ def test_scalar_user_regions_do_not_suppress_triggers(profile):
     findings."""
     p = copy.deepcopy(profile)
     p["declared"]["user_regions"] = "KR"
-    ids = {t["id"] for t in sb.run(p)["uncovered_regulations"]}
-    assert "pipa_general" in ids
+    result = sb.run(p)
+    triggered = ({t["id"] for t in result["uncovered_regulations"]}
+                 | {t["trigger"] for t in result["overlay_triggers"]})
+    assert "pipa_general" in triggered
 
 
 @pytest.mark.parametrize("written", ["ap-northeast-2", "AP-NORTHEAST-2", " ap-northeast-2 "])
@@ -1201,3 +1206,101 @@ def test_catalog_provenance_records_what_is_on_disk():
         (REPO_ROOT / "catalogs" / "nist-800-53r5" / "meta.json").read_text(encoding="utf-8"))
     assert meta["families_present"] == meta["families_extracted"]
     assert meta["families_stale"] == []
+
+
+# ---------------------------------------------------------------------------
+# regulatory overlays
+# ---------------------------------------------------------------------------
+
+import apply_overlay as overlay_mod  # noqa: E402
+
+
+def test_overlay_cites_only_controls_that_exist():
+    """The mapping is authored, not published. An overlay citing a control that
+    does not exist would launder a fabricated identifier into the deliverable
+    through a side door the catalog check does not watch."""
+    loaded = overlay_mod.load("pipa-isms-p")
+    known = overlay_mod.catalog_ids()
+    cited = {c for m in loaded["mappings"] for c in m["controls"]}
+    assert cited
+    assert cited <= known
+
+
+def test_overlay_covers_every_clause_it_bundles():
+    loaded = overlay_mod.load("pipa-isms-p")
+    assert len(loaded["criteria"]) == 101
+    assert {m["clause"] for m in loaded["mappings"]} == set(loaded["criteria"])
+
+
+def test_overlay_matches_the_published_structure():
+    """16 / 64 / 21 across the three areas is the 2023.11.23 revision, which
+    removed the dormant-account clause. A different shape means the source
+    drifted."""
+    loaded = overlay_mod.load("pipa-isms-p")
+    counts = {}
+    for c in loaded["criteria"].values():
+        counts[c["area"]] = counts.get(c["area"], 0) + 1
+    assert sorted(counts.values()) == [16, 21, 64]
+
+
+def test_overlay_excludes_the_copyrighted_guide():
+    """The criteria are a schedule to a ministerial notice and fall outside
+    copyright. The KISA guide's 주요 확인사항 and 세부설명 do not, and must not
+    be carried over."""
+    loaded = overlay_mod.load("pipa-isms-p")
+    fields = {k for c in loaded["criteria"].values() for k in c}
+    assert fields == {"clause", "title", "area", "domain", "statement"}
+
+
+def test_scope_follows_whether_personal_data_is_processed(profile):
+    """ISMS-P has two certification scopes. Gating the whole overlay on personal
+    data was wrong: a service holding none can still be ISMS-certified against
+    the first eighty clauses."""
+    loaded = overlay_mod.load("pipa-isms-p")
+
+    without = copy.deepcopy(profile)
+    without["declared"]["user_regions"] = ["KR"]
+    without["declared"]["data_types"] = [{"id": "internal_ops"}]
+    ok, _, scope = overlay_mod.applies(loaded, without)
+    assert ok and scope["scope"] == "ISMS"
+    assert overlay_mod.evaluate(loaded, [], scope)["clause_count"] == 80
+
+    with_pd = copy.deepcopy(without)
+    with_pd["declared"]["data_types"] = [{"id": "basic_contact"}]
+    ok, _, scope = overlay_mod.applies(loaded, with_pd)
+    assert ok and scope["scope"] == "ISMS-P"
+    assert overlay_mod.evaluate(loaded, [], scope)["clause_count"] == 101
+
+
+def test_overlay_does_not_apply_outside_its_jurisdiction(profile):
+    loaded = overlay_mod.load("pipa-isms-p")
+    elsewhere = copy.deepcopy(profile)
+    elsewhere["declared"]["user_regions"] = ["DE"]
+    ok, reason, _ = overlay_mod.applies(loaded, elsewhere)
+    assert ok is False and "KR" in reason
+
+
+def test_clauses_no_control_expresses_are_named(derived):
+    """These are the overlay's reason to exist: the clauses an audit asks about
+    that a 800-53 derivation cannot produce."""
+    loaded = overlay_mod.load("pipa-isms-p")
+    result = overlay_mod.evaluate(loaded, derived["controls"], {"scope": "ISMS-P", "areas": None})
+    standalone = {row["clause"] for row in result["standalone"]}
+    assert "3.3.4" in standalone      # cross-border transfer
+    assert "3.1.3" in standalone      # resident registration number
+    assert all(row["notes"] for row in result["standalone"])
+
+
+def test_a_regulation_with_an_overlay_is_no_longer_declared_uncovered(profile):
+    """Leaving PIPA in the uncovered list after building its overlay would keep
+    declaring a gap the repository has closed. Regulations without one must
+    still be declared."""
+    p = copy.deepcopy(profile)
+    p["declared"]["user_regions"] = ["KR"]
+    p["declared"]["data_types"] = [{"id": "basic_contact"}, {"id": "payment_card_raw"}]
+    result = sb.run(p)
+
+    assert "pipa-isms-p" in result["applicable_overlays"]
+    uncovered = {t["id"] for t in result["uncovered_regulations"]}
+    assert "pipa_general" not in uncovered
+    assert "pci_dss" in uncovered      # no overlay exists, so still declared

@@ -8,9 +8,9 @@ before or independently of any code existing. That is the artefact a compliance
 or design stage actually needs, and it is the one nothing produces.
 
 > **Status: pre-release.** The pipeline runs end to end with the full SP 800-53
-> Rev 5 catalog, CSF 2.0, ASVS 5.0, and ten curated AWS services. Not yet
-> exercised against a real repository, and no regulatory overlays ship. See
-> [DESIGN.md](DESIGN.md).
+> Rev 5 catalog, CSF 2.0, ASVS 5.0, eleven curated services, and one regulatory
+> overlay (ISMS-P). Exercised against a dozen real repositories; see
+> [DESIGN.md](DESIGN.md) for what that turned up.
 
 ## What it produces
 
@@ -82,6 +82,11 @@ evidence link.
 /sec-req-refresh   re-derive after a change, preserving human edits
 ```
 
+Where a profile triggers a regulation an overlay covers, `/sec-req-build` runs
+it and reports the clauses no control reaches — the ones an audit asks about
+and a SP 800-53 derivation cannot produce. The clause mapping is this
+repository's reading, not a published crosswalk, and says so.
+
 ## Output placement
 
 `.security-requirements/` holds the profile, threat model, and implementation
@@ -102,7 +107,8 @@ and better for being read.
 | OWASP ASVS 5.0 | 345 requirements across 17 chapters, with levels | CC BY-SA 4.0, isolated in its own directory |
 | Data type classification | Impact contribution per data type, with jurisdiction-gated regulatory triggers | Apache-2.0 |
 | Responsibility layers | Family defaults and control overrides for five deployment models | Apache-2.0 |
-| Service curation | S3, RDS, Lambda, API Gateway, Cognito, DynamoDB, ECS, SQS, CloudFront, ALB | Apache-2.0 |
+| Service curation | S3, RDS, Lambda, API Gateway, Cognito, DynamoDB, ECS, SQS, CloudFront, ALB, Azure Blob | Apache-2.0 |
+| ISMS-P overlay | 101 certification criteria with an authored control mapping | Korean notice, outside copyright (Article 7) |
 
 CIS Benchmarks, PCI DSS, ISO/IEC 27001 Annex A, and SOC 2 criteria are **not**
 bundled — their terms do not permit redistribution. Provider guidance is
