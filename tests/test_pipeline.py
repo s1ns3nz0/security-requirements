@@ -4682,19 +4682,30 @@ def test_a_parameter_reference_that_does_not_settle_is_refused():
 
 
 def test_a_build_does_not_inherit_the_previous_build_s_failures(tmp_path, monkeypatch):
-    """UNRESOLVED is module state. A second build in one process was refusing
-    for a reason that was no longer true, and the tests were clearing it by hand
-    -- which is the tell."""
+    """UNRESOLVED is module state and was never reset, so a second build in one
+    process refused for a reason that was no longer true.
+
+    The clear also has to run before anything fills it. A full rebuild visits
+    every parameter twice -- once building the catalogue-wide map and once per
+    control -- so a clear placed between them is repopulated and looks correct.
+    A partial rebuild visits a skipped family only once, in the global map, and
+    a clear after that erases its finding. That is the arrangement here, and it
+    is what makes this test sensitive to where the clear runs.
+    """
     rebuild_mod.UNRESOLVED.add("left-over-from-somewhere")
 
-    # The parameter carries a shape param_label does not handle, so the build
-    # must fail on *this* build's finding. The first version of this fixture used
-    # a valid label, so it could not have noticed that the clear ran after
-    # build_global_params had already recorded the real ones and wiped them.
-    catalog = {"catalog": {"groups": [{"id": "zz", "controls": [
-        {"id": "zz-1", "title": "Unhandled",
-         "params": [{"id": "zz-1_odp.01", "unheard-of-shape": {"x": 1}}],
-         "parts": [{"name": "statement", "prose": "Do it {{ insert: param, zz-1_odp.01 }}."}]}]}]}}
+    catalog = {"catalog": {"groups": [
+        {"id": "zz", "controls": [
+            {"id": "zz-1", "title": "Walked",
+             "params": [{"id": "zz-1_odp.01", "label": "a documented period"}],
+             "parts": [{"name": "statement",
+                        "prose": "Do it {{ insert: param, zz-1_odp.01 }}."}]}]},
+        # Skipped by --families zz, so its parameter is seen once, in the
+        # catalogue-wide map, and nowhere else.
+        {"id": "yy", "controls": [
+            {"id": "yy-1", "title": "Skipped",
+             "params": [{"id": "yy-1_odp.01", "unheard-of-shape": {"x": 1}}]}]},
+    ]}}
     source = tmp_path / "src"
     source.mkdir()
     (source / rebuild_mod.CATALOG_FILE).write_text(json.dumps(catalog), encoding="utf-8")
@@ -4702,19 +4713,14 @@ def test_a_build_does_not_inherit_the_previous_build_s_failures(tmp_path, monkey
         (source / name).write_text(json.dumps({"profile": {"imports": []}}), encoding="utf-8")
     monkeypatch.setattr(rebuild_mod, "OUT_DIR", tmp_path / "out")
 
-    # It fails on the unlabelled parameter, which is this build's own finding.
-    # What this can check is that the leftover is gone and the real finding is
-    # not: it cannot distinguish where in build_nist the clear runs, because a
-    # full build visits every parameter twice -- once building the global map
-    # and once per control -- so a clear placed between them is repopulated.
-    # The position still matters for a partial rebuild, where the second visit
-    # never happens for a skipped family; that is reasoning recorded against the
-    # source, not something asserted here.
     with pytest.raises(SystemExit) as exc:
         rebuild_mod.build_nist(source, {"zz"})
+
     message = str(exc.value)
     assert "left-over-from-somewhere" not in message, "the previous build's failure is gone"
-    assert "zz-1_odp.01" in message, "and this build's own finding survived the clear"
+    assert "yy-1_odp.01" in message, \
+        "a finding from a family this build did not walk still has to survive the clear"
+
 
 
 def test_a_requirement_cannot_claim_a_threat_that_is_not_in_the_model():
@@ -4941,29 +4947,37 @@ def test_the_asvs_build_carries_its_licence_with_it(tmp_path, monkeypatch):
 
 def test_the_auditor_s_document_shows_what_no_control_produced():
     """traceability.md is the auditor's, and it listed only what a control maps
-    to. A threat-only requirement -- the kind this tool exists to find, and the
-    kind no catalogue could have given you -- was absent from the one document
-    an auditor reads for coverage. The requirements document said five and this
-    one showed four."""
+    to. A requirement citing no control -- which is what a threat-only finding
+    is, and the kind no catalogue could have given you -- was absent from the
+    one document an auditor reads for coverage.
+
+    It says "no control recorded" rather than "from the threat model", because
+    the linter permits a requirement with no sources and an authoring omission
+    lands in the same list. And it does not print the threat identifiers: the
+    threat model is internal, and a `From` column put its structure into the
+    publishable file.
+    """
     _, trace, _ = _documents([
         _req("REQ-A-B-01", sources=["SC-28"]),
         _req("REQ-C-D-01", sources=[], threat_refs=["T-05"],
              statement="The party holding the key must be named in the risk record."),
+        _req("REQ-E-F-01", sources=[], statement="An authoring omission."),
     ])
-    assert "Traced to no control" in trace
-    assert "REQ-C-D-01" in trace
-    assert "T-05" in trace, "and which threat it came from"
-    assert "REQ-C-D-01" not in trace.split("## Traced to no control")[0], \
+    assert "No control recorded" in trace
+    section = trace.split("## No control recorded")[1]
+    assert "REQ-C-D-01" in section and "REQ-E-F-01" in section
+    assert "T-05" not in trace, "the threat model's structure stays internal"
+    assert "threat model" in section, "the one with a reference says so"
+    assert "not recorded" in section, "and the one without does not claim otherwise"
+
+    assert "REQ-C-D-01" not in trace.split("## No control recorded")[0], \
         "it is not in the control table, because no control produced it"
 
     # A document where every requirement cites a control does not grow a section
     # saying so.
     _, only_sourced, _ = _documents([_req("REQ-A-B-01", sources=["SC-28"])])
-    assert "Traced to no control" not in only_sourced
+    assert "No control recorded" not in only_sourced
 
-    # A threat-only requirement with no recorded provenance still appears.
-    _, no_refs, _ = _documents([_req("REQ-E-F-01", sources=[])])
-    assert "not recorded" in no_refs.split("## Traced to no control")[1]
 
 
 def test_the_hipaa_build_refuses_a_clause_list_nobody_counted(tmp_path, monkeypatch):

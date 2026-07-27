@@ -182,28 +182,13 @@ def render_requirements(doc: dict, titles: dict, meta: dict) -> str:
 
             if human.get("status") and human["status"] != "active":
                 out.append(f"> Status: **{human['status']}**")
-                # Nothing about the exception. Review said the sanitised line
-                # still crossed the boundary and it is right: "an exception is
-                # recorded, expiring 2027-01-31" is a control gap and the date
-                # it closes, which is the reconnaissance value the README names
-                # when it says accepted risks and their dates are why
-                # .security-requirements/ is not publishable. The status alone
-                # says the requirement is not met; when that stops being true
-                # belongs with the people who decided it.
-                exception = None
-                if exception:
-                    # The approver's name, the reason, and the vendor named in
-                    # it belong to the internal record. This file is what leaves
-                    # the building, and the same leak was fixed for
-                    # retired_reason two commits ago while this one sat next to
-                    # it. What a reader outside needs is that an exception
-                    # exists and when it lapses -- a date is not a person.
-                    expires = exception.get("expires")
-                    out.append(
-                        "> An exception is recorded against this requirement"
-                        + (f", expiring {expires}." if expires else " with no expiry date.")
-                        + " Its approver and rationale are held in the internal record."
-                    )
+                # The exception is not published at all -- not the approver, not
+                # the rationale, and not the expiry. "An exception is recorded,
+                # expiring 2027-01-31" is a control gap and the date it closes,
+                # which is the reconnaissance value the README names when it
+                # says accepted risks and their dates are why the internal file
+                # cannot be published. The status alone says the requirement is
+                # not met, without saying for how much longer.
                 out.append("")
 
             if req.get("pending_review"):
@@ -263,17 +248,28 @@ def render_traceability(doc: dict, titles: dict, meta: dict) -> str:
     # is the kind this tool exists to find and the kind no catalogue could have
     # given you, was absent from the one document an auditor reads for coverage.
     # The requirements document said five and this one showed four.
+    # No control recorded, which is not the same claim as "the threat model
+    # produced it". The linter permits a requirement with no sources and warns
+    # only when it has no threat reference either, so an authoring omission
+    # lands here too -- and the first version of this section asserted a
+    # provenance those requirements did not have.
+    #
+    # The threat identifiers themselves are gone. They were in a `From` column,
+    # which put the internal threat model's structure into the publishable
+    # document -- the third time in one day that the private side leaked into
+    # the public one through a field nobody thought of as private.
     unsourced = [r for r in reqs if not (r.get("managed") or {}).get("sources")]
     if unsourced:
-        out += ["", "## Traced to no control", "",
-                "These come from the threat model. No control in the baseline addresses",
-                "them, which is why they are here and not in the table above.", "",
-                "| Requirement | Statement | From |", "|---|---|---|"]
+        out += ["", "## No control recorded", "",
+                "No control in the baseline is cited against these. Where that is because",
+                "the threat model found something the catalogue has no answer for, this is",
+                "the part of the document the catalogue could not have produced.", "",
+                "| Requirement | Statement | Basis |", "|---|---|---|"]
         for req in sorted(unsourced, key=lambda r: r["id"]):
             managed = req.get("managed") or {}
             statement = managed.get("statement", "").replace("|", "\\|")
-            refs = ", ".join(managed.get("threat_refs") or []) or "not recorded"
-            out.append(f"| {req['id']} | {statement} | {refs} |")
+            basis = "threat model" if managed.get("threat_refs") else "not recorded"
+            out.append(f"| {req['id']} | {statement} | {basis} |")
 
     out += ["", provenance(meta)]
     return "\n".join(out)
