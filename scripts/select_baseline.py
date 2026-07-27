@@ -158,6 +158,22 @@ class ProfileError(Exception):
     pass
 
 
+def excluded_from_water_mark(spec: dict, entry: dict, modifiers: dict) -> bool:
+    """Whether this declared type stays out of the categorisation pools.
+
+    One reader, because the rule has two callers and the repository has been
+    caught more than once by a rule written down twice. The second caller is the
+    authentication check: a credential store reachable without a caller is the
+    worst version of that finding, not an exempt one.
+    """
+    if not spec.get("system_information"):
+        return False
+    for mod_id in entry.get("modifiers") or []:
+        if (modifiers.get(mod_id) or {}).get("categorises"):
+            return False
+    return True
+
+
 def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, dict, list[str], list[str]]:
     types = {t["id"]: t for t in table["types"]}
     modifiers = table.get("modifiers", {})
@@ -292,7 +308,7 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
 
     deferred, system_only = [], []
     for entry in selected:
-        if types[entry["id"]].get("system_information"):
+        if excluded_from_water_mark(types[entry["id"]], entry, modifiers):
             spec = types[entry["id"]]
             if spec["confidentiality"] != "inherit_max":
                 content_c.append(spec["confidentiality"])
@@ -381,9 +397,31 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
         concrete_c.append(categorised_c if spec["confidentiality"] == "inherit_max" else c)
         concrete_i.append(categorised_i if spec["integrity"] == "inherit_max" else i)
 
+    # The concrete pools are complete by here: the first pass and the deferred
+    # pass have both run, and system information never enters them. So these are
+    # the levels the exclusion actually produced.
+    derived_c, derived_i = highest(concrete_c), highest(concrete_i)
+
     for entry in system_only:
         spec = types[entry["id"]]
-        conf_why.append(f"{spec['label']}: system information, excluded from the water mark")
+        # Both axes. Written to confidentiality alone, an identity provider's
+        # "Integrity LOW" appeared with no trace of the two high-integrity types
+        # that had been dropped to produce it -- the reader could not see the
+        # thing that would make them reach for the modifier.
+        # The cost belongs on the line, not in a warning somewhere else. A
+        # separate check that fires whenever the exclusion mattered fires on
+        # eleven of eighteen real profiles, which is noise; a check narrow
+        # enough to be read misses a secrets manager entirely. Neither is
+        # needed: the reader is already looking at this line, directly under the
+        # number it produced, and it costs nothing to say what was dropped.
+        for why, axis, level in ((conf_why, "confidentiality", derived_c),
+                                 (integ_why, "integrity", derived_i)):
+            line = f"{spec['label']}: system information, excluded from the water mark"
+            if spec.get(axis) in LEVELS and level in LEVELS and \
+                    LEVELS.index(spec[axis]) > LEVELS.index(level):
+                line += (f" -- it is {spec[axis]} here, and without it this axis "
+                         f"came out {level}")
+            why.append(line)
         triggers.extend(spec.get("regulatory_triggers", []) or [])
         flags.extend(spec.get("flags", []) or [])
 
@@ -733,6 +771,41 @@ def run(profile: dict) -> dict:
 
     shape = detect_shape(profile)
 
+    # The modifier only helps if somebody reaches for it, and the record here
+    # says they do not: intended_public existed for months before a public
+    # training repository derived a 370-control baseline because nobody used it.
+    #
+    # What the exclusion cost is now printed on the reason line for every
+    # profile, beside the number it produced, so this is left as the one case
+    # where the derived answer is most likely to be wrong and most expensive if
+    # it is: account credentials excluded while an axis they are high on
+    # collapsed all the way to low.
+    #
+    # A second rule was tried and removed. It fired when nothing but system
+    # information survived categorisation, treating inheriting stores as
+    # non-survivors -- which told a backup service that its secrets were what it
+    # existed for. An inheriting store has no level of its own, but it can
+    # certainly be the product, and no arrangement of the data types tells the
+    # two apart.
+    excluded_here = [
+        e for e in (profile.get("declared") or {}).get("data_types", [])
+        if isinstance(e, dict) and e.get("id") == "account_credentials"
+        and excluded_from_water_mark(types_table_types.get(e["id"], {}), e,
+                                     types_table.get("modifiers", {}))
+    ]
+    if excluded_here:
+        spec = types_table_types["account_credentials"]
+        for axis, level in (("confidentiality", confidentiality["level"]),
+                            ("integrity", integrity["level"])):
+            if spec.get(axis) == "high" and level == "low":
+                consistency.append(
+                    f"account credentials were excluded from the categorisation as "
+                    f"incidental system information, and {axis} came out low without "
+                    f"them. Holding credentials and existing for them are different "
+                    f"services. If this is the second, add the service_content modifier "
+                    f"and re-run -- the derivation is reading it as the first.")
+                break
+
     # `auth_mechanism` was gathered by the interview, given a rule of its own in
     # the schema so that `none` would survive normalisation -- "the service has
     # no authentication, which is a finding rather than a gap in the interview"
@@ -775,10 +848,16 @@ def run(profile: dict) -> dict:
             # operational data "already declared as intended for publication",
             # which it is not -- low is not public.
             published = declared_public and confidentiality["level"] == "low"
+            # Deliberately not the water-mark predicate. That one answers
+            # "does this type decide the categorisation"; this one answers "is
+            # this something a caller without a name could reach", and sharing
+            # a predicate between them let incidental API keys drop out of a
+            # finding about an unauthenticated endpoint -- which is one of the
+            # ways secrets actually leak. Everything declared is assumed
+            # reachable unless the profile says it is published.
             confidential = [
                 e["id"] for e in (profile.get("declared") or {}).get("data_types", [])
                 if isinstance(e, dict)
-                and not types_table_types.get(e["id"], {}).get("system_information")
                 and "intended_public" not in (e.get("modifiers") or [])
             ] if not published else []
             if published:

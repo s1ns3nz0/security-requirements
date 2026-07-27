@@ -64,6 +64,20 @@ Present the `types` list from `catalogs/data-types/classification.yaml`. For
 each selection, follow up on modifiers ("do you hold the card number itself, or
 only a PSP token?").
 
+Where `account_credentials` or `config_secrets` is selected, the follow-up is
+about role rather than state:
+
+> Does this service hold these so it can do something else, or is holding them
+> what it is for?
+
+The table's default is the first, because credentials sit in nearly every
+service and counting them would put every application with a login on the High
+baseline. An identity provider, a secrets manager, or a credential vault is the
+second, and for those the default reading derives LOW integrity for the one
+thing protecting everything downstream. The answer becomes the `service_content`
+modifier. It costs no question -- it is the same per-selection follow-up as the
+card-number one.
+
 - **Consumed by**: confidentiality and integrity derivation, regulatory trigger
   detection, threat model asset list
 - **Inference aid**: scan schema files and migrations for column names.

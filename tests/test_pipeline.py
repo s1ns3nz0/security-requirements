@@ -2484,3 +2484,160 @@ def test_deferral_is_a_property_of_the_entry_not_of_one_axis():
     assert not integrity_only, (
         f"{integrity_only} inherits on integrity alone; the seeding path raises rather "
         f"than guess at its modified confidentiality, so that path needs writing")
+
+
+# --- system information is a role, not a property of the type -----------------
+#
+# The exclusion keeps credentials out of categorisation because they sit in
+# nearly every service and counting them puts every application with a login on
+# the High baseline. For an identity provider, a secrets manager, or a
+# credential vault that reading is exactly backwards.
+
+def _idp_profile(modifiers=None):
+    creds = {"id": "account_credentials"}
+    if modifiers:
+        creds["modifiers"] = modifiers
+    return {"version": "0.1.0",
+            "inferred": {"csp": "none", "deployment_model": "kubernetes", "stack": ["java"],
+                         "entrypoints": ["http: OIDC endpoints"], "auth_mechanism": "oidc"},
+            "declared": {"data_types": [creds, {"id": "basic_contact"},
+                                        {"id": "audit_logs"}, {"id": "config_secrets"}],
+                         "users": ["public_users"],
+                         "availability": {"rto": "rto_hours", "rpo": "rpo_hours_plus"}}}
+
+
+def test_credentials_can_be_what_the_service_is_for():
+    """An identity provider derived LOW integrity from a table that says high.
+
+    Availability rescued the baseline for the profile that exposed it, which is
+    why it survived: give the same service relaxed recovery objectives and the
+    baseline itself comes out MODERATE.
+    """
+    before = sb.run(_idp_profile())
+    assert before["impact"]["integrity"]["level"] == "low"
+    assert before["baseline"] == "nist-800-53b-moderate"
+
+    after = sb.run(_idp_profile(["service_content"]))
+    assert after["impact"]["integrity"]["level"] == "high"
+    assert after["impact"]["confidentiality"]["level"] == "high"
+    assert after["baseline"] == "nist-800-53b-high"
+
+
+def test_the_modifier_does_not_restate_the_table():
+    """It says the default reading is wrong for this service; the level to use
+    is the one already written against the type. A modifier carrying high/high
+    of its own would be a second copy of the table, free to drift from it."""
+    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+                            "classification.yaml").read_text(encoding="utf-8"))
+    modifier = table["modifiers"]["service_content"]
+    assert modifier.get("categorises") is True
+    assert not modifier.get("effect"), "this modifier carries no level of its own"
+
+
+def test_the_exclusion_is_visible_on_both_axes():
+    """Written to confidentiality alone, an identity provider's "Integrity LOW"
+    appeared with no trace of the two high-integrity types dropped to produce
+    it. The reader could not see the thing that would make them reach for the
+    modifier."""
+    result = sb.run(_idp_profile())
+    for axis in ("confidentiality", "integrity"):
+        assert any("excluded from the water mark" in line
+                   for line in result["impact"][axis]["because"]), axis
+
+
+def test_what_the_exclusion_cost_is_printed_beside_the_number():
+    """Neither detector width worked, so the cost went on the reason line.
+
+    A check that fires whenever the exclusion mattered fires on eleven of
+    eighteen real profiles, which is noise. A check narrow enough to be read
+    misses a secrets manager -- config_secrets alongside owner contact details
+    and logs -- which then ships a Moderate baseline in silence. The reader is
+    already looking at the reason line, directly under the number it produced.
+    """
+    def excluded_lines(types):
+        profile = _one_type("internal_ops")
+        profile["declared"]["data_types"] = types
+        result = sb.run(profile)
+        return {axis: [line for line in result["impact"][axis]["because"] if "excluded" in line]
+                for axis in ("confidentiality", "integrity")}
+
+    secrets_manager = excluded_lines([{"id": "config_secrets"}, {"id": "basic_contact"},
+                                      {"id": "audit_logs"}])
+    assert secrets_manager["confidentiality"], "the exclusion must be visible at all"
+    assert all("came out moderate" in line for line in secrets_manager["confidentiality"])
+    assert all("it is high here" in line for line in secrets_manager["confidentiality"])
+
+    # Where the exclusion changed nothing, the line says nothing extra.
+    unchanged = excluded_lines([{"id": "health_records"}, {"id": "config_secrets"}])
+    assert unchanged["confidentiality"]
+    assert not any("came out" in line for line in unchanged["confidentiality"])
+
+
+def test_the_warning_stays_on_the_case_most_likely_to_be_wrong():
+    warned = sb.run(_idp_profile())["consistency_warnings"]
+    assert any("service_content modifier" in w for w in warned)
+
+    # Silent once answered.
+    assert not any("service_content modifier" in w
+                   for w in sb.run(_idp_profile(["service_content"]))["consistency_warnings"])
+
+    # A service that merely has a login is not asked.
+    ordinary = _idp_profile()
+    ordinary["declared"]["data_types"].append({"id": "transaction_history"})
+    assert not any("service_content modifier" in w
+                   for w in sb.run(ordinary)["consistency_warnings"])
+
+
+def test_a_backup_service_is_not_told_its_secrets_are_its_purpose():
+    """The rule this replaced fired when nothing but system information survived
+    categorisation, counting inheriting stores as non-survivors. A backup
+    service holding backups of secrets matched exactly that, and was told to
+    declare the secrets as what it exists for. An inheriting store has no level
+    of its own but can certainly be the product, and no arrangement of the data
+    types tells the two apart."""
+    profile = _one_type("internal_ops")
+    profile["declared"]["data_types"] = [{"id": "config_secrets"}, {"id": "backups"}]
+    assert not any("service_content modifier" in w
+                   for w in sb.run(profile)["consistency_warnings"])
+
+
+@pytest.mark.parametrize("type_id,system_information", [
+    ("account_credentials", True), ("config_secrets", True),
+    ("transaction_history", False), ("basic_contact", False),
+])
+@pytest.mark.parametrize("declare_service_content", [False, True])
+def test_the_two_consumers_of_the_exclusion_answer_separately(type_id, system_information,
+                                                              declare_service_content):
+    """Counting `.get("system_information")` in the source proved a shape, not a
+    behaviour: a rename, a quote style, or an unrelated diagnostic read would
+    have moved the number without moving the tool.
+
+    What has to hold is that the two consumers give the answers they own. The
+    water mark asks whether a type decides the categorisation. The
+    authentication check asks whether a caller without a name could reach it,
+    and those are different questions -- sharing a predicate between them let
+    incidental API keys drop out of a finding about an unauthenticated
+    endpoint, which is one of the ways secrets actually leak.
+    """
+    entry = {"id": type_id}
+    if declare_service_content:
+        entry["modifiers"] = ["service_content"]
+    profile = _one_type("internal_ops")
+    profile["declared"]["data_types"] = [entry, {"id": "audit_logs"}]
+    profile["inferred"]["auth_mechanism"] = "none"
+    result = sb.run(profile)
+
+    # 1. categorisation: excluded unless the profile says it is the content
+    counted = any(type_id in line and "excluded from the water mark" not in line
+                  for line in result["impact"]["confidentiality"]["because"]
+                  or [])
+    spec_excluded = system_information and not declare_service_content
+    excluded_line = any("excluded from the water mark" in line
+                        for line in result["impact"]["confidentiality"]["because"])
+    assert excluded_line is spec_excluded
+
+    # 2. authentication: named regardless, because reachability is not a
+    #    property of what the categorisation counts
+    warnings = " ".join(result["consistency_warnings"])
+    assert "declares no authentication" in warnings
+    assert type_id in warnings, "everything declared is assumed reachable"

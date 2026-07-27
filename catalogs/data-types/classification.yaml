@@ -85,6 +85,26 @@ modifiers:
       Apply only where there is evidence it does not reach logs, APM traces, or
       error reports.
 
+  service_content:
+    label: "what this service exists to hold"
+    # Not an effect. The other modifiers move a level; this one says the table's
+    # default reading of the type is wrong for this service, and the level to
+    # use is the one already written against the type. A modifier that restated
+    # high/high here would be a second copy of the table, free to drift from it.
+    categorises: true
+    note: >-
+      system_information marks types that nearly every service carries
+      incidentally -- credentials, API keys -- and excludes them from
+      categorisation, because counting them puts every application that has a
+      login on the High baseline. For a small number of services that reading is
+      exactly backwards: an identity provider, a secrets manager, a credential
+      vault exist in order to hold them, and excluding them derived LOW
+      integrity for a service whose integrity is the only thing protecting
+      everything downstream of it.
+
+      Holding credentials and existing for them are different services. Set this
+      only for the second.
+
   customer_owned:
     label: "belongs to a customer; we hold it on their behalf"
     effect: {}
