@@ -547,6 +547,7 @@ def derive_availability(profile: dict, table: dict) -> dict:
     amps = {a["id"]: a for a in table["amplifiers"]}
 
     levels, why, integrity_hint = [], [], None
+    conflicts: list[str] = []
 
     for key, lookup, label in (("rto", rto, "recovery time"), ("rpo", rpo, "recovery point")):
         value = declared.get(key)
@@ -572,7 +573,16 @@ def derive_availability(profile: dict, table: dict) -> dict:
         if spec.get("integrity_hint"):
             integrity_hint = spec["integrity_hint"]
 
-    for amp_id in declared.get("amplifiers", []) or []:
+    declared_amps = list(declared.get("amplifiers", []) or [])
+    for amp_id in declared_amps:
+        spec_alone = amps.get(amp_id) or {}
+        if spec_alone.get("only_when_alone") and len(set(declared_amps)) > 1:
+            others = ", ".join(sorted(set(declared_amps) - {amp_id}))
+            conflicts.append(
+                f"{amp_id} was declared alongside {others}. It means the service has a "
+                f"workable manual fallback, which the others say it does not -- the "
+                f"reason list below carries both. One of the answers is stale.")
+    for amp_id in declared_amps:
         if amp_id not in amps:
             raise ProfileError(
                 f"unknown amplifier {amp_id!r}; accepted: {', '.join(amps)}. "
@@ -582,7 +592,8 @@ def derive_availability(profile: dict, table: dict) -> dict:
         levels.append(spec["availability"])
         why.append(f"{spec['label']}: {spec['availability']}")
 
-    return {"level": highest(levels), "because": why, "integrity_hint": integrity_hint}
+    return {"level": highest(levels), "because": why, "integrity_hint": integrity_hint,
+            "conflicts": conflicts}
 
 
 # --------------------------------------------------------------------------
@@ -990,7 +1001,26 @@ def run(profile: dict) -> dict:
                 # applicable_overlays and nowhere in regulatory_flags.
                 in_scope_triggers.append(declared_trigger)
 
+    # A regime this tool does not model is not a regime that does not exist. The
+    # overlay list is the tool's coverage, and printed alone it reads as the
+    # answer: a microfinance platform holding national identifiers and
+    # biometrics for Indian, Kenyan, and Philippine users was shown GDPR and
+    # nothing else, with no sign that three of its four jurisdictions had simply
+    # not been looked at.
+    modelled = set()
+    for spec in (types_table.get("regulatory_triggers") or {}).values():
+        modelled |= expand_regions((spec.get("applies_when") or {}).get("user_regions_any") or [])
+    unmodelled = sorted(r for r in expand_regions(user_regions)
+                        if r not in modelled and len(r) == 2)
+    if personal and unmodelled:
+        consistency.append(
+            f"this tool models no data protection regime for {', '.join(unmodelled)}, and "
+            f"personal data is declared for users there. The overlay list below is this "
+            f"repository's coverage, not a finding that nothing applies -- most of these "
+            f"jurisdictions have one.")
+
     consistency.extend(inert_modifiers)
+    consistency.extend(availability.get("conflicts") or [])
 
     # Per axis, not only when both are empty. A profile of nothing but model
     # training data has genuine integrity evidence and none at all for

@@ -97,4 +97,9 @@ amplifiers:
   - id: internal_tool_only
     label: "internal tooling with a workable manual fallback"
     availability: low
+    # Declared, so that the note is a rule rather than a remark. A profile
+    # arrived carrying this beside safety_critical, and the reason list printed
+    # "an outage risks physical harm or loss of life" directly above "internal
+    # tooling with a workable manual fallback" without a word about it.
+    only_when_alone: true
     note: "Only meaningful when no other amplifier applies."

@@ -284,6 +284,14 @@ REGION_GROUPS = {
     "EEA": EEA_MEMBERS,
 }
 
+# Spellings of one country. GB is the ISO 3166-1 code for the United Kingdom and
+# UK is what people write; the rules were written with UK and the profiles with
+# GB, so the correct code was the one that failed. It cost the United Kingdom's
+# GDPR trigger on every profile that used it -- and the cross-border check had
+# the alias already, which is how one half of the tool came to disagree with the
+# other about which countries exist.
+COUNTRY_SPELLINGS = {"UK": "GB", "GB": "UK", "EL": "GR", "GR": "EL"}
+
 
 def expand_regions(regions) -> set[str]:
     """Resolve bloc names to their members, leaving country codes alone.
@@ -296,5 +304,8 @@ def expand_regions(regions) -> set[str]:
     for region in regions or []:
         code = str(region).strip().upper()
         out.add(code)
+        alias = COUNTRY_SPELLINGS.get(code)
+        if alias:
+            out.add(alias)
         out |= REGION_GROUPS.get(code, set())
     return out

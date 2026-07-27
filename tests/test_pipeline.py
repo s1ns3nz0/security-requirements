@@ -3232,3 +3232,68 @@ def test_the_interview_answers_reach_the_thing_that_reads_them():
     # An answer nobody can read is reported rather than dropped.
     _, unreadable = classify_resp.normalise_org_controls(["quantum firewall"])
     assert unreadable == ["quantum firewall"]
+
+
+# --- round seven: twenty more, chosen for combinations rather than values -----
+
+def test_gb_and_uk_are_one_country():
+    """GB is the ISO 3166-1 code for the United Kingdom and UK is what people
+    write. The rules were written with UK and the profiles with GB, so the
+    correct code was the one that failed -- it cost the United Kingdom's GDPR
+    trigger on every profile that used it. The cross-border check had the alias
+    already, which is how one half of the tool came to disagree with the other
+    about which countries exist."""
+    for spelling in ("GB", "UK", "gb", " uk "):
+        profile = _onprem(data_types=[{"id": "basic_contact"}], user_regions=[spelling])
+        assert "gdpr" in sb.run(profile)["applicable_overlays"], spelling
+
+    # And the alias does not invent a country out of nowhere.
+    for elsewhere in ("JP", "US", "BR"):
+        profile = _onprem(data_types=[{"id": "basic_contact"}], user_regions=[elsewhere])
+        assert "gdpr" not in sb.run(profile)["applicable_overlays"], elsewhere
+
+
+def test_silence_about_a_jurisdiction_is_not_a_finding_about_it():
+    """A microfinance platform holding national identifiers and biometrics for
+    Indian, Kenyan, and Philippine users was shown GDPR and nothing else, with
+    no sign that three of its four jurisdictions had simply not been looked at.
+    The overlay list is this repository's coverage; printed alone it reads as
+    the answer."""
+    unmodelled = _onprem(data_types=[{"id": "government_id"}, {"id": "biometric"}],
+                         user_regions=["IN", "KE", "PH", "DE"])
+    warnings = sb.run(unmodelled)["consistency_warnings"]
+    named = [w for w in warnings if "models no data protection regime" in w]
+    assert named, warnings
+    assert all(code in named[0] for code in ("IN", "KE", "PH"))
+    assert "DE" not in named[0], "a jurisdiction that is modelled must not be listed"
+
+    # Where every region is modelled, nothing is said.
+    modelled = _onprem(data_types=[{"id": "basic_contact"}], user_regions=["DE", "KR", "US"])
+    assert not [w for w in sb.run(modelled)["consistency_warnings"]
+                if "models no data protection regime" in w]
+
+    # And with no personal data there is nothing for a regime to reach.
+    impersonal = _onprem(data_types=[{"id": "internal_ops"}], user_regions=["IN"])
+    assert not [w for w in sb.run(impersonal)["consistency_warnings"]
+                if "models no data protection regime" in w]
+
+
+def test_an_amplifier_that_contradicts_the_others_is_reported():
+    """internal_tool_only says the service has a workable manual fallback. A
+    flight-control profile declared it beside safety_critical, and the reason
+    list printed "an outage risks physical harm or loss of life" directly above
+    "internal tooling with a workable manual fallback" without a word."""
+    contradictory = _onprem()
+    contradictory["declared"]["availability"]["amplifiers"] = ["safety_critical", "internal_tool_only"]
+    warnings = sb.run(contradictory)["consistency_warnings"]
+    assert any("internal_tool_only was declared alongside" in w for w in warnings)
+
+    alone = _onprem()
+    alone["declared"]["availability"]["amplifiers"] = ["internal_tool_only"]
+    assert not any("declared alongside" in w for w in sb.run(alone)["consistency_warnings"])
+
+    # The precondition is declared on the amplifier, not hard-coded.
+    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+                            "availability.yaml").read_text(encoding="utf-8"))
+    solo = [a["id"] for a in table["amplifiers"] if a.get("only_when_alone")]
+    assert solo == ["internal_tool_only"]
