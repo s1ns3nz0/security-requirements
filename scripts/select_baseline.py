@@ -52,6 +52,34 @@ BASELINE_KEY = {
 # data or serving authenticated users is at least L2 in practice.
 ASVS_FOR_IMPACT = {"low": 1, "moderate": 2, "high": 3}
 
+# Markers of an application surface in an entrypoint description. ASVS is an
+# application security standard; issuing "ASVS L3" for a Terraform-only
+# repository or a pip library asserts an applicable standard that is not.
+APP_SURFACE_RE = __import__("re").compile(
+    r"http|webhook|graphql|grpc|websocket|\bapi\b|\bui\b|\bGET\b|\bPOST\b|\bPUT\b|\bDELETE\b|route",
+    __import__("re").IGNORECASE,
+)
+
+
+def detect_shape(profile: dict) -> dict:
+    """Whether the profile describes a running service with an app surface.
+
+    Found by sweeping a pure-IaC repository and a pip library: both completed
+    the service-shaped derivation and came out looking like web services --
+    ASVS level issued, session and input-validation controls assigned to the
+    team. The derivation is built for services; when the target is not one,
+    that has to be said rather than absorbed.
+    """
+    entrypoints = (profile.get("inferred") or {}).get("entrypoints") or []
+    has_app_surface = any(APP_SURFACE_RE.search(str(e)) for e in entrypoints)
+    if not entrypoints:
+        shape = "no_entrypoints"
+    elif has_app_surface:
+        shape = "service"
+    else:
+        shape = "non_service"   # library, CLI, IaC definitions, batch-only
+    return {"shape": shape, "app_surface": has_app_surface}
+
 
 # --------------------------------------------------------------------------
 # level arithmetic
@@ -396,10 +424,13 @@ def run(profile: dict) -> dict:
     }
     impact["driver"] = None if overridden else single_axis_driver(impact, system)
 
+    shape = detect_shape(profile)
+
     return {
         "impact": impact,
         "baseline": baseline,
-        "asvs_level": ASVS_FOR_IMPACT[system],
+        "shape": shape,
+        "asvs_level": ASVS_FOR_IMPACT[system] if shape["app_surface"] else None,
         "threat_flags": flags,
         "regulatory_flags": triggers,
         "uncovered_regulations": uncovered,
@@ -437,7 +468,23 @@ def render_gate(result: dict) -> str:
         n = len(result["controls_unavailable"])
         fams = sorted({c.split("-")[0] for c in result["controls_unavailable"]})
         out.append(f"  UNAVAILABLE: {n} baseline controls in families not yet bundled ({', '.join(fams)})")
-    out.append(f"  ASVS level: L{result['asvs_level']}")
+    if result["asvs_level"] is not None:
+        out.append(f"  ASVS level: L{result['asvs_level']}")
+    else:
+        out.append("  ASVS: not applicable -- no application surface in the entrypoints")
+
+    shape = result.get("shape", {})
+    if shape.get("shape") != "service":
+        reason = ("no entrypoints were found" if shape.get("shape") == "no_entrypoints"
+                  else "the entrypoints describe a library, CLI, or definitions, not a served application")
+        out += [
+            "",
+            f"  NOTE: this does not look like a running service -- {reason}.",
+            "  The derivation is service-shaped; application-layer controls in the",
+            "  result may not apply to this repository. Read it as the requirements",
+            "  for the system this code defines or is embedded in, not for the",
+            "  repository itself.",
+        ]
     if result["uncovered_regulations"]:
         out += ["", "Uncovered regulations detected"]
         for item in result["uncovered_regulations"]:

@@ -420,6 +420,54 @@ def test_service_entry_can_be_conditional_on_deployment_model(profile):
     assert ec2["source"] == "layers.yaml:iaas"
 
 
+def test_no_provider_means_no_provider_claims(profile):
+    """Found by sweeping an on-premise profile with csp: none.
+
+    Fifteen PE/MP/CP controls were assigned csp_claimed -- a claim against a
+    provider that does not exist -- because the onprem override list enumerated
+    some controls and missed the rest. The rule is structural: with no cloud
+    provider in the profile, csp_claimed is not a legal outcome.
+    """
+    onprem = copy.deepcopy(profile)
+    onprem["inferred"]["csp"] = "none"
+    onprem["inferred"]["deployment_model"] = "onprem"
+    onprem["inferred"]["managed_services"] = []
+    result = classify_resp.classify(onprem, ["PE-4", "PE-8", "MP-3", "CP-8(1)", "SI-8(2)"])
+    assert all(e["responsibility"] != "csp_claimed" for e in result["controls"])
+    assert any(e["source"].endswith("+no-csp") for e in result["controls"])
+
+
+def test_asvs_not_issued_without_an_app_surface(profile):
+    """Found by sweeping a pure-IaC repository and a pip library: both were
+    issued an ASVS level. ASVS is an application standard; asserting it for a
+    Terraform repo claims an applicable standard that is not."""
+    iac_only = copy.deepcopy(profile)
+    iac_only["inferred"]["entrypoints"] = []
+    result = sb.run(iac_only)
+    assert result["asvs_level"] is None
+    assert result["shape"]["shape"] == "no_entrypoints"
+
+    library = copy.deepcopy(profile)
+    library["inferred"]["entrypoints"] = ["library import", "cli"]
+    result = sb.run(library)
+    assert result["asvs_level"] is None
+    assert result["shape"]["shape"] == "non_service"
+
+    assert sb.run(profile)["asvs_level"] is not None  # real service keeps its level
+
+
+def test_unknown_deployment_model_is_flagged(profile):
+    """Found by sweeping a profile that said "kubernetes". An unrecognised
+    model silently disabled every model override and applies_when condition --
+    a typo would degrade the whole layer with no visible symptom."""
+    k8s = copy.deepcopy(profile)
+    k8s["inferred"]["deployment_model"] = "kubernetes"
+    result = classify_resp.classify(k8s, ["SC-39"])
+    assert result["deployment_model_recognised"] is False
+
+    assert classify_resp.classify(profile, ["SC-39"])["deployment_model_recognised"] is True
+
+
 def test_family_default_covers_unlisted_controls(profile):
     """A control with no rule of its own must resolve, not fall to UNDETERMINED.
 

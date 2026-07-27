@@ -139,6 +139,7 @@ def resolve_layer(control_id: str, layers: dict, deployment_model: str | None) -
 def classify(profile: dict, controls: list[str]) -> dict:
     layers = yaml.safe_load(LAYERS.read_text(encoding="utf-8"))
     deployment_model = (profile.get("inferred") or {}).get("deployment_model")
+    csp = (profile.get("inferred") or {}).get("csp")
 
     specs, curated, uncurated = load_services(profile)
     org_controls = set((profile.get("declared") or {}).get("existing_org_controls", []) or [])
@@ -186,14 +187,33 @@ def classify(profile: dict, controls: list[str]) -> dict:
         if control_id in org_covered and entry["responsibility"] in ("org", "team", "shared"):
             entry["org_control_declared"] = True
 
+        # A claim needs a claimant. With no cloud provider in the profile,
+        # csp_claimed is not a legal outcome -- the facility, the hardware, and
+        # the media are the organisation's own. Found by sweeping an on-premise
+        # profile: fifteen controls were assigned to a provider that does not
+        # exist, because the onprem override list enumerated some PE/MP
+        # controls and missed the rest. A structural rule beats a longer list.
+        if entry["responsibility"] == "csp_claimed" and csp in (None, "", "none"):
+            entry["responsibility"] = "org"
+            entry["source"] = f"{entry['source']}+no-csp"
+
         results.append(entry)
 
     counts = {b: 0 for b in BUCKETS}
     for entry in results:
         counts[entry["responsibility"]] = counts.get(entry["responsibility"], 0) + 1
 
+    # An unrecognised deployment model silently disables every model override
+    # and every applies_when condition -- a typo degrades the whole layer with
+    # no visible symptom. Found by sweeping a profile that said "kubernetes",
+    # which is not a model this map knows.
+    known_models = set((layers.get("deployment_models") or {}).keys())
+    unknown_model = (deployment_model is not None and deployment_model not in known_models)
+
     return {
         "deployment_model": deployment_model,
+        "deployment_model_recognised": not unknown_model,
+        "known_deployment_models": sorted(known_models),
         "services_curated": sorted(curated),
         "services_uncurated": sorted(uncurated),
         "counts": counts,
@@ -205,6 +225,14 @@ def render(result: dict) -> str:
     counts = result["counts"]
     total = sum(counts.values())
     out = ["Responsibility split", ""]
+    if not result.get("deployment_model_recognised", True):
+        out += [
+            f"  WARNING: deployment model {result['deployment_model']!r} is not recognised.",
+            f"  Model overrides and per-service conditions were NOT applied; the split",
+            f"  below uses family defaults and control overrides only.",
+            f"  Known models: {', '.join(result['known_deployment_models'])}.",
+            "",
+        ]
     labels = {
         "team": "team implements",
         "shared": "shared (both parties act)",
