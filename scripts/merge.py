@@ -458,6 +458,10 @@ def main() -> int:
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--cross", action="store_true")
     mode.add_argument("--apply", action="store_true")
+    ap.add_argument("--allow-full-rewrite", action="store_true",
+                    help="proceed when the refresh matches nothing at all. A rewrite of the "
+                         "whole requirement set is legitimate and looks identical to a broken "
+                         "identifier scheme, so it has to be said out loud.")
 
     ap.add_argument("--controls", type=Path)
     ap.add_argument("--responsibility", type=Path)
@@ -497,7 +501,7 @@ def main() -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    if result.get("total_churn"):
+    if result.get("total_churn") and not args.allow_full_rewrite:
         # Refused before the write, because the write is the damage. The file is
         # overwritten and the counts printed afterwards, so the first run that
         # hit this had already discarded a requirement a human marked
@@ -509,8 +513,17 @@ def main() -> int:
               f"change to a", file=sys.stderr)
         print("  service does not do that; a changed slug convention or an id scheme does.",
               file=sys.stderr)
-        print("  Anything a human wrote -- accepted risks, notes, owners -- would be lost.",
+        # Not "would be lost". The retired records keep their human blocks --
+        # this file's own retire() preserves them and a test asserts it. What is
+        # true is that every decision a human made now hangs on a retired
+        # requirement while the live work carries new identifiers nobody has
+        # looked at. Saying "lost" overstated it.
+        print("  Every accepted risk, note, and owner would stay attached to a retired",
               file=sys.stderr)
+        print("  requirement while the live work arrives under identifiers nobody has seen.",
+              file=sys.stderr)
+        print("  If the requirement set really was rewritten wholesale, pass "
+              "--allow-full-rewrite.", file=sys.stderr)
         print(f"  Existing: {', '.join(r['id'] for r in existing[:3])}"
               f"{' ...' if len(existing) > 3 else ''}", file=sys.stderr)
         print(f"  Derived : {', '.join(result['added'][:3])}"

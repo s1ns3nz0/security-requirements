@@ -3547,3 +3547,54 @@ def test_a_refresh_that_matches_nothing_is_refused_before_it_writes():
     # An empty starting document is not churn -- it is a first run.
     first = merge.apply_merge(aligned, [], {"issued": {}})
     assert first["total_churn"] is False
+
+
+def test_the_refusal_happens_at_the_command_line_and_before_the_write(tmp_path):
+    """The first version of this test called apply_merge and checked the flag,
+    so reverting the guard in main() left it green -- and the guard is the whole
+    point, because the CLI writes the file and prints the counts afterwards."""
+    existing = {"requirements": [
+        {"id": "REQ-PKI-SIGNING-KEY-01",
+         "managed": {"statement": "The signing key must be non-exportable.",
+                     "csf": ["PR.DS-01"], "sources": ["SC-12"], "responsibility": "team"},
+         "human": {"status": "accepted_risk", "note": "keep me"}}]}
+    existing_path = tmp_path / "requirements.yaml"
+    existing_path.write_text(yaml.safe_dump(existing), encoding="utf-8")
+    state_path = tmp_path / "state.yaml"
+    state_path.write_text("issued: {}\n", encoding="utf-8")
+    draft_path = tmp_path / "draft.json"
+    draft_path.write_text(json.dumps({"requirements": [
+        {"slug": "REQ-PKI-SIGNING-KEY-01",       # an identifier, not a slug
+         "managed": existing["requirements"][0]["managed"]}]}), encoding="utf-8")
+
+    before_doc = existing_path.read_bytes()
+    before_state = state_path.read_bytes()
+
+    r = _run_cli("merge.py", "--apply", "--draft", str(draft_path),
+                 "--existing", str(existing_path), "--state", str(state_path))
+    assert r.returncode == 2, r.stdout + r.stderr
+    assert "matched nothing" in r.stderr
+    assert existing_path.read_bytes() == before_doc, "the file must not be touched"
+    assert state_path.read_bytes() == before_state
+
+    # And a rewrite that was meant has a way through, which it must: one
+    # requirement genuinely replaced by another looks exactly like this.
+    r = _run_cli("merge.py", "--apply", "--allow-full-rewrite", "--draft", str(draft_path),
+                 "--existing", str(existing_path), "--state", str(state_path))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert existing_path.read_bytes() != before_doc
+
+
+def test_the_allowlist_covers_what_the_rest_of_the_tool_reads():
+    """`unverified` is produced by the responsibility split and printed by the
+    renderer. Left out of the allowlist, it would have made any document that
+    preserved it fail lint -- an allowlist has to cover what the tool reads, not
+    what one fixture happens to carry."""
+    import re as _re
+    read_from_managed = set()
+    for script in ("render.py", "merge.py", "lint.py"):
+        source = (REPO_ROOT / "scripts" / script).read_text(encoding="utf-8")
+        read_from_managed |= set(_re.findall(r'managed(?:\.get\(|\[)"([a-z_]+)"', source))
+    assert read_from_managed, "this test needs to find the reads it is checking"
+    assert read_from_managed <= lint_mod.MANAGED_KEYS, \
+        f"read but not allowed: {sorted(read_from_managed - lint_mod.MANAGED_KEYS)}"

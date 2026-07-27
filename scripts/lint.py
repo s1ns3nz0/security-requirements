@@ -42,9 +42,18 @@ ID_RE = re.compile(r"^REQ-[A-Z0-9]+(?:-[A-Z0-9]+)*-\d{2}$")
 # else is a field nothing reads, and a field nothing reads is a field nothing
 # checks.
 MANAGED_KEYS = {
+    # The record shape, from references/requirement-style.md.
     "statement", "rationale", "csf", "sources", "threat_refs", "responsibility",
-    "csp_part", "team_part", "evidence", "verification", "priority", "asvs",
-    "overlay_refs", "note",
+    "csp_part", "team_part", "evidence", "verification", "priority",
+    # Carried through the pipeline rather than written by hand. `unverified`
+    # comes from the responsibility split -- a service whose curation nobody has
+    # reviewed -- and render.py prints it. It was left out of the first version
+    # of this list, which would have rejected any document that preserved it:
+    # an allowlist has to cover what the rest of the tool reads, not what one
+    # fixture happens to carry.
+    "unverified", "services", "org_control_declared",
+    # Written by the model where an overlay or ASVS requirement is the source.
+    "asvs", "overlay_refs", "note",
 }
 NIST_RE = re.compile(r"^[A-Z]{2}-\d+(?:\(\d+\))?$")
 CSF_RE = re.compile(r"^[A-Z]{2}\.[A-Z]{2}-\d{2}$")
