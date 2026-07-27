@@ -203,6 +203,7 @@ def normalise(profile: dict) -> tuple[dict, list[str]]:
         entries = declared.get("data_types")
         if isinstance(entries, list):
             rebuilt = []
+            seen_types: set[str] = set()
             for entry in entries:
                 if isinstance(entry, str):
                     entry = {"id": entry}
@@ -223,10 +224,32 @@ def normalise(profile: dict) -> tuple[dict, list[str]]:
                         f"belongs; read as one item."
                     )
                 if isinstance(entry.get("modifiers"), list):
-                    entry["modifiers"] = [
-                        m.strip().lower() if isinstance(m, str) else m
-                        for m in entry["modifiers"]
-                    ]
+                    normalised = [m.strip().lower() if isinstance(m, str) else m
+                                  for m in entry["modifiers"]]
+                    # A modifier is a statement about the data, not a quantity.
+                    # Applied once per appearance, three tokenized_external
+                    # entries took health records from High to Low -- each one
+                    # subtracting a level from a claim that was only ever made
+                    # once.
+                    deduped = list(dict.fromkeys(normalised))
+                    if len(deduped) != len(normalised):
+                        repeated = sorted({m for m in normalised if normalised.count(m) > 1})
+                        warnings.append(
+                            f"data type {entry['id']!r} repeats {', '.join(map(repr, repeated))}; "
+                            f"a modifier says something about the data once. The repeats were "
+                            f"dropped -- applied, each would have moved the level again."
+                        )
+                    entry["modifiers"] = deduped
+                if entry.get("id") in seen_types:
+                    # managed_services has deduplicated since an early sweep;
+                    # data_types never did, so the same type appeared twice in
+                    # the reasons and in every count taken from them.
+                    warnings.append(
+                        f"data type {entry['id']!r} was declared more than once; "
+                        f"the duplicate was dropped."
+                    )
+                    continue
+                seen_types.add(entry.get("id"))
                 rebuilt.append(entry)
             declared["data_types"] = rebuilt
 

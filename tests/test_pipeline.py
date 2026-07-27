@@ -4120,3 +4120,40 @@ def test_the_shipped_hipaa_overlay_still_matches_what_was_counted():
     per_section = Counter(c["section"] for c in criteria if not c.get("designation"))
     for section, expected in hipaa_mod.EXPECTED_STANDARDS.items():
         assert per_section.get(section, 0) == expected, section
+
+
+# --- probing the value space, which has twice the defect density of a new repo
+
+def test_a_modifier_repeated_is_still_one_statement():
+    """A modifier says something about the data; it is not a quantity. Applied
+    once per appearance, three `tokenized_external` entries took health records
+    from High to Low -- each subtracting a level from a claim made once."""
+    thrice = _onprem(data_types=[{"id": "health_records",
+                                  "modifiers": ["tokenized_external"] * 3}])
+    result = sb.run(thrice)
+    once = sb.run(_onprem(data_types=[{"id": "health_records",
+                                       "modifiers": ["tokenized_external"]}]))
+    assert result["impact"]["confidentiality"]["level"] == \
+           once["impact"]["confidentiality"]["level"] == "moderate"
+    assert any("repeats" in w for w in result["schema_warnings"])
+
+    # Two different modifiers still both apply.
+    both = sb.run(_onprem(data_types=[{"id": "basic_contact",
+                                       "modifiers": ["aggregated_large_scale",
+                                                     "pseudonymized_split_key"]}]))
+    assert not both["schema_warnings"]
+
+
+def test_a_data_type_declared_twice_is_one_data_type():
+    """managed_services has deduplicated since an early sweep and data_types
+    never did, so the same type appeared twice in the reasons and in every count
+    taken from them."""
+    twice = sb.run(_onprem(data_types=[{"id": "basic_contact"}, {"id": "basic_contact"}]))
+    assert len(twice["impact"]["confidentiality"]["because"]) == 1
+    assert any("more than once" in w for w in twice["schema_warnings"])
+    assert twice["declared_data_types"] == ["basic_contact"]
+
+    # Distinct types are untouched.
+    two = sb.run(_onprem(data_types=[{"id": "basic_contact"}, {"id": "internal_ops"}]))
+    assert len(two["impact"]["confidentiality"]["because"]) == 2
+    assert not two["schema_warnings"]
