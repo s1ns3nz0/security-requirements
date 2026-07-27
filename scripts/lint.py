@@ -97,15 +97,20 @@ VAGUE = {
 # obligation with three parts, while "X must ... and Y must ..." is two. Testing
 # for `and` alone flags every enumeration and trains the reader to skip the
 # warning.
+QUOTED_SPAN = re.compile(r"\"[^\"]*\"|\u201c[^\u201d]*\u201d|\u300c[^\u300d]*\u300d|'[^']*'")
+
 MODAL = {
     "en": r"\b(?:must|shall|is required to|are required to)\b",
-    # Korean obligation is `~야 하-`, whatever the verb. The first version listed
-    # four 하다/되다 spellings, which meant `거쳐야 한다` -- an ordinary way to
-    # write a requirement -- counted as zero obligations, and the conjunctive
-    # endings that join two obligations in one sentence (`...해야 하고 ...되어야
-    # 한다`) counted as one. Both directions were wrong, and the rule that
-    # depends on this count is the one that asks whether a statement is atomic.
-    "ko": r"야만?\s*(?:한다|하며|하고|합니다)",
+    # Korean obligation is `~야 하-`, whatever the verb, plus the periphrastic
+    # forms that carry the same force. The first version listed four 하다/되다
+    # spellings, which meant `거쳐야 한다` -- an ordinary way to write a
+    # requirement -- counted as zero obligations, and the conjunctive endings
+    # that join two obligations in one sentence (`...해야 하고 ...되어야 한다`)
+    # counted as one. Both directions were wrong at once.
+    "ko": (r"(?:야만?\s*(?:한다|하며|하고|합니다)"
+           r"|야\s*할\s*필요가\s*있"
+           r"|도록\s*(?:한다|하고|하며)"
+           r"|필수(?:이다|로\s*함|임))"),
 }
 
 # Implementation detail that belongs in guidance rather than the statement.
@@ -298,13 +303,66 @@ INSTANCE_FORMS = (
 # (2.16.840.1); an absolute path matches /etc/app/config.yaml, which names a
 # kind of file rather than one particular one.
 #
-# The third was `https?://`, and it was the same mistake one level up. A URL is
-# not a disclosure -- it is also how a requirement cites the regulation it comes
-# from, and this repository's own GDPR overlay records EUR-Lex article
-# addresses. Every rule here has to survive the question "can a correct document
-# contain this?", and a bare URL could not. What remains is the subset that
-# could not: an address whose host has to carry the name of one particular
-# bucket, account, or tenant.
+# The third was `https?://`, and removing it was an overcorrection that lasted
+# one review. The observation was right -- a URL is also how a requirement cites
+# the regulation it comes from, and this repository's own GDPR overlay records
+# EUR-Lex article addresses -- but the conclusion was wrong. Deleting the rule
+# made a presigned URL, complete with its signature, publishable; that is the
+# most damaging single value this boundary could ever carry.
+#
+# The burden runs the other way. Publication is irreversible, so an address this
+# tool does not recognise is a disclosure until someone says otherwise, and
+# saying otherwise means adding a host to the list below on purpose. Citation
+# intent cannot be read off a URL's shape; it can be read off its origin.
+
+CITATION_HOSTS = frozenset({
+    # Standards and law. An address here is a reference a reader can follow.
+    "eur-lex.europa.eu", "gdpr-info.eu",
+    "csrc.nist.gov", "nvlpubs.nist.gov", "nist.gov", "www.nist.gov",
+    "owasp.org", "cheatsheetseries.owasp.org",
+    "iso.org", "www.iso.org",
+    "pcisecuritystandards.org", "www.pcisecuritystandards.org",
+    "hhs.gov", "www.hhs.gov", "ecfr.gov", "www.ecfr.gov",
+    "law.go.kr", "www.law.go.kr", "privacy.go.kr", "www.privacy.go.kr",
+    "kisa.or.kr", "www.kisa.or.kr",
+    "datatracker.ietf.org", "rfc-editor.org", "www.rfc-editor.org",
+    "cwe.mitre.org", "attack.mitre.org", "cve.mitre.org",
+    "cisa.gov", "www.cisa.gov",
+    "aicpa-cima.com", "www.aicpa-cima.com",
+    # Provider documentation, which the responsibility files cite by design.
+    # Documentation paths carry no tenant; the resource endpoints do, and those
+    # live under different hosts caught by the pattern above.
+    "docs.aws.amazon.com", "learn.microsoft.com", "cloud.google.com",
+})
+
+# Query parameters that turn a link into a credential.
+SIGNED_PARAMS = re.compile(
+    r"(?:^|[?&])(?:x-amz-signature|x-amz-credential|x-amz-security-token|sig|"
+    r"signature|token|access_token|api_key|apikey|key|password|sas)=",
+    re.IGNORECASE)
+
+URL_IN_TEXT = re.compile(r"\bhttps?://[^\s<>\)\]\"'`,]+", re.IGNORECASE)
+
+
+def url_problem(url: str) -> str | None:
+    """Why this URL must not be published, or None if it is a citation.
+
+    Everything that is not a recognised citation origin is a problem, including
+    hosts this tool has never heard of. The alternative -- enumerating the ways
+    a URL can be dangerous -- is the list that let a custom tenant domain, a git
+    remote, an issue-tracker link naming an internal project, and a bare IP
+    literal all through in the same afternoon.
+    """
+    remainder = url.split("://", 1)[1]
+    authority = remainder.split("/", 1)[0]
+    if "@" in authority:
+        return "a URL carrying credentials"
+    host = authority.split(":", 1)[0].lower().rstrip(".")
+    if host not in CITATION_HOSTS:
+        return "a URL to a host that is not a recognised citation source"
+    if SIGNED_PARAMS.search(url):
+        return "a URL carrying a signature or token"
+    return None
 
 
 def check_public_safety(req_id: str, managed: dict) -> list[Finding]:
@@ -328,21 +386,31 @@ def check_public_safety(req_id: str, managed: dict) -> list[Finding]:
         fields["verification.expect"] = verification.get("expect")
         fields["verification.fallback_manual"] = verification.get("fallback_manual")
 
+    def report(name: str, what: str) -> None:
+        # ERROR, not WARN. The other warnings are about how well a requirement
+        # is written, and a document with a clumsy statement is still safe to
+        # publish. This one is about what leaves the building, and it is the
+        # only rule here whose failure cannot be undone once the file is public.
+        findings.append(Finding(
+            "ERROR", req_id, "names-an-instance",
+            f"managed.{name} contains {what}. This field is published, and naming "
+            f"one particular resource answers \"where the data lives\" -- name the "
+            f"kind of thing instead, or cite a recognised source."))
+
     for name, value in fields.items():
         text = "; ".join(map(str, value)) if isinstance(value, (list, tuple)) else str(value or "")
+        found = None
         for pattern, what in INSTANCE_FORMS:
             if pattern.search(text):
-                # ERROR, not WARN. The other warnings are about how well a
-                # requirement is written, and a document with a clumsy statement
-                # is still safe to publish. This one is about what leaves the
-                # building, and it is the only rule here whose failure cannot be
-                # undone once the file is public.
-                findings.append(Finding(
-                    "ERROR", req_id, "names-an-instance",
-                    f"managed.{name} contains {what}. This field is published, and naming "
-                    f"one particular resource answers \"where the data lives\" -- name the "
-                    f"kind of thing instead."))
+                found = what
                 break
+        if found is None:
+            for url in URL_IN_TEXT.findall(text):
+                found = url_problem(url)
+                if found:
+                    break
+        if found:
+            report(name, found)
     return findings
 
 
@@ -372,7 +440,17 @@ def check_statement(req_id: str, statement: str, locale: str) -> list[Finding]:
     # catches that, with an ERROR, and the addition instead counted the "must" in
     # a quoted control title as a second Korean obligation.
     modal = MODAL.get(locale, MODAL["en"])
-    if len(re.findall(modal, statement, re.IGNORECASE)) > 1:
+    # Quoted spans first. A statement may quote the control it derives from, and
+    # `정책은 "암호화되어야 한다"라고 정의해야 한다` carries one obligation and
+    # two obligation-shaped spans.
+    #
+    # This is a heuristic and stays a warning because of it. Reported speech
+    # without quotation marks -- `...기록되어야 한다고 명시한다` -- still counts
+    # twice, and telling that from an obligation needs a parser rather than a
+    # pattern. A warning that is sometimes wrong is useful; an error that is
+    # sometimes wrong blocks a correct document.
+    unquoted = QUOTED_SPAN.sub(" ", statement)
+    if len(re.findall(modal, unquoted, re.IGNORECASE)) > 1:
         findings.append(Finding("WARN", req_id, "not-atomic",
                                 "more than one obligation in a single statement; split it"))
 
@@ -517,9 +595,28 @@ def lint(doc: dict, locale: str, threats: dict | None) -> list[Finding]:
         # no control -- that is what the threat-only bucket means, and those are
         # the findings the baseline could not produce. Only flag a requirement
         # with no basis of any kind.
+        #
+        # A written rationale counts. This tool's whole claim is that every
+        # requirement can be traced to why it exists, so a requirement with no
+        # control, no threat, and no stated reason should not reach a published
+        # document -- but demanding an identifier from an author whose
+        # requirement came from a contract or a business rule is the pressure
+        # that produces invented identifiers, which is the failure this
+        # repository was built to prevent. A reason a reader can evaluate is a
+        # basis; a fabricated control number is not.
         if not managed.get("sources") and not managed.get("threat_refs"):
-            findings.append(Finding("WARN", req_id, "no-basis",
-                                    "cites neither a control nor a threat; nothing traces to this"))
+            if (managed.get("rationale") or "").strip():
+                findings.append(Finding(
+                    "WARN", req_id, "no-basis",
+                    "cites neither a control nor a threat, and traces only to its "
+                    "own rationale"))
+            else:
+                findings.append(Finding(
+                    "ERROR", req_id, "no-basis",
+                    "cites neither a control nor a threat and gives no rationale; "
+                    "nothing traces to this, and traceability is what this document "
+                    "claims. Cite a control, reference a threat, or write down why "
+                    "it exists -- but do not invent an identifier"))
 
     if threats:
         known_threats = {t.get("id") for t in threats.get("threats", []) or [] if t.get("id")}

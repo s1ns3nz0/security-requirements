@@ -13,6 +13,7 @@ from __future__ import annotations
 import copy
 import re
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -5355,6 +5356,12 @@ def test_the_publishing_step_does_not_fail_a_build_on_style():
     # write them in one Korean sentence, and invisible to the old pattern.
     ("관리자 접근은 다중 인증을 거쳐야 하고 접근 기록은 1년간 보존되어야 한다.", True),
     ("저장 데이터는 암호화되어야 하며 키는 분리 보관되어야 한다.", True),
+    # The periphrastic obligations, which the ending-only pattern missed.
+    ("데이터는 암호화해야 할 필요가 있고 키는 분리 보관해야 할 필요가 있다.", True),
+    ("관리자 접근을 기록하도록 하고 로그 보존은 필수이다.", True),
+    # A statement that quotes the control it derives from carries one
+    # obligation and two obligation-shaped spans.
+    ("정책은 \u201c암호화되어야 한다\u201d라고 정의해야 한다.", False),
 ])
 def test_korean_atomicity_counts_obligations_and_not_spellings(statement, expected):
     """The atomicity rule asks whether a statement carries more than one
@@ -5398,6 +5405,40 @@ def test_a_cell_is_escaped_once(raw, rendered):
     assert render_mod.cell(raw) == rendered
 
 
+def _delimiters(line):
+    """The pipes Markdown will read as column separators.
+
+    A pipe is escaped only by an odd-length run of backslashes before it, so
+    `a\\\\|` is a literal backslash followed by a real delimiter. A test that
+    checked `(?<!\\\\)\\|` called that pipe escaped and stopped counting the very
+    row it existed to measure.
+    """
+    count, run = 0, 0
+    for char in line:
+        if char == "\\":
+            run += 1
+            continue
+        if char == "|" and run % 2 == 0:
+            count += 1
+        run = 0
+    return count
+
+
+def _table_blocks(text):
+    """Every contiguous run of table lines in a document."""
+    blocks, current = [], []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("|"):
+            current.append(stripped)
+        elif current:
+            blocks.append(current)
+            current = []
+    if current:
+        blocks.append(current)
+    return blocks
+
+
 @pytest.mark.parametrize("hostile", [
     "a|b",            # a pipe opens a column
     "a\nb",           # a newline ends the row
@@ -5405,37 +5446,39 @@ def test_a_cell_is_escaped_once(raw, rendered):
     "a\\|b",           # an escaped pipe, if a caller escaped it already
     "a\\",            # a trailing backslash, which escapes the closing delimiter
     "| |",
+    "|",
 ])
 def test_no_published_value_can_add_a_column(hostile):
     """The traceability table interpolated its cells directly, so a catalogue
     title containing a pipe produced four columns in a three-column table.
 
-    The first version of this test read render.py and checked that every row's
-    interpolations were spelled `cell(...)`. That tested the present spelling of
-    the renderer rather than the property, and it trusted two names it could not
-    prove were built from escaped parts. This one puts the hostile value in
-    every published field and counts the columns that come out."""
+    Two earlier versions of this test were unsound. The first read render.py and
+    checked that every row's interpolations were spelled `cell(...)`, which
+    tested the present spelling of the renderer rather than the property. The
+    second rendered real documents but cleared its width set on every non-table
+    line -- and each document ends with prose -- so the set was empty by the time
+    it was asserted on, and the whole test passed with pipe escaping removed
+    entirely. It was weaker than the one it replaced.
+
+    This one compares every row of every table against that table's header.
+    """
     fields = ["statement", "rationale", "evidence", "csp_part", "team_part"]
+    inspected = 0
     for field in fields:
         managed = {field: hostile}
         if field in ("csp_part", "team_part"):
             managed["responsibility"] = "shared"
         documents = _documents([_req("REQ-DATA-REST-01", **managed)])
         for text in documents:
-            table_widths = set()
-            for line in text.splitlines():
-                stripped = line.strip()
-                if not (stripped.startswith("|") and stripped.endswith("|")):
-                    table_widths.clear()
-                    continue
-                # Count delimiters that are not escaped by a preceding backslash.
-                cols = len(re.findall(r"(?<!\\)\|", stripped))
-                table_widths.add(cols)
-            assert len(table_widths) <= 1, (
-                f"{field}={hostile!r} produced rows of differing widths: "
-                f"{sorted(table_widths)}")
-        joined = "\n".join(documents)
-        assert "\r" not in joined, f"{field}: a carriage return survived into the output"
+            assert "\r" not in text, f"{field}: a carriage return survived into the output"
+            for block in _table_blocks(text):
+                header = _delimiters(block[0])
+                for row in block:
+                    assert _delimiters(row) == header, (
+                        f"{field}={hostile!r}: a row has {_delimiters(row)} delimiters "
+                        f"where the header has {header}\n  header: {block[0]}\n  row:    {row}")
+                inspected += 1
+    assert inspected, "this test needs to find the tables it is checking"
 
 
 def test_nothing_this_repository_ships_would_block_a_build():
@@ -5457,18 +5500,14 @@ def test_nothing_this_repository_ships_would_block_a_build():
             fields = {
                 "csp_part": body.get("csp_part"),
                 "team_part": body.get("team_part"),
-                "note": body.get("note"),
+                "statement": body.get("note"),
                 "evidence": body.get("evidence"),
-                "verification.target": verification.get("target"),
-                "verification.expect": verification.get("expect"),
-                "verification.fallback_manual": verification.get("fallback_manual"),
+                "verification": verification,
             }
-            for name, value in fields.items():
-                text = ("; ".join(map(str, value)) if isinstance(value, (list, tuple))
-                        else str(value or ""))
-                for pattern, what in lint_mod.INSTANCE_FORMS:
-                    if pattern.search(text):
-                        hits.append(f"{path.name} {control} {name}: {what} -- {text[:60]}")
+            # Through the linter's own function, not a copy of one of its
+            # rules -- a copy stops testing the rule the moment the rule grows.
+            for finding in lint_mod.check_public_safety(f"{path.name}:{control}", fields):
+                hits.append(str(finding))
     assert not hits, "bundled text would fail the disclosure rule:\n" + "\n".join(hits)
 
 
@@ -5496,6 +5535,140 @@ def test_the_coverage_measurement_still_reaches_the_command_line():
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     assert "COVERAGE_PROCESS_START" in readme, \
         "the documented command has to set it, or the config is never read"
+
+
+def test_the_command_that_writes_the_deliverable_writes_only_what_may_be_published(tmp_path):
+    """render.py's main() was the one part of the pipeline nothing ran. The three
+    document renderers were tested by calling them and reading the strings they
+    returned; the function that turns those strings into the files anyone
+    actually reads was never executed, so its argument handling, its output
+    directory, and what it puts on disk were all taken on trust.
+
+    The publication boundary has leaked five times in this repository, each time
+    through a field nobody had thought of as private -- a retirement reason, an
+    exception approver, an expiry date, an accepted-risk status, a note naming a
+    pending review. Four of those were caught by reading a returned string. This
+    reads the files."""
+    source = tmp_path / "requirements.yaml"
+    source.write_text(yaml.safe_dump({"requirements": [
+        {"id": "REQ-DATA-REST-01",
+         "managed": {"statement": "Data at rest is encrypted with a customer-managed key.",
+                     "csf": ["PR.DS-01"], "sources": ["SC-28"], "responsibility": "team",
+                     "evidence": ["control test 2026-Q1"]},
+         "human": {"status": "accepted_risk",
+                   "exception": {"approver": "the head of engineering",
+                                 "rationale": "the migration lands next quarter",
+                                 "expires": "2026-12-31"},
+                   "threats": ["THREAT-EXFIL-03"],
+                   "note": "pending_review by the platform team"}},
+        {"id": "REQ-LOG-RETAIN-01",
+         "managed": {"statement": "Audit records are retained for one year.",
+                     "csf": ["DE.AE-03"], "sources": ["AU-11"], "responsibility": "team"},
+         "human": {"status": "retired", "retirement_reason": "superseded by the platform log sink"}},
+    ]}, allow_unicode=True), encoding="utf-8")
+
+    out = tmp_path / "published"
+    result = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "render.py"), str(source), "--out", str(out)],
+        capture_output=True, text=True, cwd=str(REPO_ROOT))
+    assert result.returncode == 0, result.stderr
+
+    written = sorted(p.name for p in out.iterdir())
+    assert written == ["requirements.md", "responsibility.md", "traceability.md"], written
+
+    published = "\n".join((out / name).read_text(encoding="utf-8") for name in written)
+    for secret in ("accepted_risk", "head of engineering", "next quarter", "2026-12-31",
+                   "THREAT-EXFIL-03", "pending_review", "superseded by the platform log sink"):
+        assert secret not in published, f"{secret!r} reached a published file"
+
+    # The retired requirement leaves a record without publishing why.
+    assert "REQ-LOG-RETAIN-01" in published
+    assert "REQ-DATA-REST-01" in published
+    for name in written:
+        assert (out / name).read_text(encoding="utf-8").endswith("\n")
+
+
+@pytest.mark.parametrize("url", [
+    # A presigned URL is the single most damaging value this boundary could
+    # carry: the signature is the credential.
+    "https://downloads.example.com/report?X-Amz-Credential=AKIA&X-Amz-Signature=abc",
+    "https://10.0.1.5/admin",
+    "https://[fd00::1]/",
+    "http://localhost:8080/health",
+    "https://acme-prod.example.com",                        # a tenant on a custom domain
+    "https://git.example.com/security/payment-platform.git",
+    "https://acme.slack.com/archives/C012SECRET",
+    "https://acme.atlassian.net/browse/PRODSEC-142",         # names an internal project
+    "https://deploy-token@example.com/repo",
+    "https://csrc.nist.gov.evil.com/x",                      # a citation host as a prefix
+])
+def test_an_address_this_tool_does_not_recognise_is_a_disclosure(url):
+    """For one review cycle this rule flagged every URL, then flagged none, and
+    the second was worse. Removing it was meant to stop rejecting citations and
+    it made every value on this list publishable, presigned URLs included.
+
+    The burden runs the other way: publication is irreversible, so an address
+    the tool does not recognise is a disclosure until someone deliberately adds
+    its host to CITATION_HOSTS. Citation intent cannot be read off a URL's
+    shape; it can be read off its origin."""
+    findings = [f for f in lint_mod.lint(_doc(rationale=f"see {url}"), "en", None)
+                if f.rule == "names-an-instance"]
+    assert findings, f"{url} was publishable"
+    assert findings[0].level == "ERROR"
+
+
+def test_the_citation_hosts_reach_every_authority_this_repository_cites():
+    """The allowlist is the whole of this rule's permissiveness, so it has to
+    hold the places this repository points a reader at -- an author citing the
+    standard an overlay is built on must not be blocked by the overlay's own
+    linter -- and nothing more.
+
+    `structured_from` is excluded on purpose. The ISMS-P clause structure was
+    taken from a third-party dataset on GitHub, and that is provenance, not
+    authority. Putting github.com on the list to satisfy this test would make
+    `https://github.com/acme-internal/payment-platform` publishable, which names
+    an internal project as plainly as an ARN names a bucket."""
+    import yaml as _yaml
+    citation_fields = ("text", "document_library", "reference", "retrieved_from",
+                       "structure_from")
+    checked = 0
+    for meta_path in sorted((REPO_ROOT / "overlays").glob("*/meta.yaml")):
+        source = (_yaml.safe_load(meta_path.read_text(encoding="utf-8")) or {}).get("source") or {}
+        for field in citation_fields:
+            value = source.get(field)
+            if not isinstance(value, str):
+                continue
+            for url in re.findall(r"https?://[^\s\)]+", value):
+                # The HIPAA source is an API template with a {date} placeholder.
+                url = url.replace("{date}", "2026-01-01")
+                assert lint_mod.url_problem(url) is None, (
+                    f"{meta_path.parent.name}.source.{field} cites {url}, which this "
+                    f"repository's own linter would refuse to let an author repeat")
+                checked += 1
+    assert checked >= 5, f"only {checked} authority links checked; the test found too few"
+
+
+def test_a_requirement_that_traces_to_nothing_does_not_publish():
+    """Traceability is what this document claims, so a requirement citing no
+    control, no threat, and giving no reason should not reach a reader.
+
+    A written rationale counts. Demanding an identifier from an author whose
+    requirement came from a contract or a business rule is the pressure that
+    produces invented identifiers -- the failure this whole repository is built
+    around -- so the escape is to say why, not to make something up."""
+    nothing = _doc(sources=[], threat_refs=[], rationale="")
+    findings = [f for f in lint_mod.lint(nothing, "en", None) if f.rule == "no-basis"]
+    assert findings and findings[0].level == "ERROR"
+    assert "do not invent an identifier" in findings[0].message
+
+    reasoned = _doc(sources=[], threat_refs=[],
+                    rationale="The processing agreement with the client requires it.")
+    findings = [f for f in lint_mod.lint(reasoned, "en", None) if f.rule == "no-basis"]
+    assert findings and findings[0].level == "WARN", \
+        "a stated reason is a basis a reader can evaluate, even without a control"
+
+    cited = _doc(sources=["SC-28"])
+    assert not [f for f in lint_mod.lint(cited, "en", None) if f.rule == "no-basis"]
 
 
 def test_the_golden_cases_still_span_the_scale():
