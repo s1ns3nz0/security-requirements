@@ -158,11 +158,13 @@ buckets, hosts, repositories, and paths. Name the *kind* of thing:
 |---|---|
 | `arn:aws:s3:::acme-prod-customer-data` | `the bucket holding customer exports` |
 | `https://wiki.internal/soc2` | `the provider's SOC 2 report` |
+| `vault-01.corp` | `the secrets service` |
 | `/etc/app/config.yaml` | `the application's configuration file` |
-| `10.0.4.12` | `the load balancer` |
 
 A requirement that names a kind of thing also survives the next redeployment,
 which is the same reason the style guide asks for properties rather than
-products. The linter warns on the five forms that cannot be a kind of thing --
-an ARN, a URL, an IP address, an absolute path, an internal hostname -- and
-cannot judge the rest.
+products. The linter warns on the three forms that cannot be anything but one particular
+thing -- an ARN, a URL, an internal hostname. It does not judge the rest: a
+dotted quad is as likely to be a version or a certificate policy OID as an
+address, and a path often names a kind of file. The last two rows of the table
+above are style, not something the tool can check for you.

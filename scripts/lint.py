@@ -268,10 +268,15 @@ def script_of(text: str) -> str | None:
 INSTANCE_FORMS = (
     (re.compile(r"\barn:[a-z0-9-]*:"), "an ARN"),
     (re.compile(r"https?://"), "a URL"),
-    (re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b"), "an IP address"),
-    (re.compile(r"(?:^|\s)/(?:etc|var|home|Users|opt|srv)/"), "an absolute path"),
     (re.compile(r"\b[a-z0-9-]+\.(?:internal|local|corp|intranet)\b"), "an internal hostname"),
 )
+# Two more were here and are gone. A dotted quad matches an IP address and also
+# matches an agent version (1.24.3.1) and a certificate policy OID
+# (2.16.840.1); an absolute path matches /etc/app/config.yaml, which names a
+# kind of file rather than one particular one. Half the probe set was a false
+# positive, which is the mistake this file has been correcting all day -- a
+# shape inferred to be a meaning. Three forms remain because none of them can
+# be anything but one particular thing.
 
 
 def check_public_safety(req_id: str, managed: dict) -> list[Finding]:

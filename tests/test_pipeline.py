@@ -5242,8 +5242,8 @@ def test_a_pipe_in_a_field_does_not_break_the_table():
 
 @pytest.mark.parametrize("field,value,what", [
     ("evidence", "https://wiki.internal/soc2", "a URL"),
-    ("csp_part", "Terminates TLS at 10.0.4.12", "an IP address"),
-    ("team_part", "Sets it in /etc/app/config.yaml", "an absolute path"),
+    ("evidence", "arn:aws:kms:eu-west-1:123:key/abc", "an ARN"),
+    ("csp_part", "Reached at vault-01.corp", "an internal hostname"),
 ])
 def test_a_published_field_naming_one_particular_thing_is_flagged(field, value, what):
     """These fields reach docs/security/ verbatim. Sanitising `human` closed one
@@ -5252,10 +5252,11 @@ def test_a_published_field_naming_one_particular_thing_is_flagged(field, value, 
     paths. Naming one particular resource answers "where the data lives", which
     the README puts on the internal side.
 
-    Five forms only -- an ARN, a URL, an IP, an absolute path, an internal
-    hostname. Not a judgement about meaning: this repository has been wrong
-    every time it inferred meaning from shape, and these five cannot be a kind
-    of thing.
+    Three forms only. An IP pattern and an absolute-path pattern were here and
+    are gone: a dotted quad is also an agent version and a certificate policy
+    OID, and /etc/app/config.yaml names a kind of file. Half the probe set was
+    a false positive, which is the mistake this file has spent the day
+    correcting -- a shape inferred to be a meaning.
     """
     findings = lint_mod.lint(_doc(**{field: value}), "en", None)
     named = [f for f in findings if f.rule == "names-an-instance"]
@@ -5277,3 +5278,17 @@ def test_a_verification_target_naming_a_resource_type_is_left_alone():
                                   "target": "arn:aws:s3:::acme-prod-customer-data",
                                   "expect": "sse_algorithm is aws:kms"})
     assert [f for f in lint_mod.lint(instance, "en", None) if f.rule == "names-an-instance"]
+
+
+@pytest.mark.parametrize("value", [
+    "Requires the agent at version 1.24.3.1 or later",
+    "Uses certificate policy 2.16.840.1",
+    "Sets it in /etc/app/config.yaml",
+    "Reads storage/raft/max_entry_size",
+])
+def test_a_shape_that_is_not_an_instance_is_left_alone(value):
+    """The first version of this rule flagged an agent version and a
+    certificate policy OID as IP addresses, and a path naming a kind of file as
+    an instance. Half its probe set was a false positive."""
+    assert not [f for f in lint_mod.lint(_doc(team_part=value), "en", None)
+                if f.rule == "names-an-instance"], value
