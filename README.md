@@ -141,3 +141,16 @@ Apache-2.0 for the code. Bundled reference data keeps its own terms — see
 
 This tool produces drafts. It is not legal advice and does not substitute for
 compliance certification.
+
+## Measuring coverage
+
+A large part of the suite exercises the command line through subprocess, and
+without `COVERAGE_PROCESS_START` the report counts none of it — several scripts
+read as barely tested while their CLIs are covered end to end. Measured wrongly,
+the number sends the next round of work at the wrong file.
+
+```
+COVERAGE_PROCESS_START=$PWD/.coveragerc PYTHONPATH=$PWD \
+  python3 -m coverage run -m pytest tests/ -q
+python3 -m coverage combine && python3 -m coverage report
+```

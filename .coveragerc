@@ -1,0 +1,9 @@
+# Subprocess coverage. A large part of this suite exercises the command line
+# through subprocess, and without this the report counts none of it -- merge.py
+# and eval_golden.py read as barely tested while their CLIs are covered end to
+# end. A number that understates what is tested is worse than no number: it
+# sends the next round of work at the wrong file.
+[run]
+source = scripts
+parallel = true
+concurrency = multiprocessing

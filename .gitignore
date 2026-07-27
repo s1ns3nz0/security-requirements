@@ -11,3 +11,4 @@ __pycache__/
 # Coverage measurement output, not part of the repository.
 .coverage
 htmlcov/
+.coverage.*
