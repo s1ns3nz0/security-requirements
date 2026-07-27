@@ -5377,3 +5377,49 @@ def test_a_golden_case_that_can_be_scored_is_scored(tmp_path):
     assert _run_cli("eval_golden.py", str(GOLDEN), str(doc)).returncode == 0
     assert _run_cli("lint.py", str(doc), "--strict").returncode == 0, \
         "and it passes the check the documented build now runs before publishing"
+
+
+def test_every_count_the_documentation_claims_is_the_count_that_is_there():
+    """Two of these had drifted: the README named four baselines after a fifth
+    was added, and five deployment models when there are seven. A front page is
+    the first thing anyone believes, and nothing was checking it."""
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    catalog = REPO_ROOT / "catalogs" / "nist-800-53r5"
+
+    controls = {json.loads(line)["id"] for path in catalog.glob("*.jsonl")
+                for line in path.read_text(encoding="utf-8").splitlines() if line.strip()}
+    assert f"{len(controls):,} controls across {len(list(catalog.glob('*.jsonl')))} families" in readme
+
+    baselines = json.loads((catalog / "baselines.json").read_text(encoding="utf-8"))
+    for name in baselines:
+        assert name.capitalize() in readme or name.upper() in readme or name in readme, \
+            f"the {name} set is not mentioned on the front page"
+
+    csf = REPO_ROOT / "catalogs" / "csf-2.0"
+    subs = sum(1 for line in (csf / "subcategories.jsonl").read_text(encoding="utf-8").splitlines()
+               if line.strip())
+    cats = len(json.loads((csf / "categories.json").read_text(encoding="utf-8")))
+    assert f"{subs} subcategories under {cats} categories" in readme
+
+    asvs = REPO_ROOT / "catalogs" / "asvs-5"
+    reqs = sum(1 for path in asvs.glob("*.jsonl")
+               for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+    assert f"{reqs} requirements across {len(list(asvs.glob('*.jsonl')))} chapters" in readme
+
+    import yaml as _yaml
+    layers = _yaml.safe_load((REPO_ROOT / "responsibility" / "layers.yaml").read_text(encoding="utf-8"))
+    words = {5: "five", 6: "six", 7: "seven", 8: "eight"}
+    assert f"{words[len(layers['deployment_models'])]} deployment models" in readme
+
+    services = sorted(p.stem for p in (REPO_ROOT / "responsibility" / "services").glob("*.yaml"))
+    aws = [s for s in services if s.startswith("aws-")]
+    assert f"{words.get(len(aws), len(aws)).capitalize() if len(aws) != 10 else 'Ten'} AWS services" in readme
+
+    for overlay in sorted((REPO_ROOT / "overlays").iterdir()):
+        meta_path = overlay / "meta.yaml"
+        if not meta_path.exists():
+            continue
+        criteria = sum(1 for line in (overlay / "criteria.jsonl").read_text(encoding="utf-8").splitlines()
+                       if line.strip())
+        declared = _yaml.safe_load(meta_path.read_text(encoding="utf-8")).get("criteria_count")
+        assert criteria == declared, f"{overlay.name}: {criteria} on disk, {declared} declared"

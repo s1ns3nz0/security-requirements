@@ -102,11 +102,11 @@ and better for being read.
 
 | Catalog | Contents | Licence |
 |---|---|---|
-| NIST SP 800-53 Rev 5 | 1,196 controls across 20 families; Low, Moderate, High, Privacy baselines | US Government work, public domain |
+| NIST SP 800-53 Rev 5 | 1,196 controls across 20 families; Low, Moderate, High and Privacy baselines, plus the PM family as a programme layer that no baseline selects | US Government work, public domain |
 | NIST CSF 2.0 | 106 subcategories under 22 categories | US Government work, public domain |
 | OWASP ASVS 5.0 | 345 requirements across 17 chapters, with levels | CC BY-SA 4.0, isolated in its own directory |
 | Data type classification | Impact contribution per data type, with jurisdiction-gated regulatory triggers | Apache-2.0 |
-| Responsibility layers | Family defaults and control overrides for five deployment models | Apache-2.0 |
+| Responsibility layers | Family defaults and control overrides for seven deployment models | Apache-2.0 |
 | Service curation | Ten AWS services, Azure Blob, GKE | Apache-2.0 |
 | ISMS-P overlay | 101 certification criteria with an authored control mapping | Korean notice, outside copyright (Article 7) |
 | HIPAA overlay | 22 standards and 46 implementation specifications, rebuildable from the eCFR API | US Government work, public domain |
@@ -123,7 +123,7 @@ summarised in our own words with links, never reproduced.
 
 ```
 python3 scripts/rebuild_catalogs.py     # rebuild every catalog from upstream
-python3 -m pytest tests/                # deterministic layer, 461 tests
+python3 -m pytest tests/                # deterministic layer, 462 tests
 python3 scripts/eval_golden.py golden/b2b-saas-aws requirements.yaml
 ```
 
