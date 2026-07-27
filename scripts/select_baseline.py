@@ -512,7 +512,31 @@ REGION_COUNTRY = {
     "europe-west1": "BE", "europe-west3": "DE",
 }
 
-EU_LIKE = {"EU", "EEA", "DE", "FR", "IE", "NL", "ES", "IT", "SE", "PL", "BE"}
+# The European Economic Area, in full. Written as a partial list it reported
+# storage in Austria, Finland, or Estonia as an offshore transfer away from EU
+# users -- the opposite of the free movement the Regulation establishes, and a
+# requirement the reader would have spent money on.
+EEA = {
+    "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR",
+    "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK",
+    "SI", "ES", "SE",                      # the twenty-seven
+    "IS", "LI", "NO",                      # and the three EFTA members
+}
+# The two placeholders a profile may write instead of naming a member state.
+EU_LIKE = EEA | {"EU", "EEA"}
+
+# Countries this tool will accept as a storage location. Deliberately a set
+# rather than a shape test: `len(region) == 2 and region.isalpha()` turned "AP"
+# -- an Asia Pacific abbreviation, not a country -- into a definite country, and
+# turned an undetermined location into a positive transfer finding. Guessing in
+# the direction of a finding is the failure this repository exists to prevent.
+COUNTRY_CODES = EEA | {
+    "GB", "CH", "US", "CA", "MX", "BR", "AR", "CL",
+    "KR", "JP", "CN", "TW", "HK", "SG", "MY", "TH", "VN", "ID", "PH", "IN",
+    "AU", "NZ", "ZA", "NG", "KE", "EG", "IL", "AE", "SA", "TR", "UA", "RU",
+}
+# Spellings people use for a country the standard codes something else.
+COUNTRY_ALIASES = {"UK": "GB", "EL": "GR"}
 
 
 def applies_in_jurisdiction(spec: dict, user_regions: set[str]) -> bool:
@@ -554,20 +578,32 @@ def detect_cross_border(profile: dict, user_regions: set[str]) -> dict | None:
     # "not in the region map" and switched cross-border detection off. Every
     # on-premise profile tested hit it.
     country = REGION_COUNTRY.get(region)
-    if not country and len(region) == 2 and region.isalpha():
-        country = region.upper()
+    if not country:
+        candidate = COUNTRY_ALIASES.get(region.upper(), region.upper())
+        if candidate in COUNTRY_CODES:
+            country = candidate
     if not country:
         return {"storage_region": region, "storage_country": None,
                 "user_regions": sorted(user_regions), "undetermined": True}
-    resident = country in user_regions or (country in EU_LIKE and EU_LIKE & user_regions)
-    if resident and len(user_regions) == 1:
+    # Storage inside the EEA is not a transfer for a user anywhere else in it.
+    # Computed per user region rather than against the storage country alone:
+    # with storage in Germany and users in France and Japan, only Japan is on
+    # the far side of a border that matters, and the first version reported
+    # France as well.
+    def offshore(user_region: str) -> bool:
+        if user_region == country:
+            return False
+        return not (country in EEA and user_region in EU_LIKE)
+
+    offshore_for = sorted(r for r in user_regions if offshore(r))
+    if not offshore_for:
         return None
     return {
         "storage_region": region,
         "storage_country": country,
         "user_regions": sorted(user_regions),
         "undetermined": False,
-        "offshore_for": sorted(r for r in user_regions if r != country),
+        "offshore_for": offshore_for,
     }
 
 
@@ -820,19 +856,16 @@ def run(profile: dict) -> dict:
     # data types -- and an elective regime has no data type to route from. That
     # is what elective means. The eighth field found in this repository that was
     # gathered, written down, and read by nobody.
-    stated = " ".join(str(x).lower()
-                      for x in (profile.get("declared") or {}).get("regulations_declared") or [])
+    stated = (profile.get("declared") or {}).get("regulations_declared") or []
     if stated:
+        import apply_overlay  # the matcher lives with the thing it matches
         for overlay_dir in sorted((REPO_ROOT / "overlays").iterdir()):
             meta_path = overlay_dir / "meta.yaml"
             if not meta_path.exists():
                 continue
             meta = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
-            elective = meta.get("elective")
-            if not elective:
-                continue
-            aliases = [a.lower() for a in elective.get("aliases") or [meta["id"]]]
-            if any(a in stated for a in aliases) and meta["id"] not in {o["id"] for o in overlays}:
+            if apply_overlay.elective_declared(meta, stated) and \
+                    meta["id"] not in {o["id"] for o in overlays}:
                 overlays.append({"id": meta["id"], "trigger": "declared",
                                  "label": meta.get("name", meta["id"])})
 

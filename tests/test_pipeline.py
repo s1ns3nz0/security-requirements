@@ -2727,3 +2727,85 @@ def test_a_declared_certification_reaches_the_overlays_that_apply():
 
     # Not named, not listed -- an elective regime is a choice, not a default.
     assert not ({"soc2", "iso-27001"} & set(sb.run(_onprem())["applicable_overlays"]))
+
+
+def _stored_in(region, users):
+    profile = _onprem(user_regions=users)
+    profile["inferred"]["region_storage"] = region
+    return sb.run(profile)["cross_border"]
+
+
+def test_a_two_letter_word_is_not_a_country():
+    """`len(region) == 2 and region.isalpha()` turned shape into fact.
+
+    "AP" is an Asia Pacific abbreviation and became a country; "EU" and "EEA"
+    are not countries at all. Each one turned an undetermined location into a
+    positive transfer finding, which is guessing in the direction of telling
+    someone to spend money.
+    """
+    for not_a_country in ("AP", "EU", "EEA", "XX", "ZZ"):
+        result = _stored_in(not_a_country, ["JP"])
+        assert result["undetermined"] is True, not_a_country
+
+    # A country is read as one, and a spelling the standard codes differently
+    # is translated rather than refused.
+    assert _stored_in("KR", ["JP"])["storage_country"] == "KR"
+    assert _stored_in("UK", ["DE"])["storage_country"] == "GB"
+
+    # Cloud region codes still resolve through the map they were written for.
+    assert _stored_in("ap-northeast-2", ["JP"])["storage_country"] == "KR"
+
+
+def test_storage_inside_the_eea_is_not_a_transfer_within_it():
+    """The member list was partial, so storage in Austria, Finland, or Estonia
+    was reported as an offshore transfer away from EU users -- the opposite of
+    the free movement the Regulation establishes, and a requirement the reader
+    would have spent money on."""
+    for member in ("AT", "FI", "EE", "PT", "LT", "IS", "NO"):
+        assert _stored_in(member, ["EU"]) is None, member
+
+    # Per user region, not against the storage country alone: with storage in
+    # Germany and users in France and Japan, only Japan is across a border that
+    # matters. The first version reported France as well.
+    mixed = _stored_in("DE", ["FR", "JP"])
+    assert mixed["offshore_for"] == ["JP"]
+
+    # And leaving the area is still a transfer.
+    assert _stored_in("US", ["DE", "GB"])["offshore_for"] == ["DE", "GB"]
+
+
+@pytest.mark.parametrize("declaration,expected", [
+    ("ISO/IEC 27001", {"iso-27001"}),
+    ("ISO 27001 certified", {"iso-27001"}),
+    ("SOC 2 Type II required by our customers", {"soc2"}),
+    ("Trust Services Criteria", {"soc2"}),
+    ("ISMS-P", set()),                        # a different regime with its own overlay
+    ("not SOC 2", set()),
+    ("we are not ISO 27001 certified", set()),
+    ("aicpa unrelated thing", set()),         # the organisation is not the standard
+])
+def test_a_declaration_names_one_regime(declaration, expected):
+    """Substring matching read "ISMS-P" as a declaration of ISO 27001, because
+    its alias list contained "isms" -- the generic term for an information
+    security management system. It read "not SOC 2" as a declaration of SOC 2.
+    People write down what they are not doing as often as what they are.
+    """
+    profile = _onprem(regulations_declared=[declaration])
+    assert set(sb.run(profile)["applicable_overlays"]) == expected
+
+
+def test_the_declaration_matcher_exists_once():
+    """It existed twice, in select_baseline and in apply_overlay, and agreed
+    only because one was copied from the other. Asserted behaviourally: both
+    entry points have to give the same answer on the cases that separated
+    them."""
+    for declaration, expected in (("ISMS-P", False), ("not SOC 2", False),
+                                  ("ISO/IEC 27001", True)):
+        profile = _onprem(regulations_declared=[declaration])
+        via_derivation = "iso-27001" in sb.run(profile)["applicable_overlays"] or \
+                         "soc2" in sb.run(profile)["applicable_overlays"]
+        via_overlay = any(
+            overlay_mod.applies(overlay_mod.load(oid), profile)[0]
+            for oid in ("iso-27001", "soc2"))
+        assert via_derivation is expected, declaration
+        assert via_overlay is expected, declaration

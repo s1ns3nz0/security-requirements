@@ -46,7 +46,11 @@ applies_when: {}
 # be examined. Applying it to every profile would make it noise, so it is
 # matched against what the interview recorded instead.
 elective:
-  aliases: ["soc 2", "soc2", "soc-2", "trust services", "aicpa"]
+  # No bare "aicpa". The AICPA publishes a great deal besides the Trust Services
+  # Criteria, so the organisation's name is not a declaration of this regime --
+  # it matched "aicpa unrelated thing". Same reasoning removed "isms" from ISO
+  # 27001, where it was reading Korean ISMS-P declarations.
+  aliases: ["soc 2", "soc2", "soc-2", "trust services"]
 
 baseline_effect: {}
 

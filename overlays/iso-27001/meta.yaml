@@ -36,7 +36,11 @@ framing: >-
 
 # Nothing in the data triggers certification -- an organisation chooses it.
 elective:
-  aliases: ["iso 27001", "iso27001", "iso/iec 27001", "isms", "27001"]
+  # "isms" is gone deliberately. It is the generic term for an information
+  # security management system, and ISMS-P is a different regime with its own
+  # overlay here -- so a profile declaring ISMS-P was being told ISO 27001
+  # applied to it.
+  aliases: ["iso 27001", "iso27001", "iso/iec 27001", "27001"]
 
 applies_when: {}
 

@@ -116,6 +116,46 @@ def _personal_types(declared_ids: set[str]) -> set[str]:
     return declared_ids & flagged
 
 
+# A declaration that says the regime does NOT apply is not a declaration of it.
+_NEGATIONS = {"not", "no", "without", "none", "n", "never", "excluded", "exempt"}
+
+
+def elective_declared(meta: dict, declared: list | None) -> bool:
+    """Whether the profile names this elective regime.
+
+    One matcher, because there were two and they were a copied rule -- the
+    defect class this repository keeps finding.
+
+    Whole words, per declaration. Substring matching read "ISMS-P" as a
+    declaration of ISO 27001 -- whose alias list contained "isms" -- and "not
+    SOC 2" as a declaration of SOC 2. The first was fixed by removing the alias,
+    because "isms" is the generic term for an information security management
+    system and ISMS-P is a different regime with an overlay of its own here. The
+    second needs the negation check below: people write down what they are not
+    doing as often as what they are.
+
+    Free text around the name is fine and expected -- "SOC 2 Type II required by
+    our customers" is a declaration. What is not fine is a generic word standing
+    in for the standard, so the alias lists carry no bare organisation names.
+    """
+    elective = meta.get("elective")
+    if not elective:
+        return False
+    aliases = [re.sub(r"[^a-z0-9]+", " ", a.lower()).split()
+               for a in elective.get("aliases") or [meta["id"]]]
+    for stated in declared or []:
+        words = re.sub(r"[^a-z0-9]+", " ", str(stated).lower()).split()
+        if _NEGATIONS & set(words):
+            continue
+        for alias in aliases:
+            if not alias:
+                continue
+            for i in range(len(words) - len(alias) + 1):
+                if words[i:i + len(alias)] == alias:
+                    return True
+    return False
+
+
 def applies(overlay: dict, profile: dict, derived: dict | None = None) -> tuple[bool, str, dict]:
     """Whether the overlay applies, and at which certification scope.
 
@@ -133,11 +173,8 @@ def applies(overlay: dict, profile: dict, derived: dict | None = None) -> tuple[
     # organisation chooses to be certified. Applying those to every profile
     # makes them noise, so they are matched against what the interview recorded
     # rather than against what the service holds.
-    elective = meta.get("elective")
-    if elective:
-        aliases = [a.lower() for a in elective.get("aliases") or [meta["id"]]]
-        stated = " ".join(str(x).lower() for x in declared.get("regulations_declared") or [])
-        if not any(a in stated for a in aliases):
+    if meta.get("elective"):
+        if not elective_declared(meta, declared.get("regulations_declared")):
             return False, (f"{meta['name']} is elective and was not named in the profile "
                            f"(declared.regulations_declared)"), {}
         elective_reason = "named in the profile as a certification the organisation is pursuing"
