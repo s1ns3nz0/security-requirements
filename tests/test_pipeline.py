@@ -1405,16 +1405,71 @@ def test_privacy_baseline_is_resolved_for_personal_data(profile):
     assert sb.run(no_personal)["privacy_baseline_applies"] is False
 
 
-def test_an_overlay_sees_the_privacy_baseline(profile):
+def test_the_derivation_carries_every_layer_it_selected(profile):
     """Judging a privacy regime against the security baseline alone reports the
-    tool's own blind spot as the service's gap."""
-    loaded = overlay_mod.load("gdpr")
+    tool's own blind spot as the service's gap.
+
+    The first version of this test passed the privacy set to the overlay by
+    hand, which proved the overlay could use it and hid the fact that nothing
+    else did. The derivation computed the privacy and programme layers, printed
+    their sizes, and then published the impact baseline alone -- so the whole PT
+    family reached no responsibility split, no merge, and no overlay. What has
+    to hold is that the derived list itself carries them.
+    """
     derived = sb.run(profile)
-    without = overlay_mod.evaluate(loaded, derived["controls"])
-    with_privacy = overlay_mod.evaluate(
-        loaded, derived["controls"], privacy_controls=derived["privacy_controls"])
-    assert len(with_privacy["covered"]) > len(without["covered"])
-    assert len(with_privacy["uncovered"]) < len(without["uncovered"])
+    controls = set(derived["controls"])
+    assert set(derived["privacy_controls"]) <= controls
+    assert set(derived["program_controls"]) <= controls
+    assert any(c.startswith("PT-") for c in controls), \
+        "the privacy families must reach the derived list, not just its console summary"
+
+    # And the count must keep naming what it names: the impact baseline it was
+    # always the size of, not the union it now sits beside.
+    baselines = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" /
+                            "baselines.json").read_text(encoding="utf-8"))
+    impact = set(baselines[derived["baseline"].replace("nist-800-53b-", "")])
+    assert derived["control_count"] == len(impact) - len(derived["controls_unavailable"])
+    assert derived["control_count"] < len(derived["controls"])
+
+
+def test_broad_coverage_is_reported_as_uninformative(profile):
+    """A count that approaches the total has stopped discriminating.
+
+    With the privacy and programme layers reaching the derivation, HIPAA reads
+    68 of 68 and ISO 11 of 11. Both are true under the definition of "reached"
+    -- every mapped control was selected -- and both read as compliance to any
+    person who sees them. A disclaimer at the foot of the page does not survive
+    a number like that, so the saturation is stated where the number is.
+    """
+    derived = sb.run(profile)
+    result = overlay_mod.evaluate(overlay_mod.load("hipaa-security-rule"),
+                                  derived["controls"], profile=profile)
+    assert len(result["covered"]) / result["clause_count"] >= 0.85
+    rendered = overlay_mod.render(result, "test")
+    assert "carry no information about the service" in rendered
+    assert "fully covered" not in rendered
+
+    # The warning has to precede the number it warns about. The first version
+    # said "READ THIS BEFORE THE NUMBERS ABOVE" from below them.
+    lines = rendered.splitlines()
+    warning_at = next(i for i, l in enumerate(lines) if "Before the counts" in l)
+    count_at = next(i for i, l in enumerate(lines) if "reached by the derived" in l)
+    assert warning_at < count_at
+
+
+def test_clauses_no_delivery_team_control_touches_are_named(profile):
+    """What restores the discrimination the headline count lost.
+
+    A clause reached only through PM-1 and PS-3 is not a clause this repository
+    can close, and saying so is worth more than the count it sits under.
+    """
+    derived = sb.run(profile)
+    result = overlay_mod.evaluate(overlay_mod.load("hipaa-security-rule"), derived["controls"])
+    org_only = {row["clause"] for row in result["org_only"]}
+    assert org_only, "some administrative safeguards must land outside the team's reach"
+    assert org_only <= {row["clause"] for row in result["covered"]}
+    assert "164.308(a)(2)" in org_only     # assigned security responsibility
+    assert "cannot be closed inside this repository" in overlay_mod.render(result, "test")
 
 
 def test_gdpr_is_mostly_unmappable_and_that_is_the_finding():
@@ -1608,15 +1663,36 @@ def test_iso_states_what_is_actually_certified(profile):
     assert rendered.index("Certification is against") < rendered.index("reached by the derived")
 
 
-def test_management_system_clauses_fall_outside_a_security_baseline(profile):
-    """SP 800-53B allocates the PM family to no security baseline, so the ISO
-    clauses report as unreached. That is the finding, not a defect: a derivation
-    does not build a management system."""
+def test_management_system_clauses_are_outside_the_delivery_teams_reach(profile):
+    """A derivation does not build a management system.
+
+    This used to be visible as ISO's clauses reporting unreached, because the PM
+    family sat in no baseline the tool resolved. That was a gap in the tool
+    standing in for a true statement -- and when the programme layer was added
+    the clauses flipped to reached, which said the opposite. The finding is
+    unchanged and now has to be asserted where it actually lives: every ISO
+    management-system clause is reached only through controls the organisation
+    owns.
+    """
     loaded = overlay_mod.load("iso-27001")
     derived = sb.run(profile)
     result = overlay_mod.evaluate(loaded, derived["controls"])
-    unreached = {r["clause"] for r in result["uncovered"]} | {r["clause"] for r in result["partial"]}
-    assert any(c.startswith("Clause") for c in unreached)
+    org_only = {r["clause"] for r in result["org_only"]}
+    clauses = {r["clause"] for r in result["covered"] + result["partial"] + result["uncovered"]
+               if r["clause"].startswith("Clause")}
+    assert clauses, "the management-system clauses must be present"
+
+    # Context, leadership, planning, support, and improvement: nothing a
+    # delivery team builds reaches any of them.
+    assert {"Clause 4", "Clause 5", "Clause 6", "Clause 7", "Clause 10"} <= org_only
+
+    # Operation and performance evaluation are the two that are not, and the
+    # reason is worth keeping: both are reached partly through CA-7, continuous
+    # monitoring, which genuinely has a team half. Asserting all seven would
+    # have been a tidier line and a false one.
+    assert not ({"Clause 8", "Clause 9"} & org_only)
+    assert "CA-7" in {c for r in result["covered"] + result["partial"]
+                      if r["clause"] in ("Clause 8", "Clause 9") for c in r["controls"]}
 
 
 def test_overlays_pass_the_validator():
@@ -1631,18 +1707,87 @@ def test_overlays_pass_the_validator():
 
 
 def test_unreachable_clauses_are_not_reported_as_gaps(profile):
-    """PM-1 and PM-2 are in no baseline this tool resolves, so the leadership
-    clauses of three regimes can never report as reached. Listing them beside
-    the clauses a service simply has not covered puts a property of the tool
-    into the reader's gap list."""
+    """A clause the tool cannot reach must not sit in the reader's gap list.
+
+    The five real cases were all PM controls -- a security programme plan, a
+    designated officer, risk-management leadership -- which SP 800-53B assigns
+    to no impact baseline because the family is implemented once for the
+    organisation. Those are now resolved as a programme layer, so the bucket is
+    empty against the shipped overlays and the mechanism has to be exercised
+    directly. It still matters: any future mapping may cite a control that no
+    baseline selects, and the difference between "this service has not done it"
+    and "this tool cannot see it" is the difference between a finding and a
+    defect.
+    """
     derived = sb.run(profile)
-    result = overlay_mod.evaluate(overlay_mod.load("pipa-isms-p"), derived["controls"])
+    loaded = overlay_mod.load("pipa-isms-p")
+
+    baselines = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" /
+                            "baselines.json").read_text(encoding="utf-8"))
+    in_any = set().union(*baselines.values())
+    catalog_ids = {json.loads(line)["id"]
+                   for line in (REPO_ROOT / "catalogs" / "nist-800-53r5" /
+                                "AC.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()}
+    orphan = sorted(catalog_ids - in_any)[0]
+
+    loaded = copy.deepcopy(loaded)
+    target = loaded["mappings"][0]
+    target["controls"] = [orphan]
+    target["standalone"] = False
+
+    result = overlay_mod.evaluate(loaded, derived["controls"])
     unreachable = {r["clause"] for r in result["unreachable"]}
-    assert {"1.1.1", "2.1.2"} <= unreachable
+    assert target["clause"] in unreachable
     assert not (unreachable & {r["clause"] for r in result["uncovered"]})
 
     rendered = overlay_mod.render(result, "test")
     assert "can never report as reached" in rendered
+
+
+def test_the_programme_layer_is_selected_at_every_impact_level(profile):
+    """SP 800-53B assigns no PM control to Low, Moderate, or High.
+
+    Read as "four baselines and nothing else", thirteen PM controls sat in the
+    catalogue unreachable by any derivation, and five compliance clauses that
+    map to them were permanently unreportable -- reported as tool advisories,
+    which reads as a mapping error rather than a missing layer.
+    """
+    baselines = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" /
+                            "baselines.json").read_text(encoding="utf-8"))
+    for impact in ("low", "moderate", "high"):
+        assert not [c for c in baselines[impact] if c.startswith("PM-")], \
+            f"{impact} baseline should carry no PM control"
+    assert {"PM-1", "PM-2", "PM-29"} <= set(baselines["program"])
+
+    # Enhancements are tailored, not automatic, and NIST shows this in its own
+    # privacy baseline: PM-5(1) and PM-20(1) are selected there, PM-7(1),
+    # PM-16(1), and PM-30(1) nowhere. Selecting all five unconditionally would
+    # be this tool prescribing where the publication tailors.
+    assert not [c for c in baselines["program"] if "(" in c]
+
+    # It has to hold at every level, including the one where nothing else does.
+    low = copy.deepcopy(profile)
+    low["declared"]["data_types"] = [{"id": "public_content"}]
+    for candidate in (profile, low):
+        result = sb.run(candidate)
+        assert set(baselines["program"]) <= set(result["controls"]), \
+            "the programme layer must reach the derived list, not only its own key"
+
+
+def test_the_programme_layer_lands_on_the_organisation(profile):
+    """Thirty-two organisational controls folded into a team's list would bury
+    the ones that are the team's. Asserted against what the classifier actually
+    produces, not against the layer file it reads."""
+    baselines = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" /
+                            "baselines.json").read_text(encoding="utf-8"))
+    derived = sb.run(profile)
+    result = classify_resp.classify(profile, derived["controls"])
+    program = set(baselines["program"])
+    landed = {e["control"]: e["responsibility"] for e in result["controls"]
+              if e["control"] in program}
+    assert landed, "the programme controls must reach the classifier"
+    assert set(landed.values()) == {"org"}, \
+        f"programme controls must not become team work: {sorted(set(landed.values()))}"
 
 
 @pytest.mark.parametrize("overlay_id", ALL_OVERLAYS)
@@ -1957,3 +2102,114 @@ def test_gdpr_still_declines_where_nothing_personal_is_declared():
     }
     result = sb.run(profile)
     assert "gdpr" not in {o["id"] for o in result["overlay_triggers"]}
+
+
+# --- the command line, not the functions behind it ---------------------------
+#
+# `evaluate()` lost a parameter it no longer needed and `main()` kept passing
+# it. Every overlay run from the command line raised TypeError, and the whole
+# suite stayed green, because two hundred and fifty tests called `evaluate()`
+# directly and not one of them ran the command a person runs. A signature is
+# not an interface.
+
+@pytest.fixture(scope="module")
+def cli_workspace(tmp_path_factory, profile):
+    """A derivation on disk, the way each command actually receives one."""
+    work = tmp_path_factory.mktemp("cli")
+    profile_path = work / "profile.yaml"
+    profile_path.write_text(yaml.safe_dump(profile, allow_unicode=True), encoding="utf-8")
+    controls_path = work / "controls.json"
+
+    r = _run_cli("select_baseline.py", str(profile_path), "--json", str(controls_path))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert controls_path.exists()
+    return work, profile_path, controls_path
+
+
+def _run_cli(script, *args):
+    import subprocess
+    return subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / script), *args],
+                          capture_output=True, text=True)
+
+
+def test_select_baseline_runs_from_the_command_line(cli_workspace):
+    work, profile_path, _ = cli_workspace
+    r = _run_cli("select_baseline.py", str(profile_path))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "Impact derivation" in r.stdout
+
+
+def test_classify_resp_runs_from_the_command_line(cli_workspace):
+    work, profile_path, controls_path = cli_workspace
+    r = _run_cli("classify_resp.py", str(profile_path), str(controls_path))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "team implements" in r.stdout
+
+
+@pytest.mark.parametrize("overlay_id", ALL_OVERLAYS)
+def test_every_overlay_runs_from_the_command_line(overlay_id, cli_workspace):
+    """--force, so that a decline does not stand in for a working command."""
+    work, profile_path, controls_path = cli_workspace
+    out = work / f"{overlay_id}.json"
+    r = _run_cli("apply_overlay.py", overlay_id, str(profile_path), str(controls_path),
+                 "--force", "--json", str(out))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "clauses" in r.stdout
+    assert json.loads(out.read_text(encoding="utf-8"))["clause_count"] > 0
+
+
+def test_merge_runs_from_the_command_line(cli_workspace):
+    work, profile_path, controls_path = cli_workspace
+    resp = work / "resp.json"
+    r = _run_cli("classify_resp.py", str(profile_path), str(controls_path), "--json", str(resp))
+    assert r.returncode == 0, r.stdout + r.stderr
+
+    threats = work / "threats.yaml"
+    threats.write_text(yaml.safe_dump({"version": "0.1.0", "threats": []}), encoding="utf-8")
+    r = _run_cli("merge.py", "--cross", "--controls", str(controls_path),
+                 "--responsibility", str(resp), "--threats", str(threats),
+                 "--out", str(work / "cross.json"))
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_a_shared_hint_over_an_all_organisational_mapping_must_be_explained(tmp_path):
+    """The guard that stops resolving an advisory and hiding it being one edit.
+
+    `shared` is the honest answer where a regime's obligation has an
+    organisational half and a system half -- and it is also the value that
+    silences the team-versus-layer advisory. Where the whole mapping still
+    resolves away from the team, it has to say which half is the team's.
+
+    The scope is deliberate, and it was questioned in review: adding one
+    team-layer or shared-layer control to the mapping does make the check stop
+    firing. That is not a loophole, it is the condition being satisfied. The
+    note exists to identify the team's half; a mapped control the layer already
+    assigns to the team identifies it without prose.
+    """
+    import shutil
+    import validate_overlays as vo
+
+    work = tmp_path / "overlays"
+    shutil.copytree(REPO_ROOT / "overlays", work)
+
+    target = work / "gdpr" / "mappings.jsonl"
+    rows = [json.loads(l) for l in target.read_text(encoding="utf-8").splitlines() if l.strip()]
+    for row in rows:
+        if row["clause"] == "Art. 15":
+            row.pop("responsibility_note", None)
+    target.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n",
+                      encoding="utf-8")
+
+    original_overlays, original_root = overlay_mod.OVERLAYS, vo.REPO_ROOT
+    try:
+        overlay_mod.OVERLAYS = work
+        vo.REPO_ROOT = tmp_path
+        errors = []
+        vo.print = lambda *a, **k: errors.append(" ".join(str(x) for x in a))  # type: ignore[attr-defined]
+        code = vo.main([])
+    finally:
+        overlay_mod.OVERLAYS, vo.REPO_ROOT = original_overlays, original_root
+        del vo.print
+
+    assert code == 1
+    assert any("Art. 15" in line and "responsibility_note" in line for line in errors), errors

@@ -534,10 +534,19 @@ def run(profile: dict) -> dict:
                 triggers.append(name)
         triggers = sorted(set(triggers))
     privacy_controls, privacy_unavailable = ([], [])
+    baselines = json.loads((CATALOG_DIR / "baselines.json").read_text(encoding="utf-8"))
     if personal:
-        baselines = json.loads((CATALOG_DIR / "baselines.json").read_text(encoding="utf-8"))
         for control_id in baselines["privacy"]:
             (privacy_controls if control_id in catalog else privacy_unavailable).append(control_id)
+
+    # The programme layer applies to every derivation, at every impact level,
+    # because SP 800-53B assigns the PM family to no baseline: it is
+    # implemented once for the organisation rather than per system. It is kept
+    # out of the baseline count deliberately -- these are not requirements the
+    # delivery team takes on, and folding thirty-seven of them into a team's
+    # list would bury the ones that are.
+    program_controls = [c for c in baselines["program"] if c in catalog]
+    program_unavailable = [c for c in baselines["program"] if c not in catalog]
 
     trigger_specs = types_table.get("regulatory_triggers", {})
     user_regions = {r.upper() for r in (profile.get("declared") or {}).get("user_regions", []) or []}
@@ -592,6 +601,24 @@ def run(profile: dict) -> dict:
                     "intellectual property. Add the intended_public modifier, or say why the "
                     "published code is not the asset being protected.")
 
+    # The union of the three layers, not the impact baseline alone. Written as
+    # the baseline alone, the other two were computed, printed, and then
+    # dropped: a service processing EU users' personal data was told "Privacy
+    # baseline: 96 controls" while the fifty-three privacy-only controls -- the
+    # whole PT family among them -- never reached the responsibility split, the
+    # merge, or any overlay. `control_count` below stays the impact baseline's
+    # own count, because that is what it names.
+    #
+    # Built by appending rather than by sorting a set: set iteration order is
+    # not stable across runs, and an unstable control order would make two
+    # derivations of the same profile diff against each other.
+    derived_controls = [c["id"] for c in controls]
+    seen = set(derived_controls)
+    for control_id in privacy_controls + program_controls:
+        if control_id not in seen:
+            seen.add(control_id)
+            derived_controls.append(control_id)
+
     shape = detect_shape(profile)
 
     return {
@@ -608,10 +635,19 @@ def run(profile: dict) -> dict:
         "applicable_overlays": sorted({o["id"] for o in overlays}),
         "overlay_triggers": overlays,
         "cross_border": cross_border,
-        "controls": [c["id"] for c in controls],
+        # The union, not the impact baseline alone. Written as the baseline
+        # alone, the two other layers were computed, printed, and then dropped:
+        # a service processing EU users' personal data was told "Privacy
+        # baseline: 96 controls" while the fifty-three privacy-only controls --
+        # the whole PT family among them -- never reached the responsibility
+        # split, the merge, or any overlay. `control_count` below stays the
+        # impact baseline's own count, because that is what it names.
+        "controls": derived_controls,
         "privacy_controls": privacy_controls,
         "privacy_baseline_applies": bool(personal),
         "personal_data_types": personal,
+        "program_controls": program_controls,
+        "program_unavailable": program_unavailable,
         "controls_unavailable": unavailable,
         "control_count": len(controls),
     }
@@ -664,6 +700,10 @@ def render_gate(result: dict) -> str:
     if result.get("privacy_baseline_applies"):
         out.append(f"  Privacy baseline: {len(result['privacy_controls'])} controls "
                    f"(personal data declared: {', '.join(result['personal_data_types'])})")
+
+    if result.get("program_controls"):
+        out.append(f"  Programme layer:  {len(result['program_controls'])} controls "
+                   f"(PM family -- organisational, selected at every impact level)")
 
     shape = result.get("shape", {})
     if shape.get("shape") == "service_assumed":

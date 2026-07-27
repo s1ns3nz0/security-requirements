@@ -487,11 +487,14 @@ def build_nist(src_dir: Path | None, wanted: set[str] | None) -> int:
     global_params = build_global_params(catalog)
 
     counts = {}
+    program_records: list[dict] = []
     for group in catalog["groups"]:
         family = group["id"]
         if wanted and family not in wanted:
             continue
         records = list(walk_controls(group.get("controls", []), family, global_params))
+        if family.upper() == "PM":
+            program_records = records
         path = OUT_DIR / f"{family.upper()}.jsonl"
         with path.open("w", encoding="utf-8") as fh:
             for record in records:
@@ -503,6 +506,49 @@ def build_nist(src_dir: Path | None, wanted: set[str] | None) -> int:
     for name, filename in BASELINE_FILES.items():
         baselines[name] = parse_baseline(load_json(filename, src_dir))
         print(f"  baseline {name:<9} {len(baselines[name]):>4} controls", file=sys.stderr)
+
+    # The fifth set is not a baseline and is not read from one. SP 800-53B
+    # assigns no PM control to Low, Moderate, or High: the family is
+    # implemented at the organisation level, independently of any system's
+    # categorisation, and only a privacy-relevant subset appears in the privacy
+    # baseline. Written the other way -- four baselines and nothing else --
+    # thirteen PM controls existed in the catalogue and could never be
+    # selected, so five compliance clauses that legitimately map to them (a
+    # security programme plan, a designated security officer, risk-management
+    # leadership) were permanently unreportable. They were showing as tool
+    # advisories, which reads as a mapping error rather than a missing layer.
+    # Base controls only. SP 800-53B allocates no PM control to an impact
+    # baseline, which is what makes the family organisation-wide -- but it does
+    # not follow that every enhancement applies to every organisation, and NIST
+    # demonstrates the opposite in its own privacy baseline, which selects
+    # PM-5(1) and PM-20(1) and leaves PM-7(1), PM-16(1), and PM-30(1) out.
+    # Selecting all five unconditionally would have been this tool prescribing
+    # where the publication tailors. The enhancements remain in the catalogue,
+    # and the ones NIST does select still arrive through the privacy layer.
+    program = sorted(
+        {record["id"] for record in program_records if "(" not in record["id"]},
+        key=lambda cid: int(cid.split("-")[1]),
+    )
+    # A partial rebuild (--families sc, say) never walks PM, and carrying the set
+    # forward from the file on disk is right there. The condition is that PM was
+    # *skipped*, not merely that the set came out empty: written the second way,
+    # a rebuild that did walk PM and extracted nothing would republish the stale
+    # file and report success, which is the failure mode the assertion exists to
+    # catch.
+    pm_was_skipped = bool(wanted) and "pm" not in {w.lower() for w in wanted}
+    if pm_was_skipped and (OUT_DIR / "PM.jsonl").exists():
+        program = sorted(
+            {json.loads(line)["id"]
+             for line in (OUT_DIR / "PM.jsonl").read_text(encoding="utf-8").splitlines()
+             if line.strip() and "(" not in json.loads(line)["id"]},
+            key=lambda cid: int(cid.split("-")[1]),
+        )
+    if not program:
+        raise SystemExit("PM family produced no controls; the extraction is wrong")
+    baselines["program"] = program
+    print(f"  program set     {len(program):>4} controls (PM family, baseline-independent)",
+          file=sys.stderr)
+
     (OUT_DIR / "baselines.json").write_text(
         json.dumps(baselines, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )

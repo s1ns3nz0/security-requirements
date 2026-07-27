@@ -202,6 +202,23 @@ def resolve_layer(control_id: str, layers: dict, deployment_model: str | None) -
     return None, None
 
 
+def apply_no_provider_rule(responsibility: str, csp: str | None) -> str:
+    """Collapse the two-party outcomes when there is no second party.
+
+    Extracted so that it is a rule rather than a line inside one function.
+    Anything that reasons about who owns a control -- the overlay report's
+    org_only bucket among them -- has to apply it, or it will tell a
+    self-hosted service that a provider owns something no provider is running.
+    """
+    if csp is not None:
+        return responsibility
+    if responsibility == "csp_claimed":
+        return "org"
+    if responsibility == "shared":
+        return "team"
+    return responsibility
+
+
 def classify(profile: dict, controls: list[str]) -> dict:
     profile, _ = normalise(profile)
     layers = yaml.safe_load(LAYERS.read_text(encoding="utf-8"))
@@ -264,8 +281,9 @@ def classify(profile: dict, controls: list[str]) -> dict:
         # fifteen controls assigned to a provider that does not exist. The
         # shared half survived, and a self-hosted Kubernetes profile carried
         # forty-eight controls shared with nobody.
-        if csp is None and entry["responsibility"] in ("csp_claimed", "shared"):
-            entry["responsibility"] = "org" if entry["responsibility"] == "csp_claimed" else "team"
+        without_provider = apply_no_provider_rule(entry["responsibility"], csp)
+        if without_provider != entry["responsibility"]:
+            entry["responsibility"] = without_provider
             entry["source"] = f"{entry['source']}+no-csp"
 
         results.append(entry)

@@ -23,6 +23,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import apply_overlay as ov  # noqa: E402
+import classify_resp  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BASELINES = REPO_ROOT / "catalogs" / "nist-800-53r5" / "baselines.json"
@@ -36,19 +37,17 @@ def overlay_ids() -> list[str]:
 
 
 def layer_of(control: str, layers: dict) -> str | None:
-    overrides = layers.get("control_overrides") or {}
-    if control in overrides:
-        return overrides[control]
-    base = control.split("(")[0]
-    if base in overrides:
-        return overrides[base]
-    return (layers.get("family_defaults") or {}).get(control.split("-")[0])
+    """Delegates. This used to be a third hand-written copy of the resolution
+    order, and it had already drifted: it knew nothing of the deployment-model
+    overrides, so a control the real classifier moves under Kubernetes resolved
+    here to whatever the family default said."""
+    return classify_resp.resolve_layer(control, layers, None)[0]
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--strict", action="store_true")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     baselines = json.loads(BASELINES.read_text(encoding="utf-8"))
     in_any = set().union(*baselines.values())
@@ -97,12 +96,26 @@ def main() -> int:
             # The regime expects the delivery team to own something the
             # responsibility layer assigns to the organisation. Neither is
             # necessarily wrong; the disagreement is worth seeing.
-            if m.get("responsibility_hint") == "team" and m["controls"]:
+            #
+            # `shared` is often the honest answer to that disagreement -- and it
+            # is also the edit that makes the advisory go away. Where the whole
+            # mapping still resolves to the organisation, a shared hint has to
+            # say which half is whose, or resolving the advisory and hiding it
+            # are the same keystroke. Where the mapping reaches the team on its
+            # own, `shared` is an ordinary value and needs no defence.
+            if m["controls"]:
                 resolved = {layer_of(c, layers) for c in m["controls"]}
-                if resolved and resolved <= {"org", "csp_claimed"}:
+                org_only = bool(resolved) and resolved <= {"org", "csp_claimed"}
+                hint = m.get("responsibility_hint")
+                if org_only and hint == "team":
                     advisories.append(
                         f"{oid} {m['clause']}: overlay says the team owns this, the layer "
                         f"resolves every mapped control to {'/'.join(sorted(resolved))}")
+                elif org_only and hint == "shared" and not (m.get("responsibility_note") or "").strip():
+                    errors.append(
+                        f"{oid} {m['clause']}: hint is shared and every mapped control "
+                        f"resolves to {'/'.join(sorted(resolved))}, but no "
+                        f"responsibility_note says which half is the team's")
 
     for line in errors:
         print(f"  ERROR  {line}")

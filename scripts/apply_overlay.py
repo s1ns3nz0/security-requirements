@@ -31,6 +31,8 @@ import yaml
 from profile_schema import normalise
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import classify_resp  # noqa: E402
 OVERLAYS = REPO_ROOT / "overlays"
 CATALOG_DIR = REPO_ROOT / "catalogs" / "nist-800-53r5"
 
@@ -71,6 +73,32 @@ def load(overlay_id: str) -> dict:
     unmapped = sorted(set(criteria) - {m["clause"] for m in mappings})
     if unmapped:
         raise OverlayError(f"overlay {overlay_id!r} leaves clauses unmapped: {', '.join(unmapped)}")
+
+    # criteria_count is the published shape of the regime -- 46 GDPR articles in
+    # Chapters II to V, 68 HIPAA specifications, 101 ISMS-P criteria. Declared
+    # and never checked, it was a number that could drift away from the files
+    # beside it and still be printed in a compliance document.
+    declared_count = meta.get("criteria_count")
+    if declared_count is not None and declared_count != len(criteria):
+        raise OverlayError(
+            f"overlay {overlay_id!r} declares criteria_count {declared_count} "
+            f"but criteria.jsonl holds {len(criteria)}. One of them is wrong, and "
+            f"the declared number is the one that reaches the reader."
+        )
+
+    # baseline_effect names a power the machinery does not have. Every overlay
+    # declares it empty and one of them explains why -- the Regulation does not
+    # itself raise the FIPS 199 categorisation -- which is worth keeping. What is
+    # not acceptable is that a future overlay could write {raise_to: high} here
+    # and have it silently ignored, so a value that means something is refused
+    # rather than dropped.
+    if meta.get("baseline_effect"):
+        raise OverlayError(
+            f"overlay {overlay_id!r} sets baseline_effect {meta['baseline_effect']!r}, "
+            f"but nothing applies it: no regime yet needed to move the FIPS 199 "
+            f"categorisation, so the machinery was never built. Implement it, or "
+            f"state the effect in the framing where a reader will see it."
+        )
 
     return {"id": overlay_id, "meta": meta, "criteria": criteria, "mappings": mappings}
 
@@ -209,12 +237,49 @@ def all_baseline_controls() -> set[str]:
     return set().union(*json.loads(path.read_text(encoding="utf-8")).values())
 
 
+_LAYERS_CACHE: dict | None = None
+
+
+def _layer_of(control_id: str, deployment_model: str | None, csp: str | None) -> str | None:
+    """Which party owns a control, resolved the way the classifier resolves it.
+
+    The first version of this function was a third hand-written copy of the
+    resolution order -- after classify_resp and validate_overlays -- and it was
+    wrong in two ways the copies could not help being wrong in: it ignored the
+    deployment-model overrides, and it ignored the rule that collapses
+    csp_claimed and shared when the profile names no provider. On a self-hosted
+    profile that made it report clauses as the provider's when there is no
+    provider. It now delegates, and the deployment model and provider have to be
+    passed in rather than assumed away.
+    """
+    global _LAYERS_CACHE
+    if _LAYERS_CACHE is None:
+        import yaml
+        _LAYERS_CACHE = yaml.safe_load(
+            (REPO_ROOT / "responsibility" / "layers.yaml").read_text(encoding="utf-8"))
+    resolved = classify_resp.resolve_layer(control_id, _LAYERS_CACHE, deployment_model)[0]
+    if resolved is None:
+        return None
+    return classify_resp.apply_no_provider_rule(resolved, csp)
+
+
 def evaluate(overlay: dict, derived_controls: list[str], scope: dict | None = None,
-             privacy_controls: list[str] | None = None) -> dict:
-    # The privacy baseline counts as derived. Judging a privacy regime only
-    # against the security baseline reports its own blind spot as the service's
-    # gap.
-    baseline = set(derived_controls) | set(privacy_controls or [])
+             profile: dict | None = None) -> dict:
+    # The privacy baseline counts as derived, and so does the programme layer.
+    # Both used to be passed in separately here, which proved this function
+    # could use them and concealed that nothing else did: the derivation
+    # published the impact baseline alone. They are now part of the derived list
+    # itself, and the second route is gone rather than left to drift out of step
+    # with the first.
+    baseline = set(derived_controls)
+
+    # Who owns a control depends on how the service is deployed and on whether
+    # there is a provider at all. Passing None for both -- which is what an
+    # overlay run without a profile does -- resolves to the family defaults,
+    # which is the same answer this file used to hard-code.
+    inferred = (profile or {}).get("inferred") or {}
+    deployment_model = inferred.get("deployment_model")
+    csp, _, _ = classify_resp.resolve_csp(inferred.get("csp")) if profile else (None, [], "none")
     areas = (scope or {}).get("areas")
     criteria = overlay["criteria"]
     # A clause whose every control sits outside all four baselines can never be
@@ -257,6 +322,21 @@ def evaluate(overlay: dict, derived_controls: list[str], scope: dict | None = No
         "clause_count": len(covered) + len(partial) + len(uncovered)
                         + len(unreachable) + len(standalone),
         "covered": covered,
+        # Of the clauses the report says are reached, the ones no delivery-team
+        # control touches. Once the derived set grew broad enough that almost
+        # every clause reads as reached, this is what restores the
+        # discrimination the headline count lost: a clause reached only through
+        # PM-1 and PS-3 is not a clause this repository can close.
+        #
+        # Partly-reached clauses are included. Leaving them out was an oversight
+        # with a direction to it: a clause reached only through organisational
+        # controls, some of them outside the baseline, is *more* clearly outside
+        # the team's reach, not less.
+        "org_only": [{**row, "layer": "csp_claimed" if "csp_claimed" in layers else "org"}
+                     for row, layers in (
+                         (r, {_layer_of(c, deployment_model, csp) for c in r["controls"]})
+                         for r in covered + partial if r["controls"])
+                     if layers <= {"org", "csp_claimed"}],
         "partial": partial,
         "uncovered": uncovered,
         "unreachable": unreachable,
@@ -305,7 +385,30 @@ def render(result: dict, reason: str) -> str:
             if sentence:
                 out.append(f"  {sentence}")
         out.append("")
-    reached = "reached by the derived baseline" if coarse else "fully covered by the derived baseline"
+    # "covered" was always defined as "every control this repository maps to the
+    # clause is in the derived requirement set" -- a statement about the mapping
+    # and the baseline, not about the service. That was legible while the set was
+    # a single impact baseline. Once the privacy and programme layers reached the
+    # derivation as well, HIPAA read 68 of 68 and ISO 11 of 11, and no disclaimer
+    # survives a number like that. The word has to carry its own definition.
+    # A count that approaches the total has stopped discriminating. It says the
+    # derived set is broad, which is a property of SP 800-53 and of this
+    # service's categorisation, and says nothing about whether anything is
+    # implemented. The first version of this warning printed below the table and
+    # opened "READ THIS BEFORE THE NUMBERS ABOVE", which is an instruction a
+    # page cannot give: by then the number has been read. It goes first.
+    total = result["clause_count"] or 1
+    if (len(result["covered"]) + len(result["partial"])) / total >= 0.85:
+        out += ["  Before the counts: nearly every clause below is reached, which is what",
+                "  a broad control set does, not what a compliant service looks like.",
+                "  Reached means the controls this repository maps to the clause were",
+                "  selected -- not written, not built, not assessed. At this density the",
+                "  counts carry no information about the service. The rows further down",
+                "  do: the clauses nothing reaches, and the clauses no delivery-team",
+                "  control touches.",
+                ""]
+
+    reached = "reached by the derived requirement set"
     out.append(f"  {len(result['covered']):>4}  {reached}")
     out.append(f"  {len(result['partial']):>4}  partly {'reached' if coarse else 'covered'} -- some mapped controls are outside it")
     out.append(f"  {len(result['uncovered']):>4}  mapped, but no mapped control is in the baseline")
@@ -315,6 +418,19 @@ def render(result: dict, reason: str) -> str:
     out.append(f"  {len(result['standalone']):>4}  no control expresses them at all")
     out.append(f"  {'-' * 4}")
     out.append(f"  {result['clause_count']:>4}  clauses")
+
+    if result.get("org_only"):
+        owners = ("the organisation or the provider owns"
+                  if any(r.get("layer") == "csp_claimed" for r in result["org_only"])
+                  else "the organisation owns")
+        out += ["",
+                f"  {len(result['org_only'])} of the reached clauses are reached only through controls",
+                f"  {owners}. Nothing the delivery team builds touches",
+                "  them, so they cannot be closed inside this repository:"]
+        for row in result["org_only"][:12]:
+            out.append(f"  ~ {row['clause']}  {row['title'][:56]}")
+        if len(result["org_only"]) > 12:
+            out.append(f"  ~ ... and {len(result['org_only']) - 12} more")
 
     if result["standalone"]:
         out += ["", "Clauses the derivation cannot produce -- these are the audit surprises:"]
@@ -350,7 +466,6 @@ def main() -> int:
     profile, _ = normalise(yaml.safe_load(args.profile.read_text(encoding="utf-8")))
     derived = json.loads(args.controls.read_text(encoding="utf-8"))
     controls = derived["controls"]
-    privacy = derived.get("privacy_controls") or []
 
     try:
         overlay = load(args.overlay)
@@ -364,7 +479,7 @@ def main() -> int:
         print("Pass --force to evaluate anyway.")
         return 0
 
-    result = evaluate(overlay, controls, scope, privacy)
+    result = evaluate(overlay, controls, scope, profile)
     print(render(result, reason))
     if args.json:
         args.json.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

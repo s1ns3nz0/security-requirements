@@ -61,7 +61,7 @@
 {"clause": "2.9.4", "title": "로그 및 접속기록 관리", "controls": ["AU-2", "AU-3", "AU-11", "AU-12"], "standalone": false, "responsibility_hint": "shared", "notes": "접속기록 retention is set by PIPA's enforcement decree, not by AU-11's organisational choice."}
 {"clause": "2.9.5", "title": "로그 및 접속기록 점검", "controls": ["AU-6"], "standalone": false, "responsibility_hint": "org"}
 {"clause": "2.9.6", "title": "시간 동기화", "controls": ["AU-8"], "standalone": false, "responsibility_hint": "csp_claimed"}
-{"clause": "2.9.7", "title": "정보자산의 재사용 및 폐기", "controls": ["MP-6"], "standalone": false, "responsibility_hint": "shared"}
+{"clause": "2.9.7", "title": "정보자산의 재사용 및 폐기", "controls": ["MP-6"], "standalone": false, "responsibility_hint": "shared", "responsibility_note": "MP-6 resolves entirely to the provider because physical media sanitisation is theirs -- but that is only the disk. The team's half is the logical one and it is the half that usually fails: deleting the object is not deleting the snapshot, the backup, the replica, or the search index built from it, and where the team holds the key, destroying the key is the only erasure that covers all of them at once. A certificate of media destruction from the provider evidences none of this."}
 {"clause": "2.10.1", "title": "보안시스템 운영", "controls": ["SI-3", "SI-4"], "standalone": false, "responsibility_hint": "shared"}
 {"clause": "2.10.2", "title": "클라우드 보안", "controls": ["SA-9", "AC-20"], "standalone": false, "responsibility_hint": "shared", "notes": "Added in the 2023 revision; the shared responsibility split this tool computes is the substance of it."}
 {"clause": "2.10.3", "title": "공개서버 보안", "controls": ["SC-7", "AC-22"], "standalone": false, "responsibility_hint": "team"}
@@ -97,5 +97,5 @@
 {"clause": "3.4.1", "title": "개인정보 파기", "controls": ["MP-6", "SI-12"], "standalone": false, "responsibility_hint": "team"}
 {"clause": "3.4.2", "title": "처리목적 달성 후 보유 시 조치", "controls": ["SI-12"], "standalone": false, "responsibility_hint": "team"}
 {"clause": "3.5.1", "title": "개인정보 처리방침 공개", "controls": ["PT-5"], "standalone": false, "responsibility_hint": "org"}
-{"clause": "3.5.2", "title": "정보주체 권리보장", "controls": ["PT-6", "PM-26"], "standalone": false, "responsibility_hint": "team", "notes": "Data subject rights: access, correction, deletion, and suspension of processing."}
+{"clause": "3.5.2", "title": "정보주체 권리보장", "controls": ["PT-6", "PM-26"], "standalone": false, "responsibility_hint": "shared", "notes": "Data subject rights: access, correction, deletion, and suspension of processing.", "responsibility_note": "PT-6 and PM-26 are the organisation's notice and complaint handling. Access, correction, deletion, and suspension of processing are capabilities the system must have, and the catalogue has no control for them."}
 {"clause": "3.5.3", "title": "정보주체에 대한 통지", "controls": ["PT-5"], "standalone": false, "responsibility_hint": "org"}
