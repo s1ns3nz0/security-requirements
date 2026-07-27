@@ -4687,9 +4687,13 @@ def test_a_build_does_not_inherit_the_previous_build_s_failures(tmp_path, monkey
     -- which is the tell."""
     rebuild_mod.UNRESOLVED.add("left-over-from-somewhere")
 
+    # The parameter carries a shape param_label does not handle, so the build
+    # must fail on *this* build's finding. The first version of this fixture used
+    # a valid label, so it could not have noticed that the clear ran after
+    # build_global_params had already recorded the real ones and wiped them.
     catalog = {"catalog": {"groups": [{"id": "zz", "controls": [
-        {"id": "zz-1", "title": "Fine",
-         "params": [{"id": "zz-1_odp.01", "label": "a documented period"}],
+        {"id": "zz-1", "title": "Unhandled",
+         "params": [{"id": "zz-1_odp.01", "unheard-of-shape": {"x": 1}}],
          "parts": [{"name": "statement", "prose": "Do it {{ insert: param, zz-1_odp.01 }}."}]}]}]}}
     source = tmp_path / "src"
     source.mkdir()
@@ -4698,13 +4702,19 @@ def test_a_build_does_not_inherit_the_previous_build_s_failures(tmp_path, monkey
         (source / name).write_text(json.dumps({"profile": {"imports": []}}), encoding="utf-8")
     monkeypatch.setattr(rebuild_mod, "OUT_DIR", tmp_path / "out")
 
-    # The synthetic release has no PM family, so the build fails later on for a
-    # different and correct reason. What matters here is that it did not fail on
-    # the leftover, and that the leftover is gone.
+    # It fails on the unlabelled parameter, which is this build's own finding.
+    # What this can check is that the leftover is gone and the real finding is
+    # not: it cannot distinguish where in build_nist the clear runs, because a
+    # full build visits every parameter twice -- once building the global map
+    # and once per control -- so a clear placed between them is repopulated.
+    # The position still matters for a partial rebuild, where the second visit
+    # never happens for a skipped family; that is reasoning recorded against the
+    # source, not something asserted here.
     with pytest.raises(SystemExit) as exc:
         rebuild_mod.build_nist(source, {"zz"})
-    assert "left-over-from-somewhere" not in str(exc.value)
-    assert not rebuild_mod.UNRESOLVED
+    message = str(exc.value)
+    assert "left-over-from-somewhere" not in message, "the previous build's failure is gone"
+    assert "zz-1_odp.01" in message, "and this build's own finding survived the clear"
 
 
 def test_a_requirement_cannot_claim_a_threat_that_is_not_in_the_model():
@@ -4750,18 +4760,16 @@ def test_nothing_from_the_human_record_reaches_the_published_file():
     for private in ("Jane Park", "CISO", "vendor", "cannot support"):
         assert private not in published, private
 
-    # What a reader outside does need: that an exception exists, and when it
-    # lapses. A date is not a person.
-    assert "An exception is recorded" in published
-    assert "2027-01-31" in published
-    assert "held in the internal record" in published
+    # Nor the expiry. Review made the case and it holds: "an exception is
+    # recorded, expiring 2027-01-31" is a control gap and the date it closes,
+    # which is the reconnaissance value the README names when it says accepted
+    # risks and their dates are why the internal file is not publishable.
+    assert "2027-01-31" not in published
+    assert "exception" not in published.lower()
 
-    # And an exception with no expiry says so rather than inventing one.
-    no_expiry, _, _ = _documents([
-        _req("REQ-E-F-01", human={"status": "accepted_risk",
-                                  "exception": {"approver": "someone"}})])
-    assert "no expiry date" in no_expiry
-    assert "someone" not in no_expiry
+    # The status alone is published, which says the requirement is not met
+    # without saying for how much longer.
+    assert "accepted_risk" in published
 
 
 def test_no_free_text_from_the_human_block_appears_in_any_published_document():
@@ -4795,11 +4803,19 @@ def test_no_free_text_from_the_human_block_appears_in_any_published_document():
     for document in documents:
         assert marker not in document, document[:400]
 
-    # The facts a reader outside does need are still there.
-    published = documents[0]
+    # An absence test passes when the renderer stops rendering anything, so
+    # each document has to be asserted to still say what it is for.
+    published, trace, resp = documents
     assert "accepted_risk" in published
-    assert "2027-01-31" in published
-    assert "held in the internal record" in published
+    assert "2027-01-31" not in published, "the exposure window is not published either"
+    assert "REQ-A-B-01" in published and "REQ-C-D-01" in published
+
+    assert "| SC-28 |" in trace and "REQ-A-B-01" in trace
+    assert "Protection of Information at Rest" in trace
+
+    assert "REQ-A-B-01" in resp
+    assert "Data at rest must be encrypted" in resp
+    assert "team implements" in resp
 
 
 def test_a_nested_assignment_is_a_second_decision_not_an_artefact():

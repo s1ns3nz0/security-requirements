@@ -538,16 +538,20 @@ def build_asvs(source_dir: Path | None) -> dict:
 # --------------------------------------------------------------------------
 
 def build_nist(src_dir: Path | None, wanted: set[str] | None) -> int:
+    # First line. Cleared here rather than by the caller, so a second build in
+    # one process does not inherit the first's failures -- and before anything
+    # can populate it, because build_global_params calls param_label and the
+    # first version of this cleared the set *after* that. On a full rebuild the
+    # per-control pass repopulates it, so nothing was observably lost; on a
+    # partial rebuild the skipped families are visited once and only once, and
+    # their findings went with the clear.
+    UNRESOLVED.clear()
+
     print("Rebuilding NIST SP 800-53 Rev 5 catalog", file=sys.stderr)
     catalog = load_json(CATALOG_FILE, src_dir)["catalog"]
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     global_params = build_global_params(catalog)
-
-    # Cleared here rather than by the caller. A second build in one process
-    # otherwise inherits the first one's failures and refuses for a reason that
-    # is no longer true.
-    UNRESOLVED.clear()
 
     counts = {}
     extracted: dict[str, list[dict]] = {}

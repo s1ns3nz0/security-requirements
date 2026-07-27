@@ -182,7 +182,15 @@ def render_requirements(doc: dict, titles: dict, meta: dict) -> str:
 
             if human.get("status") and human["status"] != "active":
                 out.append(f"> Status: **{human['status']}**")
-                exception = human.get("exception") or {}
+                # Nothing about the exception. Review said the sanitised line
+                # still crossed the boundary and it is right: "an exception is
+                # recorded, expiring 2027-01-31" is a control gap and the date
+                # it closes, which is the reconnaissance value the README names
+                # when it says accepted risks and their dates are why
+                # .security-requirements/ is not publishable. The status alone
+                # says the requirement is not met; when that stops being true
+                # belongs with the people who decided it.
+                exception = None
                 if exception:
                     # The approver's name, the reason, and the vendor named in
                     # it belong to the internal record. This file is what leaves
