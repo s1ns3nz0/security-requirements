@@ -5423,3 +5423,24 @@ def test_every_count_the_documentation_claims_is_the_count_that_is_there():
                        if line.strip())
         declared = _yaml.safe_load(meta_path.read_text(encoding="utf-8")).get("criteria_count")
         assert criteria == declared, f"{overlay.name}: {criteria} on disk, {declared} declared"
+
+
+def test_the_test_count_on_the_front_page_is_the_test_count():
+    """Self-referential and deliberately brittle. Adding a test fails this one
+    until the README is updated, which is a line of maintenance in exchange for
+    a number on the front page that is true. Leaving a knowingly-drifting figure
+    beside a commit about drift would be the sort of thing this repository
+    spends its time finding."""
+    import re as _re
+    import subprocess
+    collected = subprocess.run(
+        [sys.executable, "-m", "pytest", str(REPO_ROOT / "tests"), "-q", "--collect-only"],
+        capture_output=True, text=True, cwd=str(REPO_ROOT))
+    match = _re.search(r"(\d+) tests? collected", collected.stdout)
+    assert match, collected.stdout[-400:]
+
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    claimed = _re.search(r"deterministic layer, ([\d,]+) tests", readme)
+    assert claimed, "the README states a test count"
+    assert int(claimed.group(1).replace(",", "")) == int(match.group(1)), \
+        f"README says {claimed.group(1)}, the suite collects {match.group(1)}"
