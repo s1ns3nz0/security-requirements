@@ -76,11 +76,27 @@ def load_catalog_ids() -> set[str]:
 # the field -- so a threat carrying a sentence where an enum belongs was quietly
 # treated as generic and its controls stayed at medium. The author had written
 # the most specific thing in the document.
-NOVELTY_VALUES = {"service_specific", "generic", "unknown"}
+# Two values, as the authoring contract states. "unknown" was added here and
+# is in no document -- it would have fallen to medium priority with no
+# diagnostic, which is the ambiguity this check exists to remove.
+NOVELTY_VALUES = {"service_specific", "generic"}
+
+def _known_data_types() -> set[str]:
+    """Every data type the classification table defines."""
+    import yaml
+    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+                            "classification.yaml").read_text(encoding="utf-8"))
+    return {t["id"] for t in table["types"]}
+
 
 def cross(controls_doc: dict, responsibility_doc: dict, threats_doc: dict) -> dict:
     baseline = set(controls_doc["controls"])
-    declared_types = set(controls_doc.get("declared_data_types") or [])
+    # None means the derivation did not publish the field -- an older artefact --
+    # and an empty set means the profile declared nothing. Collapsing them made
+    # the check vanish exactly where it could not be performed, silently.
+    declared_raw = controls_doc.get("declared_data_types")
+    declared_types = None if declared_raw is None else set(declared_raw)
+    known_data_types = _known_data_types()
     resp = {entry["control"]: entry for entry in responsibility_doc["controls"]}
     threats = threats_doc.get("threats", []) or []
     catalog = load_catalog_ids()
@@ -108,44 +124,53 @@ def cross(controls_doc: dict, responsibility_doc: dict, threats_doc: dict) -> di
         # reported rather than quietly promoted.
         novelty = threat.get("novelty")
         if novelty is None:
-            problems.append(
+            problems.append({"kind": "schema", "message":
                 f"{threat_id}: no novelty. The threat-modelling schema lists it as "
                 f"required, and its absence reads exactly like `generic` -- so a "
                 f"service-specific risk keeps its controls at medium priority and "
-                f"nothing says why.")
+                f"nothing says why."})
         elif novelty not in NOVELTY_VALUES:
-            problems.append(
+            problems.append({"kind": "schema", "message":
                 f"{threat_id}: novelty {novelty!r} is not one of "
                 f"{', '.join(sorted(NOVELTY_VALUES))}. It decides whether this threat "
                 f"raises its controls to high priority, and an unrecognised value is "
-                f"read as generic -- put the reasoning in `scenario` and the verdict here.")
+                f"read as generic -- put the reasoning in `scenario` and the verdict here."})
 
+        # Only assets the classification table knows are checked. affected_assets
+        # is not restricted to data types by the schema and should not be: a
+        # threat crossing a boundary legitimately names an identity provider, a
+        # build runner, a signing key, or a queue. What is worth reporting is the
+        # narrow case where the author wrote a data type this table defines and
+        # the profile did not declare it -- which is how the golden threat model
+        # came to name account_credentials against a profile that omits it.
         for asset in threat.get("affected_assets") or []:
-            if declared_types and asset not in declared_types:
-                problems.append(
-                    f"{threat_id}: affects {asset!r}, which the profile does not declare. "
-                    f"The threat model and the profile describe one system -- either the "
-                    f"service holds it and question one missed it, or the threat names "
-                    f"something it does not.")
+            if declared_types is None:
+                continue
+            if asset in known_data_types and asset not in declared_types:
+                problems.append({"kind": "asset", "message":
+                    f"{threat_id}: affects {asset!r}, a data type this tool classifies, "
+                    f"and the profile does not declare it. Either question one missed it "
+                    f"-- with whatever requirements it forces -- or the threat is about a "
+                    f"neighbouring system and should say so in another word."})
 
         related = threat.get("related_controls")
         if related is None:
             related = []
         elif not isinstance(related, list):
-            problems.append(f"{threat_id}: related_controls must be a list; read as one item")
+            problems.append({"kind": "schema", "message": f"{threat_id}: related_controls must be a list; read as one item"})
             related = [related]
 
         resolved = []
         for raw in related:
             if not isinstance(raw, str):
-                problems.append(f"{threat_id}: related control {raw!r} is not an identifier")
+                problems.append({"kind": "unresolved", "message": f"{threat_id}: related control {raw!r} is not an identifier"})
                 continue
             control = canonical_control(raw)
             if not CONTROL_RE.match(control):
-                problems.append(f"{threat_id}: {raw!r} is not a control identifier")
+                problems.append({"kind": "unresolved", "message": f"{threat_id}: {raw!r} is not a control identifier"})
                 continue
             if catalog and control not in catalog:
-                problems.append(f"{threat_id}: {control} does not exist in the catalog")
+                problems.append({"kind": "unresolved", "message": f"{threat_id}: {control} does not exist in the catalog"})
                 continue
             resolved.append(control)
 
@@ -239,11 +264,25 @@ def cross(controls_doc: dict, responsibility_doc: dict, threats_doc: dict) -> di
 def render_cross(result: dict) -> str:
     counts = result["counts"]
     out = ["Baseline x threat model", ""]
-    if result.get("problems"):
+    unresolved = [p for p in result.get("problems") or [] if p.get("kind") == "unresolved"]
+    other = [p for p in result.get("problems") or [] if p.get("kind") != "unresolved"]
+    if unresolved:
         out += ["  UNRESOLVED references in the threat model -- these did NOT match a",
                 "  control, so the threats naming them were counted as threat-only.",
                 "  A mistyped identifier and a genuine gap produce the same bucket:"]
-        out += [f"    ! {p}" for p in result["problems"]]
+        for row in unresolved:
+            out.append(f"    ! {row['message']}")
+        out.append("")
+    if other:
+        # Kept apart from the unresolved list. Printed under that heading, a
+        # novelty or asset problem was announced as a reference that matched no
+        # control and a threat counted as threat-only -- neither of which had
+        # happened. The golden profile's T-08 matched AC-7 and was reported as
+        # threat-only in the same breath.
+        out += ["  Problems in the threat model itself. They do not change which",
+                "  controls matched:"]
+        for row in other:
+            out.append(f"    ? {row['message']}")
         out.append("")
     for key, label in (
         ("threat_and_baseline", "threat and baseline (raised priority)"),

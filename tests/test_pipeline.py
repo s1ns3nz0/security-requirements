@@ -870,7 +870,9 @@ def test_an_unresolvable_reference_is_reported_not_promoted():
     threats = {"threats": [{"id": "T-1", "related_controls": ["ZZ-9"]}]}
     result = merge.cross(controls, resp, threats)
     assert result["counts"].get("threat_only") == 1
-    assert any("ZZ-9" in p for p in result["problems"])
+    named = [p for p in result["problems"] if "ZZ-9" in p["message"]]
+    assert named and named[0]["kind"] == "unresolved", \
+        "a reference that matched no control is a different kind of problem from a schema slip"
 
 
 @pytest.mark.parametrize("threats,message", [
@@ -3385,17 +3387,15 @@ def test_novelty_is_a_vocabulary_not_a_sentence():
 
     prose = _crossed(profile, [_threat(novelty="no control expresses this at all",
                                        related_controls=["AC-3"])])
-    assert any("is not one of" in p for p in prose["problems"])
+    assert any("is not one of" in p for p in [x["message"] for x in prose["problems"]])
 
-    missing = _crossed(profile, [_threat(related_controls=["AC-3"])])
-    missing["problems"] = [p for p in missing["problems"] if "novelty" in p]
     absent = _crossed(profile, [{k: v for k, v in _threat(related_controls=["AC-3"]).items()
                                  if k != "novelty"}])
-    assert any("no novelty" in p for p in absent["problems"])
+    assert any("no novelty" in p for p in [x["message"] for x in absent["problems"]])
 
     # The value that means something still does.
     specific = _crossed(profile, [_threat(novelty="service_specific", related_controls=["AC-3"])])
-    assert not [p for p in specific["problems"] if "novelty" in p]
+    assert not [p for p in [x["message"] for x in specific["problems"]] if "novelty" in p]
     raised = next(i for i in specific["items"] if i["control"] == "AC-3")
     assert raised["priority"] == "high"
 
@@ -3408,7 +3408,22 @@ def test_the_threat_model_and_the_profile_are_held_against_each_other():
     declaring it would force."""
     profile = _onprem(data_types=[{"id": "internal_ops"}])
     crossed = _crossed(profile, [_threat(affected_assets=["account_credentials"])])
-    assert any("which the profile does not declare" in p for p in crossed["problems"])
+    named = [p for p in crossed["problems"] if p["kind"] == "asset"]
+    assert named and "account_credentials" in named[0]["message"]
 
     agreed = _crossed(profile, [_threat(affected_assets=["internal_ops"])])
-    assert not [p for p in agreed["problems"] if "does not declare" in p]
+    assert not [p for p in agreed["problems"] if p["kind"] == "asset"]
+
+    # A threat crossing a boundary names things that are not data types at all,
+    # and the schema never said it should not. Rejecting those made an ordinary
+    # threat model look broken.
+    neighbours = _crossed(profile, [_threat(
+        affected_assets=["upstream identity provider", "the CI runner", "a signing key"])])
+    assert not [p for p in neighbours["problems"] if p["kind"] == "asset"]
+
+    # And a problem in the threat model must never be reported as a reference
+    # that matched no control: the golden profile's T-08 matched AC-7 and was
+    # announced as threat-only in the same breath.
+    rendered = merge.render_cross(crossed)
+    assert "do not change which" in rendered
+    assert "counted as threat-only" not in rendered
