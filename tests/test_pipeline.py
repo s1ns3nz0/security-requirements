@@ -1617,3 +1617,42 @@ def test_management_system_clauses_fall_outside_a_security_baseline(profile):
     result = overlay_mod.evaluate(loaded, derived["controls"])
     unreached = {r["clause"] for r in result["uncovered"]} | {r["clause"] for r in result["partial"]}
     assert any(c.startswith("Clause") for c in unreached)
+
+
+def test_overlays_pass_the_validator():
+    """Six overlays were added in succession and each found a defect in
+    machinery written for the one before it. The structural checks run at load;
+    these are the ones needing a view across overlays and against the
+    baselines."""
+    import subprocess
+    r = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "validate_overlays.py")],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_unreachable_clauses_are_not_reported_as_gaps(profile):
+    """PM-1 and PM-2 are in no baseline this tool resolves, so the leadership
+    clauses of three regimes can never report as reached. Listing them beside
+    the clauses a service simply has not covered puts a property of the tool
+    into the reader's gap list."""
+    derived = sb.run(profile)
+    result = overlay_mod.evaluate(overlay_mod.load("pipa-isms-p"), derived["controls"])
+    unreachable = {r["clause"] for r in result["unreachable"]}
+    assert {"1.1.1", "2.1.2"} <= unreachable
+    assert not (unreachable & {r["clause"] for r in result["uncovered"]})
+
+    rendered = overlay_mod.render(result, "test")
+    assert "can never report as reached" in rendered
+
+
+@pytest.mark.parametrize("overlay_id", ALL_OVERLAYS)
+def test_clause_buckets_partition_the_overlay(overlay_id, profile):
+    """Every clause lands in exactly one bucket, or the counts do not add up to
+    what the reader is told the regime contains."""
+    derived = sb.run(profile)
+    loaded = overlay_mod.load(overlay_id)
+    result = overlay_mod.evaluate(loaded, derived["controls"])
+    buckets = ["covered", "partial", "uncovered", "unreachable", "standalone"]
+    seen = [r["clause"] for b in buckets for r in result[b]]
+    assert len(seen) == len(set(seen))
+    assert result["clause_count"] == len(seen) == len(loaded["mappings"])

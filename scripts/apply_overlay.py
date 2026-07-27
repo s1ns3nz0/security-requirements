@@ -177,6 +177,13 @@ def select_categories(selector: dict, profile: dict, derived: dict | None) -> tu
     return reason, {"scope": "+".join(chosen), "areas": chosen}
 
 
+def all_baseline_controls() -> set[str]:
+    path = CATALOG_DIR.parent / "nist-800-53r5" / "baselines.json"
+    if not path.exists():
+        return set()
+    return set().union(*json.loads(path.read_text(encoding="utf-8")).values())
+
+
 def evaluate(overlay: dict, derived_controls: list[str], scope: dict | None = None,
              privacy_controls: list[str] | None = None) -> dict:
     # The privacy baseline counts as derived. Judging a privacy regime only
@@ -185,7 +192,12 @@ def evaluate(overlay: dict, derived_controls: list[str], scope: dict | None = No
     baseline = set(derived_controls) | set(privacy_controls or [])
     areas = (scope or {}).get("areas")
     criteria = overlay["criteria"]
-    covered, partial, uncovered, standalone = [], [], [], []
+    # A clause whose every control sits outside all four baselines can never be
+    # reported as reached, whatever the service does. Reporting it beside the
+    # ones the service simply has not covered puts a property of this tool into
+    # the reader's gap list.
+    resolvable = all_baseline_controls()
+    covered, partial, uncovered, standalone, unreachable = [], [], [], [], []
 
     for m in overlay["mappings"]:
         record = criteria[m["clause"]]
@@ -201,7 +213,9 @@ def evaluate(overlay: dict, derived_controls: list[str], scope: dict | None = No
         present = [c for c in m["controls"] if c in baseline]
         row["controls_in_baseline"] = present
         row["controls_absent"] = [c for c in m["controls"] if c not in baseline]
-        if not present:
+        if not present and resolvable and not (set(m["controls"]) & resolvable):
+            unreachable.append(row)
+        elif not present:
             uncovered.append(row)
         elif row["controls_absent"]:
             partial.append(row)
@@ -215,10 +229,12 @@ def evaluate(overlay: dict, derived_controls: list[str], scope: dict | None = No
         "scope": (scope or {}).get("scope", "full"),
         "name": overlay["meta"]["name"],
         "version": overlay["meta"]["version"],
-        "clause_count": len(covered) + len(partial) + len(uncovered) + len(standalone),
+        "clause_count": len(covered) + len(partial) + len(uncovered)
+                        + len(unreachable) + len(standalone),
         "covered": covered,
         "partial": partial,
         "uncovered": uncovered,
+        "unreachable": unreachable,
         "standalone": standalone,
         "disclaimer": overlay["meta"]["disclaimer"],
     }
@@ -268,6 +284,9 @@ def render(result: dict, reason: str) -> str:
     out.append(f"  {len(result['covered']):>4}  {reached}")
     out.append(f"  {len(result['partial']):>4}  partly {'reached' if coarse else 'covered'} -- some mapped controls are outside it")
     out.append(f"  {len(result['uncovered']):>4}  mapped, but no mapped control is in the baseline")
+    if result.get("unreachable"):
+        out.append(f"  {len(result['unreachable']):>4}  mapped only to controls outside every baseline "
+                   f"this tool resolves")
     out.append(f"  {len(result['standalone']):>4}  no control expresses them at all")
     out.append(f"  {'-' * 4}")
     out.append(f"  {result['clause_count']:>4}  clauses")
@@ -278,6 +297,12 @@ def render(result: dict, reason: str) -> str:
             out.append(f"  * {row['clause']}  {row['title']}")
             if row.get("notes"):
                 out.append(f"      {row['notes']}")
+
+    if result.get("unreachable"):
+        out += ["", "Beyond this tool's reach -- the mapped controls belong to no baseline it",
+                "resolves, so these can never report as reached whatever the service does:"]
+        for row in result["unreachable"]:
+            out.append(f"  = {row['clause']}  {row['title'][:56]}  -> {', '.join(row['controls'])}")
 
     if result["uncovered"]:
         out += ["", "Mapped clauses whose controls fall outside this baseline:"]
