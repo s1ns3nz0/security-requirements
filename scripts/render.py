@@ -122,6 +122,20 @@ def provenance(meta: dict) -> str:
     return "\n".join(lines)
 
 
+def prose(value) -> str:
+    """A value safe to put in a published paragraph.
+
+    Only the line endings, because a paragraph keeps its newlines -- what it
+    must not keep is a carriage return. Those arrive from authored YAML edited
+    on Windows, survive review because they are invisible, and then show up as a
+    stray character in whatever renders the document next. `cell()` had been
+    normalising them for table cells since the day a CRLF split a row in two;
+    the statement and the rationale are published as prose and were reaching the
+    file untouched.
+    """
+    return str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+
+
 def cell(value) -> str:
     """A value safe to put in a Markdown table cell.
 
@@ -134,8 +148,9 @@ def cell(value) -> str:
     Newlines end the row, which is worse: everything after one is read as a new
     table entirely.
     """
-    text = "; ".join(str(v) for v in value) if isinstance(value, (list, tuple)) else str(value or "")
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = ("; ".join(str(v) for v in value) if isinstance(value, (list, tuple))
+            else str(value or ""))
+    text = prose(text)
     return text.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
 
 
@@ -164,10 +179,10 @@ def render_requirements(doc: dict, titles: dict, meta: dict) -> str:
             human = req.get("human") or {}
             out.append(f"### {req['id']}")
             out.append("")
-            out.append(managed.get("statement", ""))
+            out.append(prose(managed.get("statement", "")))
             out.append("")
             if managed.get("rationale"):
-                out += [f"*{managed['rationale'].strip()}*", ""]
+                out += [f"*{prose(managed['rationale']).strip()}*", ""]
 
             rows = []
             resp = managed.get("responsibility", "undetermined")

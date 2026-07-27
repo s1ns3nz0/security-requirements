@@ -99,7 +99,13 @@ VAGUE = {
 # warning.
 MODAL = {
     "en": r"\b(?:must|shall|is required to|are required to)\b",
-    "ko": r"(?:해야 한다|하여야 한다|되어야 한다|돼야 한다)",
+    # Korean obligation is `~야 하-`, whatever the verb. The first version listed
+    # four 하다/되다 spellings, which meant `거쳐야 한다` -- an ordinary way to
+    # write a requirement -- counted as zero obligations, and the conjunctive
+    # endings that join two obligations in one sentence (`...해야 하고 ...되어야
+    # 한다`) counted as one. Both directions were wrong, and the rule that
+    # depends on this count is the one that asks whether a statement is atomic.
+    "ko": r"야만?\s*(?:한다|하며|하고|합니다)",
 }
 
 # Implementation detail that belongs in guidance rather than the statement.
@@ -266,19 +272,39 @@ def script_of(text: str) -> str | None:
 # naming the production bucket answers "where the data lives", which the README
 # puts on the other side of the line.
 INSTANCE_FORMS = (
-    # Case-insensitive: ARN:AWS: and HTTPS:// are the same disclosure.
+    # Case-insensitive: ARN:AWS: and arn:aws: are the same disclosure.
     (re.compile(r"\barn:[a-z0-9-]*:", re.IGNORECASE), "an ARN"),
-    (re.compile(r"https?://", re.IGNORECASE), "a URL"),
     (re.compile(r"\b[a-z0-9-]+\.(?:internal|local|corp|intranet)\b", re.IGNORECASE),
      "an internal hostname"),
+    # Hosts that cannot exist without an account, bucket, or tenant name in
+    # them. Unlike a bare URL, there is no reading of these that is a citation.
+    (re.compile(
+        r"\b[a-z0-9][a-z0-9.-]*\.(?:"
+        r"s3[.a-z0-9-]*\.amazonaws\.com"
+        r"|execute-api\.[a-z0-9-]+\.amazonaws\.com"
+        r"|rds\.amazonaws\.com"
+        r"|elb\.amazonaws\.com"
+        r"|blob\.core\.windows\.net"
+        r"|vault\.azure\.net"
+        r"|database\.windows\.net"
+        r"|storage\.googleapis\.com"
+        r"|run\.app"
+        r"|appspot\.com"
+        r")\b", re.IGNORECASE),
+     "a cloud resource endpoint"),
 )
-# Two more were here and are gone. A dotted quad matches an IP address and also
-# matches an agent version (1.24.3.1) and a certificate policy OID
+# Three patterns were here and are gone. A dotted quad matches an IP address and
+# also matches an agent version (1.24.3.1) and a certificate policy OID
 # (2.16.840.1); an absolute path matches /etc/app/config.yaml, which names a
-# kind of file rather than one particular one. Half the probe set was a false
-# positive, which is the mistake this file has been correcting all day -- a
-# shape inferred to be a meaning. Three forms remain because none of them can
-# be anything but one particular thing.
+# kind of file rather than one particular one.
+#
+# The third was `https?://`, and it was the same mistake one level up. A URL is
+# not a disclosure -- it is also how a requirement cites the regulation it comes
+# from, and this repository's own GDPR overlay records EUR-Lex article
+# addresses. Every rule here has to survive the question "can a correct document
+# contain this?", and a bare URL could not. What remains is the subset that
+# could not: an address whose host has to carry the name of one particular
+# bucket, account, or tenant.
 
 
 def check_public_safety(req_id: str, managed: dict) -> list[Finding]:
@@ -306,8 +332,13 @@ def check_public_safety(req_id: str, managed: dict) -> list[Finding]:
         text = "; ".join(map(str, value)) if isinstance(value, (list, tuple)) else str(value or "")
         for pattern, what in INSTANCE_FORMS:
             if pattern.search(text):
+                # ERROR, not WARN. The other warnings are about how well a
+                # requirement is written, and a document with a clumsy statement
+                # is still safe to publish. This one is about what leaves the
+                # building, and it is the only rule here whose failure cannot be
+                # undone once the file is public.
                 findings.append(Finding(
-                    "WARN", req_id, "names-an-instance",
+                    "ERROR", req_id, "names-an-instance",
                     f"managed.{name} contains {what}. This field is published, and naming "
                     f"one particular resource answers \"where the data lives\" -- name the "
                     f"kind of thing instead."))
@@ -335,11 +366,13 @@ def check_statement(req_id: str, statement: str, locale: str) -> list[Finding]:
                                     f"{term!r} makes the requirement undecidable"))
             break
 
+    # One locale's modal, not two added together. The English pattern used to be
+    # added to every other locale's count, on the theory that it would catch an
+    # English statement in a Korean document -- but locale-mismatch above already
+    # catches that, with an ERROR, and the addition instead counted the "must" in
+    # a quoted control title as a second Korean obligation.
     modal = MODAL.get(locale, MODAL["en"])
-    modal_count = len(re.findall(modal, statement, re.IGNORECASE))
-    if locale != "en":
-        modal_count += len(re.findall(MODAL["en"], statement, re.IGNORECASE))
-    if modal_count > 1:
+    if len(re.findall(modal, statement, re.IGNORECASE)) > 1:
         findings.append(Finding("WARN", req_id, "not-atomic",
                                 "more than one obligation in a single statement; split it"))
 

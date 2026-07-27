@@ -92,11 +92,16 @@ python3 scripts/merge.py --apply \
 
 Lint first. `docs/security/` is the publishable output, and rendering before
 checking means a requirement naming a production bucket is already in the file
-by the time anyone is told about it. `--strict` because the disclosure warnings
-are about what leaves the building, and a warning nobody reads is not a control.
+by the time anyone is told about it.
+
+No `--strict` here. The disclosure rule is an ERROR and blocks on its own; the
+remaining warnings are about how well a requirement is written, and a document
+with a clumsy statement is still safe to publish. `--strict` would fail the
+build on a statement of four words, which is a style note wearing a blocker's
+clothes. Run it when editing the draft, not when publishing it.
 
 ```
-python3 scripts/lint.py .security-requirements/requirements.yaml --strict
+python3 scripts/lint.py .security-requirements/requirements.yaml
 
 python3 scripts/render.py .security-requirements/requirements.yaml \
     --out docs/security/

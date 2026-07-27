@@ -5241,9 +5241,20 @@ def test_a_pipe_in_a_field_does_not_break_the_table():
 
 
 @pytest.mark.parametrize("field,value,what", [
-    ("evidence", "https://wiki.internal/soc2", "a URL"),
     ("evidence", "arn:aws:kms:eu-west-1:123:key/abc", "an ARN"),
     ("csp_part", "Reached at vault-01.corp", "an internal hostname"),
+    ("evidence", "https://wiki.internal/soc2", "an internal hostname"),
+    # Every field that reaches a published document, not the four the first
+    # version listed. `expect` was the one that mattered: "the endpoint equals
+    # https://prod.internal/health" walked past a rule written to catch it.
+    ("statement", "Exports land in acme-prod.s3.eu-west-1.amazonaws.com",
+     "a cloud resource endpoint"),
+    ("rationale", "The audit trail lives at logs-prod.blob.core.windows.net",
+     "a cloud resource endpoint"),
+    ("team_part", "arn:aws:iam::123456789012:role/deploy", "an ARN"),
+    # Case is not the disclosure. Upper-case forms of each.
+    ("evidence", "ARN:AWS:KMS:EU-WEST-1:123:KEY/ABC", "an ARN"),
+    ("csp_part", "Reached at VAULT-01.CORP", "an internal hostname"),
 ])
 def test_a_published_field_naming_one_particular_thing_is_flagged(field, value, what):
     """These fields reach docs/security/ verbatim. Sanitising `human` closed one
@@ -5252,17 +5263,21 @@ def test_a_published_field_naming_one_particular_thing_is_flagged(field, value, 
     paths. Naming one particular resource answers "where the data lives", which
     the README puts on the internal side.
 
-    Three forms only. An IP pattern and an absolute-path pattern were here and
-    are gone: a dotted quad is also an agent version and a certificate policy
-    OID, and /etc/app/config.yaml names a kind of file. Half the probe set was
-    a false positive, which is the mistake this file has spent the day
-    correcting -- a shape inferred to be a meaning.
+    Three forms only. An IP pattern, an absolute-path pattern, and a bare-URL
+    pattern were here and are gone: a dotted quad is also an agent version and a
+    certificate policy OID, /etc/app/config.yaml names a kind of file, and a URL
+    is also how a requirement cites the regulation it comes from. Each was a
+    shape inferred to be a meaning, which is the mistake this file exists to
+    stop making.
     """
     findings = lint_mod.lint(_doc(**{field: value}), "en", None)
     named = [f for f in findings if f.rule == "names-an-instance"]
     assert named, f"{value} should be flagged"
     assert what in str(named[0])
-    assert named[0].level == "WARN", "a warning, because the author may have reason"
+    assert named[0].level == "ERROR", (
+        "an error, not a warning. Every other rule here is about how well a "
+        "requirement is written, and a clumsy statement is still safe to "
+        "publish. This one is about what leaves the building.")
 
 
 def test_a_verification_target_naming_a_resource_type_is_left_alone():
@@ -5294,18 +5309,74 @@ def test_a_shape_that_is_not_an_instance_is_left_alone(value):
                 if f.rule == "names-an-instance"], value
 
 
+@pytest.mark.parametrize("value", [
+    "as required by GDPR Article 32, https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+    "https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final",
+    "OWASP ASVS 5.0, https://owasp.org/www-project-application-security-verification-standard/",
+])
+def test_a_requirement_may_cite_the_standard_it_comes_from(value):
+    """This rule flagged every URL for a day. A URL is not a disclosure -- it is
+    also how a requirement cites the regulation behind it, and this repository's
+    own GDPR overlay records EUR-Lex article addresses. The rule had to survive
+    the question every rule here has to survive: can a correct document contain
+    this? A bare URL could not, so the pattern was narrowed to hosts that cannot
+    exist without a bucket, account, or tenant name in them."""
+    assert not [f for f in lint_mod.lint(_doc(rationale=value), "en", None)
+                if f.rule == "names-an-instance"], value
+
+
+def test_the_publishing_step_does_not_fail_a_build_on_style():
+    """`--strict` was in the documented build for an afternoon, to make the
+    disclosure warnings fatal. It made every warning fatal, so a four-word
+    statement -- a style note -- would block publication of a document that was
+    perfectly safe to publish. Promoting the one rule that is about disclosure
+    is the fix; blanket strictness was a blocker wearing a style note's
+    clothes."""
+    for path in (REPO_ROOT / "commands" / "sec-req-build.md",
+                 REPO_ROOT / "skills" / "deriving-security-requirements" / "SKILL.md"):
+        text = path.read_text(encoding="utf-8")
+        for line in text.splitlines():
+            if "lint.py" in line and "--strict" in line:
+                assert False, f"{path.name} still publishes with --strict: {line.strip()}"
+
+
+@pytest.mark.parametrize("statement,expected", [
+    # One obligation, and the verb is not 하다. `거쳐야 한다` counted as zero
+    # before, because the pattern listed four 하다/되다 spellings rather than
+    # the ending they share.
+    ("모든 관리자 접근은 다중 인증을 거쳐야 한다.", False),
+    ("저장 데이터는 암호화되어야 한다.", False),
+    # One obligation, quoting a source that contains an English modal. The
+    # English count used to be added to the Korean one, so citing a control
+    # title made a statement non-atomic.
+    ('접근 통제는 최소 권한으로 부여해야 한다. AC-6 "the organization must '
+     'employ least privilege".', False),
+    # Two obligations joined by a conjunctive ending -- the ordinary way to
+    # write them in one Korean sentence, and invisible to the old pattern.
+    ("관리자 접근은 다중 인증을 거쳐야 하고 접근 기록은 1년간 보존되어야 한다.", True),
+    ("저장 데이터는 암호화되어야 하며 키는 분리 보관되어야 한다.", True),
+])
+def test_korean_atomicity_counts_obligations_and_not_spellings(statement, expected):
+    """The atomicity rule asks whether a statement carries more than one
+    obligation. In Korean the obligation is `~야 하-` whatever the verb, and the
+    endings that join two of them in one sentence (-고, -며) carry it as much as
+    the sentence-final -ㄴ다. Counting four fixed spellings got both directions
+    wrong at once: it missed real pairs and invented false ones."""
+    warned = any(f.rule == "not-atomic"
+                 for f in lint_mod.check_statement("REQ-X-01", statement, "ko"))
+    assert warned == expected, statement
+
+
 def test_the_documented_order_lints_before_it_publishes():
     """`docs/security/` is the publishable output. Rendering before checking
     means a requirement naming a production bucket is in the file by the time
     anyone is told about it, and the build succeeds -- the disclosure guard
-    emits warnings and warnings pass without --strict."""
+    emitted warnings, and warnings pass. The fix was the order plus promoting
+    the disclosure rule to ERROR; see the test below for why it was not
+    --strict."""
     build = (REPO_ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
     assert build.index("scripts/lint.py") < build.index("scripts/render.py"), \
         "lint runs before the publishable files are written"
-    invocation = next(line for line in build.splitlines()
-                      if line.strip().startswith("python3 scripts/lint.py"))
-    assert "--strict" in invocation, \
-        "a warning about what leaves the building has to fail the build"
 
     skill = (REPO_ROOT / "skills" / "deriving-security-requirements" /
              "SKILL.md").read_text(encoding="utf-8")
@@ -5327,18 +5398,78 @@ def test_a_cell_is_escaped_once(raw, rendered):
     assert render_mod.cell(raw) == rendered
 
 
-def test_every_table_row_goes_through_the_escaper():
-    """The traceability table interpolated its cells directly, so the claim
-    that one escaper covered every cell was untrue -- a catalogue title
-    containing a pipe produced four columns in a three-column table."""
-    import re as _re
-    source = (REPO_ROOT / "scripts" / "render.py").read_text(encoding="utf-8")
-    rows = _re.findall(r'out\.append\(f"\| ([^\n]*)', source)
-    assert rows, "this test needs to find the rows it is checking"
-    for row in rows:
-        for interpolation in _re.findall(r"\{([^}]+)\}", row):
-            assert interpolation.startswith("cell(") or interpolation in ("body", "marker"), \
-                f"a table cell that does not go through cell(): {interpolation}"
+@pytest.mark.parametrize("hostile", [
+    "a|b",            # a pipe opens a column
+    "a\nb",           # a newline ends the row
+    "a\r\nb",
+    "a\\|b",           # an escaped pipe, if a caller escaped it already
+    "a\\",            # a trailing backslash, which escapes the closing delimiter
+    "| |",
+])
+def test_no_published_value_can_add_a_column(hostile):
+    """The traceability table interpolated its cells directly, so a catalogue
+    title containing a pipe produced four columns in a three-column table.
+
+    The first version of this test read render.py and checked that every row's
+    interpolations were spelled `cell(...)`. That tested the present spelling of
+    the renderer rather than the property, and it trusted two names it could not
+    prove were built from escaped parts. This one puts the hostile value in
+    every published field and counts the columns that come out."""
+    fields = ["statement", "rationale", "evidence", "csp_part", "team_part"]
+    for field in fields:
+        managed = {field: hostile}
+        if field in ("csp_part", "team_part"):
+            managed["responsibility"] = "shared"
+        documents = _documents([_req("REQ-DATA-REST-01", **managed)])
+        for text in documents:
+            table_widths = set()
+            for line in text.splitlines():
+                stripped = line.strip()
+                if not (stripped.startswith("|") and stripped.endswith("|")):
+                    table_widths.clear()
+                    continue
+                # Count delimiters that are not escaped by a preceding backslash.
+                cols = len(re.findall(r"(?<!\\)\|", stripped))
+                table_widths.add(cols)
+            assert len(table_widths) <= 1, (
+                f"{field}={hostile!r} produced rows of differing widths: "
+                f"{sorted(table_widths)}")
+        joined = "\n".join(documents)
+        assert "\r" not in joined, f"{field}: a carriage return survived into the output"
+
+
+def test_nothing_this_repository_ships_would_block_a_build():
+    """The disclosure rule became an ERROR, and the text it scans does not all
+    come from the author -- `csp_part`, `team_part`, evidence, and the
+    verification fields are copied out of the bundled responsibility files. One
+    ARN in one of those would fail every build that touched that service, for a
+    reason no author could find in their own draft. Promoting a rule to fatal
+    means owning what the tool itself puts through it."""
+    import yaml as _yaml
+    services = sorted((REPO_ROOT / "responsibility" / "services").glob("*.yaml"))
+    assert services, "this test needs the files it is checking"
+
+    hits = []
+    for path in services:
+        doc = _yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        for control, body in (doc.get("controls") or {}).items():
+            verification = body.get("verification") or {}
+            fields = {
+                "csp_part": body.get("csp_part"),
+                "team_part": body.get("team_part"),
+                "note": body.get("note"),
+                "evidence": body.get("evidence"),
+                "verification.target": verification.get("target"),
+                "verification.expect": verification.get("expect"),
+                "verification.fallback_manual": verification.get("fallback_manual"),
+            }
+            for name, value in fields.items():
+                text = ("; ".join(map(str, value)) if isinstance(value, (list, tuple))
+                        else str(value or ""))
+                for pattern, what in lint_mod.INSTANCE_FORMS:
+                    if pattern.search(text):
+                        hits.append(f"{path.name} {control} {name}: {what} -- {text[:60]}")
+    assert not hits, "bundled text would fail the disclosure rule:\n" + "\n".join(hits)
 
 
 def test_the_golden_cases_still_span_the_scale():
@@ -5379,6 +5510,26 @@ def test_a_golden_case_that_can_be_scored_is_scored(tmp_path):
         "and it passes the check the documented build now runs before publishing"
 
 
+NUMBER_WORDS = ("zero one two three four five six seven eight nine ten eleven twelve "
+                "thirteen fourteen fifteen sixteen seventeen eighteen nineteen "
+                "twenty").split()
+
+
+def _spellings(count):
+    """Every way the README might legitimately write a small number."""
+    forms = {f"{count:,}", str(count)}
+    if count < len(NUMBER_WORDS):
+        forms |= {NUMBER_WORDS[count], NUMBER_WORDS[count].capitalize()}
+    return sorted(forms)
+
+
+def _readme_claims(readme, count, noun):
+    """The first version indexed a dict holding five through eight, so a ninth
+    deployment model would have raised KeyError instead of reporting the drift.
+    A test that crashes tells you less than a test that fails."""
+    return any(f"{form} {noun}" in readme for form in _spellings(count))
+
+
 def test_every_count_the_documentation_claims_is_the_count_that_is_there():
     """Two of these had drifted: the README named four baselines after a fifth
     was added, and five deployment models when there are seven. A front page is
@@ -5408,12 +5559,11 @@ def test_every_count_the_documentation_claims_is_the_count_that_is_there():
 
     import yaml as _yaml
     layers = _yaml.safe_load((REPO_ROOT / "responsibility" / "layers.yaml").read_text(encoding="utf-8"))
-    words = {5: "five", 6: "six", 7: "seven", 8: "eight"}
-    assert f"{words[len(layers['deployment_models'])]} deployment models" in readme
-
-    services = sorted(p.stem for p in (REPO_ROOT / "responsibility" / "services").glob("*.yaml"))
-    aws = [s for s in services if s.startswith("aws-")]
-    assert f"{words.get(len(aws), len(aws)).capitalize() if len(aws) != 10 else 'Ten'} AWS services" in readme
+    for count, noun in ((len(layers["deployment_models"]), "deployment models"),
+                        (len([p for p in (REPO_ROOT / "responsibility" / "services")
+                              .glob("aws-*.yaml")]), "AWS services")):
+        assert _readme_claims(readme, count, noun), \
+            f"the README does not say {count} {noun}; it should, in any of {_spellings(count)}"
 
     for overlay in sorted((REPO_ROOT / "overlays").iterdir()):
         meta_path = overlay / "meta.yaml"
