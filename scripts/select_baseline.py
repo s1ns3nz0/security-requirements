@@ -578,10 +578,17 @@ def derive_availability(profile: dict, table: dict) -> dict:
         spec_alone = amps.get(amp_id) or {}
         if spec_alone.get("only_when_alone") and len(set(declared_amps)) > 1:
             others = ", ".join(sorted(set(declared_amps) - {amp_id}))
+            # No claim about what the other amplifiers mean. Revenue, an SLA,
+            # and a downstream dependency say nothing about whether a manual
+            # fallback exists -- an internal tool can have one and still stop
+            # revenue when it breaks. What is true is only that this answer
+            # cannot lower anything while another raises it, and that the
+            # reason list will show both.
             conflicts.append(
-                f"{amp_id} was declared alongside {others}. It means the service has a "
-                f"workable manual fallback, which the others say it does not -- the "
-                f"reason list below carries both. One of the answers is stale.")
+                f"{amp_id} contributed nothing: it lowers availability and {others} "
+                f"raises it. The reason list below shows both, which is worth a look -- "
+                f"an answer given early in the interview is sometimes not the one the "
+                f"author would give at the end of it.")
     for amp_id in declared_amps:
         if amp_id not in amps:
             raise ProfileError(
@@ -1007,11 +1014,24 @@ def run(profile: dict) -> dict:
     # biometrics for Indian, Kenyan, and Philippine users was shown GDPR and
     # nothing else, with no sign that three of its four jurisdictions had simply
     # not been looked at.
+    # Built from the general data-protection regimes only -- the ones that reach
+    # any personal data, marked all_personal_data -- not from any trigger that
+    # happens to name a country. Built the wide way, the United States counted
+    # as modelled because HIPAA and COPPA mention it, so a service holding
+    # ordinary contact details for American users got no overlay and no word
+    # about why.
     modelled = set()
     for spec in (types_table.get("regulatory_triggers") or {}).values():
+        if not spec.get("all_personal_data"):
+            continue
         modelled |= expand_regions((spec.get("applies_when") or {}).get("user_regions_any") or [])
+    modelled = expand_regions(modelled)
+    # Country codes, not two-character strings. This file already records why
+    # shape is not a country: "AP" is an Asia Pacific abbreviation, and telling
+    # someone that most jurisdictions like AP have a data protection regime is
+    # worse than saying nothing.
     unmodelled = sorted(r for r in expand_regions(user_regions)
-                        if r not in modelled and len(r) == 2)
+                        if r not in modelled and r in COUNTRY_CODES)
     if personal and unmodelled:
         consistency.append(
             f"this tool models no data protection regime for {', '.join(unmodelled)}, and "
@@ -1020,7 +1040,7 @@ def run(profile: dict) -> dict:
             f"jurisdictions have one.")
 
     consistency.extend(inert_modifiers)
-    consistency.extend(availability.get("conflicts") or [])
+    consistency.extend(availability.pop("conflicts", None) or [])
 
     # Per axis, not only when both are empty. A profile of nothing but model
     # training data has genuine integrity evidence and none at all for

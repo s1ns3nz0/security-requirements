@@ -304,8 +304,12 @@ def expand_regions(regions) -> set[str]:
     for region in regions or []:
         code = str(region).strip().upper()
         out.add(code)
+        out |= REGION_GROUPS.get(code, set())
+    # Spellings applied after expansion, not during it. Applied only to what was
+    # written, expanding EU produced GR without EL, so a Greek profile was told
+    # no regime is modelled for EL -- a country it had just been matched as.
+    for code in list(out):
         alias = COUNTRY_SPELLINGS.get(code)
         if alias:
             out.add(alias)
-        out |= REGION_GROUPS.get(code, set())
     return out

@@ -3267,9 +3267,31 @@ def test_silence_about_a_jurisdiction_is_not_a_finding_about_it():
     assert all(code in named[0] for code in ("IN", "KE", "PH"))
     assert "DE" not in named[0], "a jurisdiction that is modelled must not be listed"
 
-    # Where every region is modelled, nothing is said.
-    modelled = _onprem(data_types=[{"id": "basic_contact"}], user_regions=["DE", "KR", "US"])
+    # Coverage means a general data-protection regime, not any trigger that
+    # happens to name the country. The first version counted the United States
+    # as modelled because HIPAA and COPPA mention it, so a service holding
+    # ordinary contact details for American users got no overlay and no word
+    # about why -- and this test blessed that by listing US as covered.
+    modelled = _onprem(data_types=[{"id": "basic_contact"}], user_regions=["DE", "KR"])
     assert not [w for w in sb.run(modelled)["consistency_warnings"]
+                if "models no data protection regime" in w]
+
+    american = _onprem(data_types=[{"id": "basic_contact"}], user_regions=["US"])
+    assert [w for w in sb.run(american)["consistency_warnings"]
+            if "models no data protection regime" in w], \
+        "HIPAA and COPPA naming the US is not general privacy coverage of it"
+
+    # Both spellings of Greece are the same country on both sides of the check.
+    for greece in ("GR", "EL"):
+        greek = _onprem(data_types=[{"id": "basic_contact"}], user_regions=[greece])
+        assert "gdpr" in sb.run(greek)["applicable_overlays"], greece
+        assert not [w for w in sb.run(greek)["consistency_warnings"]
+                    if "models no data protection regime" in w], greece
+
+    # And a two-letter word that is not a country is not reported as a
+    # jurisdiction -- the shape test this file already refused once.
+    not_a_country = _onprem(data_types=[{"id": "basic_contact"}], user_regions=["AP"])
+    assert not [w for w in sb.run(not_a_country)["consistency_warnings"]
                 if "models no data protection regime" in w]
 
     # And with no personal data there is nothing for a regime to reach.
@@ -3278,19 +3300,34 @@ def test_silence_about_a_jurisdiction_is_not_a_finding_about_it():
                 if "models no data protection regime" in w]
 
 
-def test_an_amplifier_that_contradicts_the_others_is_reported():
-    """internal_tool_only says the service has a workable manual fallback. A
-    flight-control profile declared it beside safety_critical, and the reason
-    list printed "an outage risks physical harm or loss of life" directly above
-    "internal tooling with a workable manual fallback" without a word."""
-    contradictory = _onprem()
-    contradictory["declared"]["availability"]["amplifiers"] = ["safety_critical", "internal_tool_only"]
-    warnings = sb.run(contradictory)["consistency_warnings"]
-    assert any("internal_tool_only was declared alongside" in w for w in warnings)
+def test_an_amplifier_that_can_do_nothing_says_so():
+    """internal_tool_only lowers availability and cannot while another amplifier
+    raises it. A flight-control profile declared it beside safety_critical and
+    the reason list carried both statements without a word.
+
+    The first version of the message claimed the other amplifiers say there is
+    no workable manual fallback. They do not: revenue, an SLA, and a downstream
+    dependency say nothing about fallbacks, and an internal tool can have one
+    and still stop revenue when it breaks. Asserting otherwise turned a fact
+    about the tool's arithmetic into a claim about the service.
+    """
+    together = _onprem()
+    together["declared"]["availability"]["amplifiers"] = ["safety_critical", "internal_tool_only"]
+    warnings = sb.run(together)["consistency_warnings"]
+    assert any("internal_tool_only contributed nothing" in w for w in warnings)
+    assert not any("the others say" in w for w in warnings)
+
+    # It fires on any raising amplifier, not only the dramatic one.
+    revenue = _onprem()
+    revenue["declared"]["availability"]["amplifiers"] = ["revenue_direct", "internal_tool_only"]
+    assert any("contributed nothing" in w for w in sb.run(revenue)["consistency_warnings"])
 
     alone = _onprem()
     alone["declared"]["availability"]["amplifiers"] = ["internal_tool_only"]
-    assert not any("declared alongside" in w for w in sb.run(alone)["consistency_warnings"])
+    assert not any("contributed nothing" in w for w in sb.run(alone)["consistency_warnings"])
+
+    # And the diagnostic does not leak into the published shape.
+    assert "conflicts" not in sb.run(alone)["impact"]["availability"]
 
     # The precondition is declared on the amplifier, not hard-coded.
     table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
