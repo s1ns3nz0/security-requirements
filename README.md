@@ -123,7 +123,7 @@ summarised in our own words with links, never reproduced.
 
 ```
 python3 scripts/rebuild_catalogs.py     # rebuild every catalog from upstream
-python3 -m pytest tests/                # deterministic layer, 483 tests
+python3 -m pytest tests/                # deterministic layer, 484 tests
 python3 scripts/eval_golden.py golden/b2b-saas-aws requirements.yaml
 ```
 
@@ -159,3 +159,7 @@ COVERAGE_PROCESS_START=$PWD/.coveragerc PYTHONPATH=$PWD \
   python3 -m coverage run -m pytest tests/ -q
 python3 -m coverage combine && python3 -m coverage report
 ```
+
+Delete the data files between runs with `rm -f .coverage .coverage.*`, not
+`rm .coverage*` — the second glob matches `.coveragerc`, and the only symptom of
+losing it is a total about ten points too low.

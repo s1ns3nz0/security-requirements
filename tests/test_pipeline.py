@@ -5472,6 +5472,32 @@ def test_nothing_this_repository_ships_would_block_a_build():
     assert not hits, "bundled text would fail the disclosure rule:\n" + "\n".join(hits)
 
 
+def test_the_coverage_measurement_still_reaches_the_command_line():
+    """`.coveragerc` is what makes the report count the subprocess runs, and a
+    large part of this suite is subprocess runs. Without it several scripts read
+    as barely tested while their command lines are covered end to end -- merge.py
+    reads 64 per cent instead of 92 -- and two rounds of work once went at files
+    the number had picked.
+
+    It sits next to `.coverage` and `.coverage.*`, which are generated data and
+    get deleted between runs. `rm .coverage*` takes the config with them, and
+    the only symptom is a number that is quietly ten points low. A missing
+    config should fail out loud instead."""
+    import configparser
+    path = REPO_ROOT / ".coveragerc"
+    assert path.exists(), (
+        ".coveragerc is missing -- probably deleted by a `.coverage*` glob. "
+        "Restore it, or the coverage report silently stops counting subprocesses.")
+    parser = configparser.ConfigParser()
+    parser.read(path)
+    assert parser.get("run", "parallel", fallback="") == "true"
+    assert parser.get("run", "concurrency", fallback="") == "multiprocessing"
+
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "COVERAGE_PROCESS_START" in readme, \
+        "the documented command has to set it, or the config is never read"
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and
