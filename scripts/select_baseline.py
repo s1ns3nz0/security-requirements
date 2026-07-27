@@ -54,33 +54,87 @@ BASELINE_KEY = {
 # data or serving authenticated users is at least L2 in practice.
 ASVS_FOR_IMPACT = {"low": 1, "moderate": 2, "high": 3}
 
-# Markers of an application surface in an entrypoint description. ASVS is an
-# application security standard; issuing "ASVS L3" for a Terraform-only
-# repository or a pip library asserts an applicable standard that is not.
-APP_SURFACE_RE = __import__("re").compile(
-    r"http|webhook|graphql|grpc|websocket|\bapi\b|\bui\b|\bGET\b|\bPOST\b|\bPUT\b|\bDELETE\b|route",
-    __import__("re").IGNORECASE,
+import re
+
+# Two different questions, and conflating them was the defect.
+#
+#   shape        is this a running system at all, or a library, a tool, or a
+#                set of definitions? Decided by what it is NOT, because the
+#                things that are not services form a short closed list while
+#                the protocols and languages a service can speak do not.
+#   app_surface  does it expose an application surface ASVS is written for?
+#                Decided on evidence, because ASVS is a web and API standard
+#                and issuing a level for a Modbus gateway asserts an applicable
+#                standard that is not.
+#
+# The first version asked only the first question, with an allow-list of web
+# protocol keywords. An MQTT broker client, a Kafka consumer, and an endpoint
+# described in Chinese all read as "not a service", which suppressed the ASVS
+# level for the ones that deserved it and printed a note calling a running
+# system a library.
+NON_SERVICE_RE = re.compile(
+    r"\blibrar(y|ies)\b|\bimport\b|\bcli\b|\bcommand[- ]line\b|\bsdk\b"
+    r"|\bmodule\b|\bpackage\b|\bbinary\b|\bdefinitions?\b|\bmanifests?\b"
+    r"|\bterraform\b|\bhelm chart\b|\bdocumentation\b",
+    re.IGNORECASE,
 )
+
+# Evidence of an application surface: a protocol ASVS speaks about, or a web
+# framework in the stack, which carries the same meaning when the entrypoints
+# are written in a language this list does not cover.
+APP_SURFACE_RE = re.compile(
+    r"\bhttps?\b|\bwebhook\b|\bgraphql\b|\bgrpc\b|\bwebsocket\b|\brest\b"
+    r"|\bapi\b|\bui\b|\bGET\b|\bPOST\b|\bPUT\b|\bDELETE\b|\broute\b|\bendpoint\b",
+    re.IGNORECASE,
+)
+# Positive evidence that something is served: a transport, a port, a path, or a
+# word describing a listener. Neither an allow-list of protocols nor a
+# block-list of non-services is complete -- probing both showed each failing on
+# ordinary input in opposite directions. Where neither fires, the derivation
+# proceeds on the assumption of a service and says that it assumed.
+SERVED_RE = re.compile(
+    r"\bhttps?\b|\bgrpc\b|\bmqtt\b|\bamqp\b|\bkafka\b|\bwebsocket\b|\bsmtp\b"
+    r"|\bsftp\b|\bftp\b|\bssh\b|\bsoap\b|\budp\b|\btcp\b|\bmodbus\b|\bcoap\b"
+    r"|\bsip\b|\bwebhook\b|\bgraphql\b|\bqueue\b|\btopic\b|\bport\b|\bendpoint\b"
+    r"|\blistens?\b|\bserver\b|\bscheduler\b|\bworker\b|\bdaemon\b|\bconsumer\b"
+    r"|\bGET\b|\bPOST\b|\bPUT\b|\bDELETE\b|:\d{2,5}\b|\s/\S",
+    re.IGNORECASE,
+)
+
+WEB_STACK = {
+    "spring-boot", "spring", "django", "flask", "fastapi", "rails", "express",
+    "nextjs", "next.js", "nuxt", "laravel", "gin", "echo", "aspnet", "asp.net",
+    "phoenix", "actix", "axum", "rocket", "sinatra", "koa", "nestjs", "streamlit",
+}
 
 
 def detect_shape(profile: dict) -> dict:
-    """Whether the profile describes a running service with an app surface.
+    """Whether the profile describes a running system, and whether it has an
+    application surface. Two questions, answered separately -- see above."""
+    inferred = profile.get("inferred") or {}
+    entrypoints = inferred.get("entrypoints") or []
+    stack = {str(s).strip().lower() for s in inferred.get("stack") or []}
 
-    Found by sweeping a pure-IaC repository and a pip library: both completed
-    the service-shaped derivation and came out looking like web services --
-    ASVS level issued, session and input-validation controls assigned to the
-    team. The derivation is built for services; when the target is not one,
-    that has to be said rather than absorbed.
-    """
-    entrypoints = (profile.get("inferred") or {}).get("entrypoints") or []
-    has_app_surface = any(APP_SURFACE_RE.search(str(e)) for e in entrypoints)
     if not entrypoints:
         shape = "no_entrypoints"
-    elif has_app_surface:
+    elif all(NON_SERVICE_RE.search(str(e)) for e in entrypoints):
+        # Every entrypoint names something that is not a served system. One
+        # HTTP route alongside a CLI still makes it a service.
+        shape = "non_service"
+    elif any(SERVED_RE.search(str(e)) for e in entrypoints):
         shape = "service"
     else:
-        shape = "non_service"   # library, CLI, IaC definitions, batch-only
-    return {"shape": shape, "app_surface": has_app_surface}
+        # Nothing said it is not a service, and nothing said it is. Assume one,
+        # because the alternative suppresses findings, but do not pretend the
+        # question was answered.
+        shape = "service_assumed"
+
+    has_app_surface = (
+        any(APP_SURFACE_RE.search(str(e)) for e in entrypoints)
+        or bool(stack & WEB_STACK)
+    )
+    return {"shape": shape,
+            "app_surface": has_app_surface and shape in ("service", "service_assumed")}
 
 
 # --------------------------------------------------------------------------
@@ -602,7 +656,15 @@ def render_gate(result: dict) -> str:
                    f"(personal data declared: {', '.join(result['personal_data_types'])})")
 
     shape = result.get("shape", {})
-    if shape.get("shape") != "service":
+    if shape.get("shape") == "service_assumed":
+        out += [
+            "",
+            "  NOTE: nothing in the entrypoints says this is served, and nothing says",
+            "  it is not. The derivation proceeds as though it were a service. If it is",
+            "  a library, a set of fixtures, or a generator, say so in the entrypoints",
+            "  and re-run -- most of the result will not apply.",
+        ]
+    elif shape.get("shape") != "service":
         reason = ("no entrypoints were found" if shape.get("shape") == "no_entrypoints"
                   else "the entrypoints describe a library, CLI, or definitions, not a served application")
         out += [

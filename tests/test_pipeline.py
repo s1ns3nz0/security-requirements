@@ -1763,3 +1763,68 @@ def test_no_authentication_is_not_the_same_as_unknown(profile):
     q["inferred"]["auth_mechanism"] = "UNDETERMINED"
     sb.run(q)
     assert q["inferred"]["auth_mechanism"] == "undetermined"
+
+
+# ---------------------------------------------------------------------------
+# shape detection
+#
+# Two rules were tried and both failed on ordinary input, in opposite
+# directions. An allow-list of web protocols called an MQTT broker and a
+# Chinese-described API "not a service". A block-list of non-service words
+# called a library, a docs generator, and a notebook directory services. The
+# resolution is three-valued: say so where neither list fires.
+# ---------------------------------------------------------------------------
+
+def _shape(entrypoints, stack=None):
+    return sb.run({"inferred": {"entrypoints": entrypoints, "stack": stack or []},
+                   "declared": {"data_types": [{"id": "basic_contact"}],
+                                "availability": {"rto": "rto_hours", "rpo": "rpo_hours_plus"}}})
+
+
+@pytest.mark.parametrize("entrypoint", [
+    "http: orders api", "mqtt: telemetry topic", "kafka: events topic",
+    "modbus tcp: plc registers", "smtp: inbound mail", "sftp: partner drop",
+    "grpc: checkout", "udp: agent thrift", "scheduler: DAG dispatch",
+])
+def test_a_served_system_is_a_service_whatever_it_speaks(entrypoint):
+    """The allow-list knew only web protocols, so an event-driven or industrial
+    system read as a library and had its ASVS level suppressed."""
+    assert _shape([entrypoint])["shape"]["shape"] == "service"
+
+
+@pytest.mark.parametrize("entrypoints", [
+    ["cli: tool"], ["library import", "cli"], ["terraform definitions"],
+    ["helm chart"], ["sdk"],
+])
+def test_things_that_are_not_served_are_still_recognised(entrypoints):
+    assert _shape(entrypoints)["shape"]["shape"] == "non_service"
+
+
+@pytest.mark.parametrize("entrypoint", [
+    "public api surface for consumers", "static site output",
+    "fixtures and golden files", "notebooks", "action: runs in a workflow",
+])
+def test_an_ambiguous_entrypoint_is_assumed_not_asserted(entrypoint):
+    """Inverting the rule created the opposite failure: a library described as
+    an API read as a service. Neither list is complete, so where neither fires
+    the derivation assumes a service and says that it assumed."""
+    result = _shape([entrypoint])
+    assert result["shape"]["shape"] == "service_assumed"
+    assert "nothing in the entrypoints says this is served" in sb.render_gate(result)
+
+
+def test_one_served_entrypoint_outweighs_a_cli():
+    """A tool that also listens is a service. The block-list must not win on a
+    single non-service word."""
+    assert _shape(["cli: ctl", "http: admin ui"])["shape"]["shape"] == "service"
+
+
+def test_asvs_follows_the_application_surface_not_the_shape():
+    """ASVS is a web and API standard. Issuing a level for a Modbus gateway
+    asserts an applicable standard that is not, which is the error the PCI
+    depth note exists to prevent."""
+    assert _shape(["modbus tcp: plc registers"])["asvs_level"] is None
+    assert _shape(["http: orders api"])["asvs_level"] == 2
+    # A stack signal carries the same meaning where the entrypoints are written
+    # in a language the token list does not cover.
+    assert _shape(["接口: 订单查询"], ["spring-boot"])["asvs_level"] == 2
