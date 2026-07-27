@@ -1,0 +1,60 @@
+id: soc2
+name: "SOC 2 — Trust Services Criteria"
+version: "criteria series only"
+criteria_count: 13
+
+source:
+  authority: "AICPA, Trust Services Criteria"
+  reference: "https://www.aicpa-cima.com/resources/landing/system-and-organization-controls-soc-suite-of-services"
+  bundled: false
+  note: >-
+    The Trust Services Criteria are an AICPA copyrighted work and are not
+    bundled. Series identifiers are used as identifiers; every description here
+    was written for this repository. No AICPA wording appears in it.
+
+depth:
+  level: "criteria series (CC1-CC9, A1, PI1, C1, P)"
+  sub_requirements_enumerated: false
+  note: >-
+    The individual criteria -- CC6.1, CC6.2, and the rest -- are part of the
+    copyrighted document, and an examination is conducted against them together
+    with the controls a service organisation writes for itself. Reproducing that
+    numbering from memory would put fabricated identifiers into a document
+    someone might show an auditor. This stops at the series, as the PCI DSS
+    overlay stops at the twelve principal requirements, for the same reason.
+
+    A further limit particular to SOC 2: there is no fixed control set. The
+    service organisation states its own commitments and the auditor tests the
+    controls it designed to meet them. Nothing derived here can anticipate what
+    those are.
+
+# Security is mandatory. The other four categories are included only where the
+# service organisation commits to them -- and what a profile already records is
+# a reasonable indication of which it would need to.
+scope_selector:
+  mode: categories
+  always: [CC]
+  optional:
+    A1:  {axis: availability, at_least: moderate}
+    PI1: {axis: integrity, at_least: moderate}
+    C1:  {axis: confidentiality, at_least: moderate}
+    P:   {axis: personal_data}
+
+applies_when: {}
+
+baseline_effect: {}
+
+mapping:
+  authored: true
+  published_crosswalk_exists: false
+  note: >-
+    The control lists are this repository's reading, and at series level they
+    are necessarily coarse. CC6 alone spans identity, authorisation, physical
+    access, transmission, and disposal; citing AC-2 against it says the
+    derivation reaches part of the series, not that the series is met.
+
+disclaimer: >-
+  This overlay does not establish SOC 2 readiness, is not an examination, and
+  does not constitute a system description or a management assertion. A SOC 2
+  report is the opinion of an independent CPA on controls the service
+  organisation itself defines. Engage a qualified practitioner.

@@ -1226,7 +1226,7 @@ def test_catalog_provenance_records_what_is_on_disk():
 import apply_overlay as overlay_mod  # noqa: E402
 
 
-ALL_OVERLAYS = ["pipa-isms-p", "hipaa-security-rule", "gdpr", "pci-dss"]
+ALL_OVERLAYS = ["pipa-isms-p", "hipaa-security-rule", "gdpr", "pci-dss", "soc2"]
 
 
 @pytest.mark.parametrize("overlay_id", ALL_OVERLAYS)
@@ -1500,3 +1500,67 @@ def test_tokenised_payments_still_raise_pci(profile):
     p = copy.deepcopy(profile)
     p["declared"]["data_types"] = [{"id": "payment_token", "modifiers": ["tokenized_external"]}]
     assert "pci-dss" in sb.run(p)["applicable_overlays"]
+
+
+def test_soc2_reproduces_no_criteria_text():
+    """The Trust Services Criteria are an AICPA copyrighted work. Series
+    identifiers are identifiers; the descriptions must be this repository's."""
+    loaded = overlay_mod.load("soc2")
+    assert loaded["meta"]["source"]["bundled"] is False
+    for c in loaded["criteria"].values():
+        assert "statement" not in c
+        assert c["scope_description"]
+
+
+def test_soc2_categories_follow_the_profile(profile):
+    """Security is mandatory and the other four categories are elective. What a
+    profile records is a reasonable indication of which a service organisation
+    would need to commit to."""
+    loaded = overlay_mod.load("soc2")
+
+    lean = copy.deepcopy(profile)
+    lean["declared"]["data_types"] = [{"id": "internal_ops"}]
+    lean["declared"]["availability"] = {
+        "rto": "rto_day_plus", "rpo": "rpo_hours_plus", "amplifiers": ["internal_tool_only"]}
+    ok, reason, scope = overlay_mod.applies(loaded, lean, sb.run(lean))
+    assert ok and scope["areas"] == ["CC"]
+    assert "no elective category" in reason
+
+    broad = copy.deepcopy(profile)
+    broad["declared"]["data_types"] = [{"id": "health_records"}, {"id": "basic_contact"}]
+    broad["declared"]["availability"] = {
+        "rto": "rto_minutes", "rpo": "rpo_zero", "amplifiers": ["safety_critical"]}
+    _, _, scope = overlay_mod.applies(loaded, broad, sb.run(broad))
+    assert set(scope["areas"]) == {"CC", "A1", "PI1", "C1", "P"}
+
+
+def test_soc2_without_a_derivation_keeps_every_category(profile):
+    """Narrowing scope on missing information would understate the
+    examination."""
+    loaded = overlay_mod.load("soc2")
+    ok, reason, scope = overlay_mod.applies(loaded, profile, None)
+    assert ok and len(scope["areas"]) == 5
+    assert "no derivation supplied" in reason
+
+
+def test_elective_categories_filter_the_clause_set(profile):
+    loaded = overlay_mod.load("soc2")
+    derived = sb.run(profile)
+    common_only = overlay_mod.evaluate(loaded, derived["controls"], {"scope": "CC", "areas": ["CC"]})
+    everything = overlay_mod.evaluate(loaded, derived["controls"], {"scope": "all", "areas": None})
+    assert common_only["clause_count"] == 9
+    assert everything["clause_count"] == 13
+
+
+def test_a_shallow_overlay_gives_its_own_reason(profile):
+    """PCI's numbering is part of a licensed standard; SOC 2 additionally has no
+    fixed control set to derive against. The renderer must not flatten both into
+    one generic sentence."""
+    derived = sb.run(profile)
+    rendered = {}
+    for overlay_id in ("pci-dss", "soc2"):
+        loaded = overlay_mod.load(overlay_id)
+        rendered[overlay_id] = overlay_mod.render(
+            overlay_mod.evaluate(loaded, derived["controls"]), "test")
+    assert "licence rather than effort" in rendered["pci-dss"]
+    assert "service organisation writes for itself" in rendered["soc2"]

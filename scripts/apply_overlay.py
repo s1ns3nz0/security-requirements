@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -74,7 +75,7 @@ def load(overlay_id: str) -> dict:
     return {"id": overlay_id, "meta": meta, "criteria": criteria, "mappings": mappings}
 
 
-def applies(overlay: dict, profile: dict) -> tuple[bool, str, dict]:
+def applies(overlay: dict, profile: dict, derived: dict | None = None) -> tuple[bool, str, dict]:
     """Whether the overlay applies, and at which certification scope.
 
     Gating the whole overlay on personal data was wrong: ISMS-P has two scopes,
@@ -104,8 +105,16 @@ def applies(overlay: dict, profile: dict) -> tuple[bool, str, dict]:
     if not selector:
         return True, "region and declared data types match", {"scope": "full", "areas": None}
 
-    deciding = set(selector.get("data_types") or [])
     default = {"scope": "full", "areas": None}
+
+    # Some regimes are assessed over a set of elective areas rather than at one
+    # of two depths. SOC 2 is the case: the common criteria are mandatory and
+    # the other four categories are included only if the service organisation
+    # commits to them -- and the profile already holds what decides that.
+    if selector.get("mode") == "categories":
+        return True, *select_categories(selector, profile, derived)
+
+    deciding = set(selector.get("data_types") or [])
     if deciding & types:
         scope = selector.get("when_present") or default
         reason = scope.get("reason", "the deciding data types are declared")
@@ -113,6 +122,44 @@ def applies(overlay: dict, profile: dict) -> tuple[bool, str, dict]:
         scope = selector.get("when_absent") or default
         reason = scope.get("reason", "none of the deciding data types is declared")
     return True, reason, scope
+
+
+LEVELS = ["low", "moderate", "high"]
+
+
+def select_categories(selector: dict, profile: dict, derived: dict | None) -> tuple[str, dict]:
+    """Choose the elective areas a profile puts in scope.
+
+    Returns (reason, scope). Where the derivation has not been supplied the
+    optional areas cannot be judged, so all of them are included and the reason
+    says so -- narrowing scope on missing information would understate the
+    assessment.
+    """
+    always = list(selector.get("always") or [])
+    optional = selector.get("optional") or {}
+    if derived is None:
+        return ("no derivation supplied, so every elective area is left in scope",
+                {"scope": "all categories", "areas": always + list(optional)})
+
+    impact = (derived.get("impact") or {})
+    chosen, why = list(always), []
+    for area, rule in optional.items():
+        axis = rule.get("axis")
+        if axis == "personal_data":
+            hit = bool(derived.get("personal_data_types"))
+            note = "personal data is processed"
+        else:
+            level = (impact.get(axis) or {}).get("level")
+            floor = rule.get("at_least", "moderate")
+            hit = level in LEVELS and LEVELS.index(level) >= LEVELS.index(floor)
+            note = f"{axis} is {level}"
+        if hit:
+            chosen.append(area)
+            why.append(f"{area} ({note})")
+
+    reason = "common criteria" + (f", plus {', '.join(why)}" if why else
+                                  "; no elective category is indicated by the profile")
+    return reason, {"scope": "+".join(chosen), "areas": chosen}
 
 
 def evaluate(overlay: dict, derived_controls: list[str], scope: dict | None = None,
@@ -126,7 +173,8 @@ def evaluate(overlay: dict, derived_controls: list[str], scope: dict | None = No
     covered, partial, uncovered, standalone = [], [], [], []
 
     for m in overlay["mappings"]:
-        if areas and criteria[m["clause"]]["area"] not in areas:
+        record = criteria[m["clause"]]
+        if areas and (record.get("area") or record.get("category")) not in areas:
             continue
         row = {"clause": m["clause"], "title": m["title"],
                "controls": m["controls"],
@@ -172,9 +220,15 @@ def render(result: dict, reason: str) -> str:
     coarse = result["depth"].get("sub_requirements_enumerated") is False
     if coarse:
         out += [f"  DEPTH: {result['depth'].get('level', 'summary level')} only. The counts below say",
-                "  which areas the derivation reaches, not whether any requirement is met.",
-                "  Assessment happens at the sub-requirement level, which is not enumerated here.",
-                ""]
+                "  which areas the derivation reaches, not whether any requirement is met."]
+        # Overlays are shallow for different reasons, and the reason matters:
+        # PCI's numbering is part of a licensed standard, SOC 2 additionally has
+        # no fixed control set to derive against at all.
+        note = " ".join((result["depth"].get("note") or "").split())
+        for sentence in re.split(r"(?<=\.)\s+", note)[:2]:
+            if sentence:
+                out.append(f"  {sentence}")
+        out.append("")
     reached = "reached by the derived baseline" if coarse else "fully covered by the derived baseline"
     out.append(f"  {len(result['covered']):>4}  {reached}")
     out.append(f"  {len(result['partial']):>4}  partly {'reached' if coarse else 'covered'} -- some mapped controls are outside it")
@@ -219,7 +273,7 @@ def main() -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    ok, reason, scope = applies(overlay, profile)
+    ok, reason, scope = applies(overlay, profile, derived)
     if not ok and not args.force:
         print(f"{overlay['meta']['name']} does not apply to this profile: {reason}")
         print("Pass --force to evaluate anyway.")

@@ -2,7 +2,7 @@
 
 An overlay adds a regulation's requirements on top of the core derivation.
 
-**Four ship: `pipa-isms-p`, `hipaa-security-rule`, `gdpr`, and `pci-dss`.** Both were chosen on the
+**Five ship: `pipa-isms-p`, `hipaa-security-rule`, `gdpr`, `pci-dss`, and `soc2`.** Both were chosen on the
 grounds this file set out -- the source is bundleable, and the audience is real.
 See either directory for a worked example of every rule below.
 
