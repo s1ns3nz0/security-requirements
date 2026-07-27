@@ -1,0 +1,32 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "security-requirements",
+  "description": "Derives tailored security requirements for a service from NIST CSF 2.0, SP 800-53, OWASP ASVS, and cloud provider guidance.",
+  "owner": {
+    "name": "s1ns3nz0"
+  },
+  "metadata": {
+    "description": "Prescriptive security requirements, as opposed to vulnerability discovery.",
+    "version": "0.1.0",
+    "pluginRoot": "."
+  },
+  "plugins": [
+    {
+      "name": "security-requirements",
+      "source": "./",
+      "description": "Derives what a service must satisfy, before or independently of any code existing. Bundles the NIST 800-53 Rev 5 catalog, CSF 2.0, and ASVS 5.0 so cited control identifiers are checked rather than recalled.",
+      "version": "0.1.0",
+      "category": "security",
+      "keywords": [
+        "security",
+        "compliance",
+        "requirements",
+        "nist",
+        "800-53",
+        "csf",
+        "asvs",
+        "threat-modeling"
+      ]
+    }
+  ]
+}
