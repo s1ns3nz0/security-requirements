@@ -210,9 +210,19 @@ def classify(profile: dict, controls: list[str]) -> dict:
     known_models = set((layers.get("deployment_models") or {}).keys())
     unknown_model = (deployment_model is not None and deployment_model not in known_models)
 
+    # A deployment model that presumes a provider, declared with no provider, is
+    # incoherent -- and it resolves silently, because the no-csp rule then
+    # converts every inherited control to organisational. Found on a static site
+    # profile that said saas with csp: none and produced 156 organisational
+    # controls without comment.
+    PROVIDER_MODELS = {"serverless", "paas", "saas", "kubernetes"}
+    inconsistent = (deployment_model in PROVIDER_MODELS and csp in (None, "", "none"))
+
     return {
         "deployment_model": deployment_model,
         "deployment_model_recognised": not unknown_model,
+        "csp": csp,
+        "csp_model_inconsistent": inconsistent,
         "known_deployment_models": sorted(known_models),
         "services_curated": sorted(curated),
         "services_uncurated": sorted(uncurated),
@@ -225,6 +235,14 @@ def render(result: dict) -> str:
     counts = result["counts"]
     total = sum(counts.values())
     out = ["Responsibility split", ""]
+    if result.get("csp_model_inconsistent"):
+        out += [
+            f"  WARNING: deployment model {result['deployment_model']!r} presumes a cloud provider,",
+            f"  but the profile declares csp: {result.get('csp')!r}. Controls that would be",
+            f"  inherited were reassigned to the organisation instead. Set the provider,",
+            f"  or use a model that does not presume one.",
+            "",
+        ]
     if not result.get("deployment_model_recognised", True):
         out += [
             f"  WARNING: deployment model {result['deployment_model']!r} is not recognised.",

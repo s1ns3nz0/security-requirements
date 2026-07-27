@@ -472,12 +472,17 @@ def render_gate(result: dict) -> str:
 
     driver = imp.get("driver")
     if driver:
+        # What to re-examine differs by axis, and saying "check that answer" for
+        # confidentiality is misleading: nobody answered a question about the
+        # level, they selected data types and the table did the rest.
+        what = ("the recovery objectives you gave" if driver["axis"] == "availability"
+                else "the data types you declared")
         out += [
             "",
             f"  Set by {driver['axis']} alone. The other two axes are lower.",
             f"  Without it the system would be {driver['level_without'].upper()} "
             f"-- {driver['control_count_without']} controls instead of {driver['control_count']}.",
-            "  Check that answer before confirming:",
+            f"  Before confirming, re-examine {what}:",
         ]
         out += [f"      <- {reason}" for reason in driver["reasons"]]
     out.append(f"  Baseline: {result['baseline']}  ->  {result['control_count']} controls bundled")

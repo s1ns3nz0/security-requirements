@@ -523,6 +523,44 @@ def test_unknown_deployment_model_is_flagged(profile):
     assert result["controls"][0]["source"] == "layers.yaml:kubernetes"
 
 
+def test_physical_controls_are_the_team_s_on_an_embedded_system(profile):
+    """Found by sweeping a UAV assessment repository.
+
+    All forty-seven PE, MA, and MP controls landed in the organisational bucket
+    because `onprem` was the closest available model. That is right for a
+    datacenter and wrong for an airframe: tamper resistance, debug port
+    lockdown, and firmware media handling are engineering work.
+    """
+    device = copy.deepcopy(profile)
+    device["inferred"]["csp"] = "none"
+    device["inferred"]["deployment_model"] = "embedded"
+    device["inferred"]["managed_services"] = []
+    physical = ["PE-3", "PE-4", "MA-3", "MP-6", "SR-11"]
+    result = classify_resp.classify(device, physical)
+    assert all(e["responsibility"] == "team" for e in result["controls"])
+
+    facility = copy.deepcopy(device)
+    facility["inferred"]["deployment_model"] = "onprem"
+    result = classify_resp.classify(facility, ["PE-3", "MA-3"])
+    assert all(e["responsibility"] == "org" for e in result["controls"])
+
+
+def test_provider_model_without_a_provider_is_flagged(profile):
+    """Found on a static site profile declaring saas with csp: none. The
+    combination is incoherent and resolved silently, because the no-provider
+    rule then turned every inherited control organisational without comment."""
+    contradictory = copy.deepcopy(profile)
+    contradictory["inferred"]["csp"] = "none"
+    contradictory["inferred"]["deployment_model"] = "saas"
+    assert classify_resp.classify(contradictory, ["SC-7"])["csp_model_inconsistent"] is True
+
+    coherent = copy.deepcopy(profile)
+    coherent["inferred"]["csp"] = "none"
+    coherent["inferred"]["deployment_model"] = "embedded"
+    assert classify_resp.classify(coherent, ["SC-7"])["csp_model_inconsistent"] is False
+    assert classify_resp.classify(profile, ["SC-7"])["csp_model_inconsistent"] is False
+
+
 def test_family_default_covers_unlisted_controls(profile):
     """A control with no rule of its own must resolve, not fall to UNDETERMINED.
 

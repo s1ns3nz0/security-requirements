@@ -320,8 +320,58 @@ deployment_models:
       CM-2: csp_claimed
       CM-6: shared         # tenant-side configuration remains the team's
 
+  embedded:
+    description: >-
+      The system is a physical product the team builds -- a vehicle, a device, an
+      appliance -- rather than software running in a facility. Added after a UAV
+      profile put all forty-seven PE, MA, and MP controls into the
+      organisational bucket, which is right for a datacenter and wrong for an
+      airframe: tamper resistance, debug port lockdown, secure boot, and
+      firmware media handling are engineering work, not facilities work.
+    overrides:
+      # Physical protection of the device itself. PE-1 stays organisational as
+      # policy; the rest describe the product.
+      PE-2: team
+      PE-3: team
+      PE-3(1): team
+      PE-4: team          # transmission medium protection -- the wiring harness
+      PE-5: team
+      PE-6: team
+      PE-18: team         # siting -- where components sit in the airframe
+      PE-19: team         # information leakage -- emanations from the platform
+      # Maintenance of the product, including field servicing and diagnostics.
+      MA-2: team
+      MA-3: team
+      MA-3(1): team
+      MA-3(2): team
+      MA-3(3): team
+      MA-4: team          # nonlocal maintenance -- the telemetry and update link
+      MA-6: team
+      # Media: firmware images, removable storage, onboard recorders.
+      MP-2: team
+      MP-4: team
+      MP-5: team
+      MP-6: team          # sanitisation before disposal or transfer of the unit
+      MP-7: team
+      # No provider and no hypervisor between workloads.
+      SC-39: team
+      SI-2: team
+      SI-3: team
+      SI-16: team
+      SC-7: team
+      AU-4: team
+      AU-8: team
+      CP-9: team
+      # Supply chain is the hardware bill of materials, not a package registry
+      # alone -- counterfeit components are a physical failure mode here.
+      SR-10: team
+      SR-11: team
+
   onprem:
-    description: "Self-hosted infrastructure."
+    description: >-
+      Self-hosted infrastructure in a facility the organisation runs. Physical
+      and environmental controls belong to that facility, not to the delivery
+      team. For a physical product, use `embedded` instead.
     overrides:
       SC-39: team
       AU-4: team
