@@ -514,11 +514,13 @@ def test_unknown_deployment_model_is_flagged(profile):
 
     k8s = copy.deepcopy(profile)
     k8s["inferred"]["deployment_model"] = "kubernetes"
-    result = classify_resp.classify(k8s, ["SC-7", "SC-39"])
+    k8s["inferred"]["managed_services"] = []   # test the layer, not a service override
+    result = classify_resp.classify(k8s, ["SC-7"])
     assert result["deployment_model_recognised"] is True
     # Without a NetworkPolicy every pod reaches every other pod, so the boundary
     # is the team's to draw rather than the provider's to supply.
     assert result["controls"][0]["responsibility"] == "team"
+    assert result["controls"][0]["source"] == "layers.yaml:kubernetes"
 
 
 def test_family_default_covers_unlisted_controls(profile):
