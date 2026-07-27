@@ -6220,6 +6220,140 @@ def test_nothing_catches_an_exception_nothing_raises():
         "if it comes back, something has to raise it"
 
 
+@pytest.mark.parametrize("url,why", [
+    ("https://csrc.nist.gov/\x01admin", "control character"),
+    ("https://csrc%2enist.gov/x", "percent-encoded authority"),
+    ("https://csrc.nist.gov:notaport/x", "cannot parse"),
+    ("ftp://csrc.nist.gov/x", "cannot parse"),
+    ("https:///nohost", "cannot parse"),
+])
+def test_a_url_this_tool_cannot_read_is_not_vouched_for(url, why):
+    """The allowlist compares a hostname, so anything that makes the hostname
+    ambiguous makes the comparison meaningless. Refusing is the only answer that
+    does not grant publication on the strength of a parse nobody trusts."""
+    problem = lint_mod.url_problem(url)
+    assert problem is not None and why in problem, (url, problem)
+
+
+@pytest.mark.parametrize("source,rule", [
+    (28, "source-format"),                        # not a string at all
+    ("SC 28", "source-format"),                   # missing the hyphen
+    ("ASVS-9.9.9", "source-format"),              # ASVS identifiers carry a V
+    ("ASVS-V99.99.99", "source-unknown"),         # well-formed and does not exist
+    ("SC-28(99)", "source-unknown"),              # a plausible enhancement that is not real
+])
+def test_a_source_that_is_not_an_identifier_is_named_as_such(source, rule):
+    """The catalog is bundled so that a fabricated identifier is detected after
+    the fact. A malformed one has to be told apart from an invented one, because
+    the fixes are different: one is a typo, the other is a citation to something
+    that does not exist."""
+    findings = lint_mod.lint(_doc(sources=[source]), "en", None)
+    assert rule in {f.rule for f in findings}, [f"{f.rule}: {f.message}" for f in findings]
+
+
+def test_an_empty_statement_is_not_a_missing_one():
+    """`statement: ""` passes a required-key check and says nothing. Reported as
+    its own rule so the message matches what the author has to do."""
+    findings = lint_mod.lint(_doc(statement=""), "en", None)
+    rules = {f.rule for f in findings}
+    assert "no-statement" in rules
+    assert "vague" not in rules and "too-short" not in rules, \
+        "one error about the empty statement, not a pile about its contents"
+
+
+@pytest.mark.parametrize("verification,expected", [
+    (None, "no-verification"),
+    ({"method": "iac_inspect"}, "verification-incomplete"),     # no expect
+    ({"expect": "encryption is on"}, "verification-incomplete"),  # no method
+    ({"method": "vibes", "expect": "it feels secure"}, "verification-method"),
+])
+def test_a_requirement_nobody_can_check_is_a_sentiment(verification, expected):
+    """"Verify it somehow" is not a verification method, and the automation
+    planned for v2 dispatches on this value, so the set is closed."""
+    doc = _doc()
+    if verification is None:
+        doc["requirements"][0]["managed"].pop("verification", None)
+    else:
+        doc["requirements"][0]["managed"]["verification"] = verification
+    assert expected in {f.rule for f in lint_mod.lint(doc, "en", None)}
+
+
+# --- what the merge prints, which is the only place some of it is said ---------
+
+def test_the_merge_report_names_a_reopened_requirement_carrying_an_exception(
+        draft, tmp_path, monkeypatch, capsys):
+    """Reinstating an accepted risk is a decision for the approver, not for a
+    re-derivation. The record is left active with the prior approval attached,
+    and the report has to say so -- otherwise an exception someone signed for is
+    silently back in force, or silently gone, and nobody can tell which."""
+    state = {"issued": {}}
+    first = merge.apply_merge(draft, [], state)
+
+    # It stops deriving, so it retires -- and it was carrying an exception.
+    target = first["requirements"][0]["id"]
+    reduced = [d for d in draft if merge.issue_id(d["slug"], state) != target]
+    retired = merge.apply_merge(reduced, first["requirements"], state)
+    record = next(r for r in retired["requirements"] if r["id"] == target)
+    record.setdefault("human", {})["exception"] = {
+        "approver": "the head of platform", "expires": "2027-01-31",
+        "rationale": "the migration lands first"}
+
+    assert (record.get("human") or {}).get("status") == "retired"
+
+    # And now it derives again -- through the command line, which is where the
+    # reopening is reported. apply_merge edits the records in place, so the file
+    # has to be written from what the retirement produced, before anything else
+    # touches it.
+    draft_path = tmp_path / "draft.json"
+    draft_path.write_text(json.dumps({"requirements": draft}), encoding="utf-8")
+    existing_path = tmp_path / "requirements.yaml"
+    existing_path.write_text(yaml.safe_dump({"requirements": copy.deepcopy(retired["requirements"])},
+                                            sort_keys=False, allow_unicode=True), encoding="utf-8")
+    state_path = tmp_path / "state.yaml"
+    state_path.write_text(yaml.safe_dump(state), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", [
+        "merge.py", "--apply", "--draft", str(draft_path),
+        "--existing", str(existing_path), "--state", str(state_path)])
+    assert merge.main() == 0
+
+    printed = capsys.readouterr().out
+    assert f"{target} was retired and is back in scope" in printed
+    assert "re-affirm or withdraw it" in printed
+    # Every exception with an expiry is listed, whatever its current status.
+    assert "accepted risks on record" in printed
+    assert "expires 2027-01-31" in printed
+
+
+@pytest.mark.parametrize("related,kind,fragment", [
+    ("AC-3", "schema", "must be a list"),                    # a scalar where a list belongs
+    ([28], "unresolved", "is not an identifier"),            # not a string
+    (["not a control"], "unresolved", "is not a control identifier"),
+    (["SC-99"], "unresolved", "does not exist in the catalog"),
+])
+def test_a_threat_reference_that_resolves_to_nothing_is_reported_as_such(
+        related, kind, fragment):
+    """A mistyped identifier and a genuine gap produce the same bucket -- the
+    threat is counted as threat-only either way -- so the reference that did not
+    match has to be named, or a typo reads as a finding the baseline missed."""
+    threats = {"threats": [{"id": "T-01", "title": "A threat",
+                            "related_controls": related}]}
+    result = merge.cross({"controls": ["AC-3"]}, {"controls": []}, threats)
+    problems = [p for p in result["problems"] if p["kind"] == kind]
+    assert problems, result["problems"]
+    assert any(fragment in p["message"] for p in problems), problems
+
+
+def test_unresolved_references_are_printed_apart_from_the_other_problems():
+    """Printed under the unresolved heading, a novelty or asset problem was
+    announced as a reference that matched no control and a threat counted as
+    threat-only -- neither of which had happened."""
+    threats = {"threats": [{"id": "T-01", "title": "A threat",
+                            "related_controls": ["SC-99"]}]}
+    report = merge.render_cross(merge.cross({"controls": ["AC-3"]}, {"controls": []}, threats))
+    assert "UNRESOLVED references in the threat model" in report
+    assert "SC-99 does not exist in the catalog" in report
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and
