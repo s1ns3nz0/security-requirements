@@ -7031,6 +7031,80 @@ def test_the_validator_reports_a_clause_it_could_never_show_as_reached(tmp_path,
     assert validate_overlays.main(["--strict"]) == 1
 
 
+def test_a_modifier_that_leaves_residual_risk_raises_a_threat_flag():
+    """Pseudonymisation lowers confidentiality and does not remove the risk it
+    was applied against: the re-identification key exists somewhere. The flag
+    carries that to the threat model, so the reduction and its residue travel
+    together instead of only the reduction being recorded."""
+    raw = yaml.safe_load((GOLDEN_ROOT / "internal-admin" / "profile.yaml")
+                         .read_text(encoding="utf-8"))
+    raw["declared"]["data_types"] = [
+        {"id": "basic_contact", "modifiers": ["pseudonymized_split_key"]},
+        {"id": "internal_ops"}]
+    result = sb.run(raw)
+    assert "linddun_linkability" in result["threat_flags"]
+    assert "Threat model flags: linddun_linkability" in sb.render_gate(result)
+
+
+def test_the_derivation_command_line_exits_two_on_a_profile_it_cannot_use(
+        tmp_path, capsys, monkeypatch):
+    """Exit 2 and a message, not a traceback. The profile is written by an
+    interview, so the person reading this is being told to go back and answer
+    something -- a stack trace tells them the tool broke."""
+    raw = yaml.safe_load((GOLDEN_ROOT / "internal-admin" / "profile.yaml")
+                         .read_text(encoding="utf-8"))
+    raw["declared"]["data_types"] = []
+    path = tmp_path / "profile.yaml"
+    path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["select_baseline.py", str(path)])
+    assert sb.main() == 2
+    assert "run the interview first" in capsys.readouterr().err
+
+
+def test_two_absolute_statements_about_one_data_type_cannot_both_be_true():
+    """The catalogue ships one absolute modifier, so this guard cannot fire
+    today and exists for the day a second is added. `=low` and `=high` on the
+    same type is not a conflict to resolve by precedence -- one of them is
+    simply wrong, and picking either would encode a coin toss as a
+    categorisation."""
+    table = {
+        "types": [{"id": "synthetic", "label": "a type",
+                   "confidentiality": "moderate", "integrity": "moderate",
+                   "personal_data": False}],
+        "modifiers": {
+            "says_low": {"label": "public", "effect": {"confidentiality": "=low"}},
+            "says_high": {"label": "secret", "effect": {"confidentiality": "=high"}},
+        },
+    }
+    profile = {"declared": {"data_types": [
+        {"id": "synthetic", "modifiers": ["says_low", "says_high"]}]}}
+    with pytest.raises(sb.ProfileError) as excinfo:
+        sb.derive_confidentiality_integrity(profile, table)
+    message = str(excinfo.value)
+    assert "each fix the confidentiality level and they disagree" in message
+    assert "says_low" in message and "says_high" in message
+
+
+def test_a_regime_about_personal_data_does_not_apply_where_there_is_none():
+    """And it is decided from the derived list rather than re-read from the
+    catalogue -- an earlier version consulted the types table directly and told
+    a service holding EU users' own content that the Regulation did not reach
+    it."""
+    profile = yaml.safe_load((GOLDEN_ROOT / "internal-admin" / "profile.yaml")
+                             .read_text(encoding="utf-8"))
+    # EU users, so the jurisdiction test passes and the data-type test is the
+    # one that decides.
+    profile["declared"]["user_regions"] = ["DE"]
+    derived = sb.run(profile)
+    assert not derived.get("personal_data_types"), \
+        "this case is chosen because it declares no personal data"
+
+    overlay = overlay_mod.load("gdpr")
+    applies, reason, _ = overlay_mod.applies(overlay, profile, derived)
+    assert applies is False
+    assert "no declared data type is personal data" in reason
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and
