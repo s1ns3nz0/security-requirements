@@ -510,6 +510,21 @@ def run(profile: dict) -> dict:
     }
     impact["driver"] = None if overridden else single_axis_driver(impact, system)
 
+    # A public repository whose source is declared confidential is a
+    # contradiction the profile already contains the evidence for. Found on an
+    # open-source training tool that derived a 370-control baseline because
+    # nobody reached for the intended_public modifier.
+    consistency = []
+    visibility = str((profile.get("repo") or {}).get("visibility", "")).strip().upper()
+    if visibility == "PUBLIC":
+        for entry in (profile.get("declared") or {}).get("data_types", []):
+            entry = {"id": entry} if isinstance(entry, str) else entry
+            if entry.get("id") == "source_code_ip" and "intended_public" not in (entry.get("modifiers") or []):
+                consistency.append(
+                    "the repository is public, but its source is declared as confidential "
+                    "intellectual property. Add the intended_public modifier, or say why the "
+                    "published code is not the asset being protected.")
+
     shape = detect_shape(profile)
 
     return {
@@ -520,6 +535,7 @@ def run(profile: dict) -> dict:
         "threat_flags": flags,
         "forced_requirements": forced,
         "schema_warnings": schema_warnings,
+        "consistency_warnings": consistency,
         "regulatory_flags": triggers,
         "uncovered_regulations": uncovered,
         "applicable_overlays": sorted({o["id"] for o in overlays}),
@@ -539,6 +555,8 @@ def render_gate(result: dict) -> str:
     out = []
     for warning in result.get("schema_warnings", []):
         out.append(f"  NOTE: {warning}")
+    for warning in result.get("consistency_warnings", []):
+        out.append(f"  CHECK: {warning}")
     if out:
         out.append("")
     out += ["Impact derivation", ""]

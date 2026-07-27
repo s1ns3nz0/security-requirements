@@ -1,0 +1,106 @@
+# Google Kubernetes Engine -- control responsibility
+#
+# The third provider curated, after AWS and Azure. Added while testing against
+# two public GCP repositories whose every managed service came back unverified.
+#
+# See aws-s3.yaml for the meaning of reviewed / csp_part / team_part.
+
+service: gcp-gke
+provider: gcp
+display_name: "Google Kubernetes Engine"
+reviewed: true
+reviewed_on: "2026-07-27"
+
+controls:
+
+  SC-39:
+    responsibility: shared
+    applies_when:
+      deployment_model: [kubernetes, paas, serverless]
+    csp_part: >-
+      Isolates nodes and, on Autopilot, manages the node pool the workload runs
+      on. GKE Sandbox provides a second boundary where it is enabled.
+    team_part: >-
+      The pod security context is the team's, and it is permissive by default.
+      Without one, a container runs as root with the host namespaces available
+      to anything that escapes the runtime.
+    evidence:
+      - "Google Cloud SOC 2 Type II report"
+    verification:
+      method: iac_inspect
+      target: "pod securityContext, PodSecurity admission labels on the namespace"
+      expect: "runAsNonRoot true, and the namespace enforcing the restricted Pod Security Standard"
+
+  SC-7:
+    responsibility: team
+    team_part: >-
+      Without a NetworkPolicy every pod reaches every other pod in the cluster.
+      GKE ships dataplane v2 with policy enforcement available, but no policy,
+      so the default is a flat network.
+    note: >-
+      Enabling the feature is not the control. A cluster with policy enforcement
+      turned on and no policies written behaves exactly like one without it.
+    verification:
+      method: iac_inspect
+      target: "NetworkPolicy objects per namespace; datapath_provider"
+      expect: "a default-deny ingress policy in each namespace carrying workloads"
+
+  AC-3:
+    responsibility: shared
+    csp_part: "Enforces Kubernetes RBAC and IAM at the API server."
+    team_part: >-
+      Bind workloads to Google service accounts through Workload Identity rather
+      than mounting node credentials. Without it, a pod inherits the node's
+      service account, which is usually far broader than the pod needs.
+    verification:
+      method: iac_inspect
+      target: "google_container_cluster.workload_identity_config; KSA annotations"
+      expect: "workload identity enabled and each workload bound to its own service account"
+
+  IA-5:
+    responsibility: team
+    team_part: >-
+      Kubernetes Secret objects are base64, not encrypted, and are readable by
+      anything that can read the namespace. Use Secret Manager with Workload
+      Identity, or enable application-layer encryption with a Cloud KMS key.
+    verification:
+      method: iac_inspect
+      target: "google_container_cluster.database_encryption; Secret usage"
+      expect: "database_encryption state ENCRYPTED with a KMS key, or secrets sourced externally"
+
+  SI-2:
+    responsibility: shared
+    csp_part: >-
+      Patches the control plane, and on Autopilot the nodes as well. On Standard
+      clusters node upgrades follow the release channel and maintenance window
+      the team configures.
+    team_part: "Workload images are always the team's, whatever the cluster mode."
+    evidence:
+      - "Google Cloud shared responsibility for GKE"
+    verification:
+      method: iac_inspect
+      target: "release_channel; node image tags in the workload manifests"
+      expect: "a release channel set, and images pinned by digest"
+
+  AU-2:
+    responsibility: shared
+    csp_part: "Cloud Audit Logs record control-plane admin activity by default."
+    team_part: >-
+      Data access logs are off by default, and container stdout only reaches
+      Cloud Logging if logging is enabled on the cluster. Admin activity shows
+      that a workload was changed, not what it did.
+    verification:
+      method: iac_inspect
+      target: "google_container_cluster.logging_config; project audit log config"
+      expect: "workload logging enabled, and DATA_READ enabled where it is required"
+
+  CM-6:
+    responsibility: team
+    team_part: >-
+      Manifests are the configuration and nothing about them is inherited.
+      Enable Shielded GKE Nodes and disable the legacy metadata endpoints, both
+      of which are cluster-creation choices.
+    verification:
+      method: iac_inspect
+      target: "google_container_cluster node_config"
+      expect: "shielded_instance_config enabled; no legacy metadata endpoints"

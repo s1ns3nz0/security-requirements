@@ -1656,3 +1656,43 @@ def test_clause_buckets_partition_the_overlay(overlay_id, profile):
     seen = [r["clause"] for b in buckets for r in result[b]]
     assert len(seen) == len(set(seen))
     assert result["clause_count"] == len(seen) == len(loaded["mappings"])
+
+
+def test_a_public_repository_declaring_confidential_source_is_questioned(profile):
+    """Found on an open-source training tool. The profile already held both
+    facts -- repository public, source declared as confidential intellectual
+    property -- and said nothing, so it derived a 370-control baseline."""
+    p = copy.deepcopy(profile)
+    p["repo"]["visibility"] = "PUBLIC"
+    p["declared"]["data_types"] = [{"id": "source_code_ip"}]
+    assert any("public" in w for w in sb.run(p)["consistency_warnings"])
+
+    resolved = copy.deepcopy(p)
+    resolved["declared"]["data_types"] = [{"id": "source_code_ip", "modifiers": ["intended_public"]}]
+    assert sb.run(resolved)["consistency_warnings"] == []
+
+    private = copy.deepcopy(p)
+    private["repo"]["visibility"] = "private"
+    assert sb.run(private)["consistency_warnings"] == []
+
+
+def test_curation_covers_three_providers():
+    """Curation must not be AWS-shaped. Two public GCP repositories came back
+    with every managed service unverified."""
+    services = REPO_ROOT / "responsibility" / "services"
+    providers = set()
+    for path in services.glob("*.yaml"):
+        providers.add(yaml.safe_load(path.read_text(encoding="utf-8"))["provider"])
+    assert {"aws", "azure", "gcp"} <= providers
+
+
+def test_gke_network_policy_is_the_team_s(profile):
+    """Enabling policy enforcement is not the control: a cluster with it on and
+    no policies written behaves exactly like one without it."""
+    p = copy.deepcopy(profile)
+    p["inferred"]["csp"] = "gcp"
+    p["inferred"]["deployment_model"] = "kubernetes"
+    p["inferred"]["managed_services"] = [{"id": "gcp-gke"}]
+    result = classify_resp.classify(p, ["SC-7", "IA-5"])
+    assert all(e["responsibility"] == "team" for e in result["controls"])
+    assert result["controls"][0]["source"] == "services/gcp-gke.yaml"

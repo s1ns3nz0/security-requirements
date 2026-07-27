@@ -8,9 +8,9 @@ before or independently of any code existing. That is the artefact a compliance
 or design stage actually needs, and it is the one nothing produces.
 
 > **Status: pre-release.** The pipeline runs end to end with the full SP 800-53
-> Rev 5 catalog, CSF 2.0, ASVS 5.0, eleven curated services, and six regulatory
-> overlays (ISMS-P, HIPAA, GDPR, PCI DSS, SOC 2, ISO 27001). Exercised against a dozen real repositories; see
-> [DESIGN.md](DESIGN.md) for what that turned up.
+> Rev 5 catalog, CSF 2.0, ASVS 5.0, twelve curated services across three providers, and six regulatory
+> overlays (ISMS-P, HIPAA, GDPR, PCI DSS, SOC 2, ISO 27001). Exercised against a dozen local repositories and three public ones
+> (CloudGoat, OWASP WrongSecrets, Online Boutique); see [DESIGN.md](DESIGN.md).
 
 ## What it produces
 
@@ -107,7 +107,7 @@ and better for being read.
 | OWASP ASVS 5.0 | 345 requirements across 17 chapters, with levels | CC BY-SA 4.0, isolated in its own directory |
 | Data type classification | Impact contribution per data type, with jurisdiction-gated regulatory triggers | Apache-2.0 |
 | Responsibility layers | Family defaults and control overrides for five deployment models | Apache-2.0 |
-| Service curation | S3, RDS, Lambda, API Gateway, Cognito, DynamoDB, ECS, SQS, CloudFront, ALB, Azure Blob | Apache-2.0 |
+| Service curation | Ten AWS services, Azure Blob, GKE | Apache-2.0 |
 | ISMS-P overlay | 101 certification criteria with an authored control mapping | Korean notice, outside copyright (Article 7) |
 | HIPAA overlay | 22 standards and 46 implementation specifications, rebuildable from the eCFR API | US Government work, public domain |
 | GDPR overlay | 46 articles across Chapters II–V, titles only with links to the Official Journal | EUR-Lex reuse policy |
