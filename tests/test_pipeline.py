@@ -5339,3 +5339,41 @@ def test_every_table_row_goes_through_the_escaper():
         for interpolation in _re.findall(r"\{([^}]+)\}", row):
             assert interpolation.startswith("cell(") or interpolation in ("body", "marker"), \
                 f"a table cell that does not go through cell(): {interpolation}"
+
+
+def test_the_golden_cases_still_span_the_scale():
+    """The README's claim, asserted rather than left to whoever notices. If they
+    all collapse to one level the tailoring has stopped discriminating, and
+    every change to the water mark is a chance for that to happen quietly."""
+    levels = {}
+    for case in sorted(p.name for p in GOLDEN_ROOT.iterdir() if p.is_dir()):
+        profile = yaml.safe_load((GOLDEN_ROOT / case / "profile.yaml").read_text(encoding="utf-8"))
+        levels[case] = sb.run(profile)["baseline"].replace("nist-800-53b-", "")
+
+    assert sorted(levels.values()) == ["high", "low", "moderate", "moderate"], levels
+    assert levels["internal-admin"] == "low"
+    assert levels["commerce-payments"] == "high"
+
+
+def test_a_golden_case_that_can_be_scored_is_scored(tmp_path):
+    """Only one of the four carries a written requirements document, so only one
+    can be evaluated. The other three have an expected-coverage file that has
+    never been used -- recorded in the README rather than left to imply a
+    coverage the suite does not have."""
+    scoreable = [p.name for p in GOLDEN_ROOT.iterdir()
+                 if p.is_dir() and (p / "draft.json").exists()]
+    assert scoreable == ["b2b-saas-aws"], scoreable
+
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "waits for a draft" in readme, "the gap is stated where the claim is made"
+
+    doc = tmp_path / "requirements.yaml"
+    doc.write_text(yaml.safe_dump({"requirements": [
+        {"id": merge.issue_id(item["slug"], {"issued": {}}), "managed": item["managed"],
+         "human": {}}
+        for item in json.loads((GOLDEN / "draft.json").read_text(encoding="utf-8"))["requirements"]
+    ]}, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    assert _run_cli("eval_golden.py", str(GOLDEN), str(doc)).returncode == 0
+    assert _run_cli("lint.py", str(doc), "--strict").returncode == 0, \
+        "and it passes the check the documented build now runs before publishing"

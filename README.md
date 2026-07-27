@@ -123,13 +123,18 @@ summarised in our own words with links, never reproduced.
 
 ```
 python3 scripts/rebuild_catalogs.py     # rebuild every catalog from upstream
-python3 -m pytest tests/                # deterministic layer, 57 tests
+python3 -m pytest tests/                # deterministic layer, 461 tests
 python3 scripts/eval_golden.py golden/b2b-saas-aws requirements.yaml
 ```
 
 Four golden cases keep the whole scale reachable — they derive to Low,
 Moderate, Moderate, and High. If they all collapse to one level, the tailoring
-has stopped discriminating.
+has stopped discriminating, so a test asserts the spread rather than leaving it
+to whoever notices.
+
+Only `b2b-saas-aws` carries a written requirements document, so it is the only
+case `eval_golden.py` can score. The other three exercise the derivation and
+their `expected-coverage.yaml` waits for a draft.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Curated service files are the most
 useful contribution: one managed service, one file, one pull request.
