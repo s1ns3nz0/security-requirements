@@ -146,8 +146,12 @@ ORG_CONTROL_COVERAGE = {
 }
 
 
-class ClassifyError(Exception):
-    pass
+# ClassifyError was defined here and caught in main(), and raised nowhere. A
+# handler for an exception nothing throws advertises a safety net that does not
+# exist: a malformed profile surfaced as a KeyError with a traceback, past the
+# except clause that looked like it was there to catch exactly that. Removed
+# rather than given something to catch, because what should be an error here has
+# not been decided, and inventing one to justify the handler is the wrong order.
 
 
 # Providers whose shared responsibility model this repository can reason about.
@@ -565,12 +569,7 @@ def main() -> int:
     profile = yaml.safe_load(args.profile.read_text(encoding="utf-8"))
     controls = json.loads(args.controls.read_text(encoding="utf-8"))["controls"]
 
-    try:
-        result = classify(profile, controls)
-    except ClassifyError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
-
+    result = classify(profile, controls)
     print(render(result))
     if args.json:
         args.json.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

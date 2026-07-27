@@ -6033,6 +6033,193 @@ def test_the_hipaa_command_line_refuses_offline_without_a_source(monkeypatch):
         hipaa_mod.main()
 
 
+# --- what the responsibility report says when the profile is odd ---------------
+#
+# Five warning states, none of them measured. These are the lines a reader sees
+# when their profile does not fit, and each of them exists because a silent
+# resolution had already misled someone.
+
+def _split(csp, deployment_model, controls=("AC-3", "SC-28", "AU-2")):
+    return classify_resp.classify(
+        {"inferred": {"csp": csp, "deployment_model": deployment_model}}, list(controls))
+
+
+def test_an_unrecognised_provider_claims_no_inheritance_and_says_so():
+    """A claim needs a claimant. If the provider cannot be identified, no
+    evidence can be named for it, so no inheritance may be asserted -- and the
+    report has to say that rather than quietly resolving to the family default."""
+    result = _split("hetzner", "iaas")
+    assert result["csp_status"] == "unrecognised"
+    report = classify_resp.render(result)
+    assert "hetzner" in report and "No inheritance was claimed" in report
+    assert "carries no evidence" in report
+    assert not [c for c in result["controls"] if c["responsibility"] == "csp_claimed"], \
+        "nothing may be inherited from a provider this tool cannot identify"
+
+
+def test_a_partly_recognised_provider_list_says_which_half_the_split_covers():
+    """Discarding the whole list because one member is unknown throws away what
+    the profile supplied: a repository declaring aws alongside something
+    unfamiliar still has a shared responsibility model for the aws half."""
+    result = _split(["aws", "hetzner"], "iaas")
+    assert result["csp_status"] == "partial"
+    report = classify_resp.render(result)
+    assert "nothing is claimed for the rest" in report
+    assert "aws" in report
+
+
+def test_two_providers_are_not_one_split():
+    """Shared responsibility differs per provider, so a single split covering
+    both would be a claim about neither."""
+    result = _split(["aws", "gcp"], "iaas")
+    assert result["csp_status"] == "multiple"
+    report = classify_resp.render(result)
+    assert "derive once per provider" in report
+
+
+def test_a_model_that_presumes_a_provider_declared_without_one_is_called_out():
+    """It resolves silently otherwise: the no-provider rule reassigns what would
+    have been inherited to the organisation, and the report reads as though that
+    were the intended answer.
+
+    onprem and kubernetes are deliberately not in this set -- a cluster can run
+    in a cupboard, and naming them told every self-hosted deployment its profile
+    was incoherent."""
+    result = _split(None, "serverless")
+    assert result["csp_model_inconsistent"] is True
+    report = classify_resp.render(result)
+    assert "presumes a cloud provider" in report
+    assert "reassigned to the organisation" in report
+
+    for model in ("onprem", "kubernetes"):
+        assert _split(None, model)["csp_model_inconsistent"] is False, model
+
+
+def test_an_unrecognised_deployment_model_says_which_rules_were_skipped():
+    """Found by sweeping a profile that said "kubernetes" before that was a model
+    this map knew: the overrides silently did not apply, and the split looked
+    ordinary. A reader has to be told which layer produced the answer."""
+    result = _split("aws", "mainframe")
+    assert result["deployment_model_recognised"] is False
+    report = classify_resp.render(result)
+    assert "is not recognised" in report
+    assert "NOT applied" in report
+    assert "family defaults and control overrides only" in report
+    for known in result["known_deployment_models"]:
+        assert known in report, "the reader needs the list to fix the profile"
+
+
+def test_a_recognised_alias_is_not_an_unrecognised_model():
+    """`bare-metal` is spelled differently and means onprem. Warning about it
+    would train the reader to ignore the warning."""
+    result = _split("aws", "bare-metal")
+    assert result["deployment_model"] == "onprem"
+    assert result["deployment_model_recognised"] is True
+    assert "is not recognised" not in classify_resp.render(result)
+
+
+def test_an_uncurated_service_says_what_the_split_fell_back_to():
+    """A service with no curated file is not an error -- most services do not
+    have one -- but the reader has to know the split for it came from the model
+    layer rather than from anything anyone checked against the provider."""
+    result = classify_resp.classify(
+        {"inferred": {"csp": "aws", "deployment_model": "iaas",
+                      "managed_services": ["aws-s3", "aws-quantum-widget"]}},
+        ["AC-3", "SC-28"])
+    assert result["services_uncurated"] == ["aws-quantum-widget"]
+    report = classify_resp.render(result)
+    assert "Unverified services" in report
+    assert "aws-quantum-widget -- classification falls back to the deployment model layer" in report
+
+    # And when the model was not recognised either, the fallback is narrower and
+    # the sentence has to say so rather than name a layer that did not run.
+    worse = classify_resp.classify(
+        {"inferred": {"csp": "aws", "deployment_model": "mainframe",
+                      "managed_services": ["aws-quantum-widget"]}}, ["AC-3"])
+    assert "family defaults only" in classify_resp.render(worse)
+
+
+def test_a_service_belonging_to_another_provider_is_reported_not_dropped():
+    """A profile saying `csp: gcp` while listing `aws-s3` took AWS's split --
+    controls claimed by a provider, carrying AWS's evidence references -- and put
+    them in a document about a Google deployment with nothing said. Copied
+    profiles and half-finished migrations both produce exactly that.
+
+    Still applied, because the curation is the best answer for the service it
+    describes. What is not acceptable is that nobody is told."""
+    result = classify_resp.classify(
+        {"inferred": {"csp": "gcp", "deployment_model": "iaas",
+                      "managed_services": ["aws-s3"]}}, ["AC-3", "SC-28"])
+    assert result["services_foreign"] == ["aws-s3 describes aws"]
+    report = classify_resp.render(result)
+    assert "belongs to a provider this profile does" in report
+    assert "name the wrong company" in report
+    assert "aws-s3" in result["services_curated"] or result["services_curated"] == [], \
+        "the curation is applied, not discarded"
+
+
+def test_a_control_that_maps_to_nothing_is_named_undetermined():
+    """Silence here would read as "no responsibility", which is a claim. An
+    unmapped control is an absence of curation and says so."""
+    result = classify_resp.classify(
+        {"inferred": {"csp": "aws", "deployment_model": "iaas"}}, ["AC-3", "ZZ-99"])
+    assert [e["control"] for e in result["controls"]
+            if e["responsibility"] == "undetermined"] == ["ZZ-99"]
+    assert "UNDETERMINED: 1 controls with no mapping (ZZ)" in classify_resp.render(result)
+
+
+@pytest.mark.parametrize("condition,model,applies", [
+    (None, "iaas", True),                                  # no condition, holds everywhere
+    ({}, "iaas", True),
+    ({"deployment_model": []}, "iaas", True),              # a condition naming no model
+    ({"deployment_model": ["kubernetes"]}, "kubernetes", True),
+    ({"deployment_model": ["kubernetes"]}, "iaas", False),
+    # The profile did not say. A conditional entry cannot be asserted against a
+    # deployment nobody named, and asserting it anyway is provider inheritance
+    # claimed for a deployment where it may not hold.
+    ({"deployment_model": ["kubernetes"]}, None, False),
+])
+def test_a_conditional_curation_holds_only_where_it_says_it_does(condition, model, applies):
+    """Fargate's control plane is managed and its EC2 launch type's is not.
+    Encoding that in a prose note only means the classifier asserts provider
+    inheritance for a deployment where it does not hold -- the failure this tool
+    exists to prevent, committed by its own curation."""
+    detail = {"responsibility": "csp_claimed"}
+    if condition is not None:
+        detail["applies_when"] = condition
+    assert classify_resp.entry_applies(detail, model) is applies
+
+
+def test_a_curated_file_nobody_reviewed_marks_its_controls_unverified(tmp_path, monkeypatch):
+    """`reviewed: false` means the file exists and no one has checked it against
+    the provider's documentation. Its split is still the best answer available,
+    and every control it touches carries the fact that nobody signed for it."""
+    services = tmp_path / "services"
+    services.mkdir()
+    (services / "aws-draft-thing.yaml").write_text(yaml.safe_dump({
+        "service": "aws-draft-thing", "provider": "aws", "reviewed": False,
+        "controls": {"SC-28": {"responsibility": "csp_claimed",
+                               "csp_part": "Encrypts what it stores."}},
+    }), encoding="utf-8")
+    monkeypatch.setattr(classify_resp, "SERVICES_DIR", services)
+
+    result = classify_resp.classify(
+        {"inferred": {"csp": "aws", "deployment_model": "iaas",
+                      "managed_services": ["aws-draft-thing"]}}, ["SC-28"])
+    entry = next(e for e in result["controls"] if e["control"] == "SC-28")
+    assert entry["unverified"] is True
+    assert result["services_uncurated"] == ["aws-draft-thing"], \
+        "unreviewed is uncurated for the purpose of telling the reader"
+
+
+def test_nothing_catches_an_exception_nothing_raises():
+    """ClassifyError was defined and caught in main() and raised nowhere, so a
+    malformed profile surfaced as a KeyError with a traceback, straight past the
+    except clause that looked like it existed to catch exactly that."""
+    assert not hasattr(classify_resp, "ClassifyError"), \
+        "if it comes back, something has to raise it"
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and
