@@ -4157,3 +4157,49 @@ def test_a_data_type_declared_twice_is_one_data_type():
     two = sb.run(_onprem(data_types=[{"id": "basic_contact"}, {"id": "internal_ops"}]))
     assert len(two["impact"]["confidentiality"]["because"]) == 2
     assert not two["schema_warnings"]
+
+
+def test_modifier_effects_do_not_depend_on_the_order_they_were_typed_in():
+    """Applied one at a time, the same two statements about the same data gave
+    different answers depending on which was written first.
+
+    health_records carrying an aggregation modifier and a tokenisation modifier
+    came out High one way and Moderate the other, because a bump that saturates
+    at High loses the excess and the subtraction that follows starts from the
+    clamped value. The relative effects sum before anything is clamped now.
+    """
+    def level(type_id, modifiers):
+        return sb.run(_onprem(data_types=[{"id": type_id, "modifiers": modifiers}])
+                      )["impact"]["confidentiality"]["level"]
+
+    for type_id in ("basic_contact", "health_records", "payment_token", "government_id"):
+        forward = level(type_id, ["aggregated_large_scale", "tokenized_external"])
+        backward = level(type_id, ["tokenized_external", "aggregated_large_scale"])
+        assert forward == backward, f"{type_id}: {forward} vs {backward}"
+
+    # And the net of +1 and -1 is no movement at all.
+    assert level("health_records", ["aggregated_large_scale", "tokenized_external"]) == \
+           level("health_records", [])
+
+
+def test_a_statement_about_what_the_data_is_wins_over_an_adjustment():
+    """Content declared as intended for publication came out Moderate when the
+    aggregation modifier happened to be listed after it -- the opposite of what
+    the declaration says. An absolute assignment is applied last."""
+    def level(modifiers):
+        return sb.run(_onprem(data_types=[{"id": "user_generated_content",
+                                           "modifiers": modifiers}])
+                      )["impact"]["confidentiality"]["level"]
+
+    assert level(["intended_public", "aggregated_large_scale"]) == "low"
+    assert level(["aggregated_large_scale", "intended_public"]) == "low"
+    assert level(["intended_public"]) == "low"
+
+    # Two absolute statements that disagree cannot both be true, and the tool
+    # says so rather than picking whichever was written first.
+    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+                            "classification.yaml").read_text(encoding="utf-8"))
+    absolutes = [m for m, spec in table["modifiers"].items()
+                 if isinstance((spec.get("effect") or {}).get("confidentiality"), str)]
+    assert len(absolutes) == 1, \
+        f"if a second absolute modifier is added, the conflict path needs a test: {absolutes}"

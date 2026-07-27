@@ -256,7 +256,9 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
         else:
             c, note = c_raw, None
 
-        applied = []
+        applied: list[str] = []
+        relative = 0
+        absolute: list[tuple[str, str]] = []
         for mod_id in entry.get("modifiers", []) or []:
             if mod_id not in modifiers:
                 # The table records why some modifiers are refused, and the
@@ -291,10 +293,18 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
                     f"{mod_id} on {entry['id']}: the modifier applies to types marked "
                     f"{required}, and this one is not, so it changed nothing")
             effect = mod.get("effect", {}).get("confidentiality")
+            # Collected, not applied here. Applied in order, the same two
+            # statements about the same data gave different answers depending
+            # on which was typed first: health records with an aggregation
+            # modifier and a tokenisation modifier came out High one way and
+            # Moderate the other, because a bump that saturates at High loses
+            # the excess. And content declared as intended for publication came
+            # out Moderate if the aggregation modifier was listed after it,
+            # which is the opposite of what the declaration says.
             if isinstance(effect, str) and effect.startswith("="):
-                c = effect[1:]
+                absolute.append((mod_id, effect[1:]))
             elif isinstance(effect, int):
-                c = bump(c, effect)
+                relative += effect
             applied.append(mod["label"])
             flags.extend(mod.get("flags", []) or [])
             # Modifiers may demand a requirement of their own. `customer_owned`
@@ -308,6 +318,22 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
                     "label": f"{label} [{mod['label']}]",
                     "note": (mod.get("note") or "").strip(),
                 })
+
+        # The relative effects sum before anything is clamped, so the order they
+        # were written in cannot change the total. An absolute assignment is a
+        # statement about what the data *is* -- published content is public
+        # whatever else is true of it -- so it is applied last and wins.
+        if relative:
+            c = bump(c, relative)
+        if absolute:
+            if len({value for _, value in absolute}) > 1:
+                raise ProfileError(
+                    f"{entry['id']}: {', '.join(m for m, _ in absolute)} each fix the "
+                    f"confidentiality level and they disagree "
+                    f"({', '.join(sorted({v for _, v in absolute}))}). Two absolute "
+                    f"statements about one data type cannot both be true."
+                )
+            c = absolute[0][1]
 
         if i_raw == "inherit_max":
             i = highest(content_i)
