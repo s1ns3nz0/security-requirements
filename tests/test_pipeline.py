@@ -15,6 +15,7 @@ import re
 import json
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -5758,6 +5759,278 @@ def test_every_disclosure_in_a_field_is_reported_at_once():
         "and vault-01.corp"))
     named = [f for f in lint_mod.lint(doc, "en", None) if f.rule == "names-an-instance"]
     assert len(named) >= 3, [f.message for f in named]
+
+
+# --- the rebuild's publish path ------------------------------------------------
+#
+# `build_nist` writes the files every other script reads, and everything after
+# the extraction -- the baselines, the programme layer, the provenance, the
+# stale-family warning -- was unmeasured. Driving it needs an OSCAL source, and
+# the real one is 5MB and a network call away, so these build a small one whose
+# shape is the shape the parser expects.
+
+def _oscal_control(cid, title, prose, params=None, kids=None):
+    control = {"id": cid, "title": title,
+               "parts": [{"id": f"{cid}_smt", "name": "statement", "prose": prose}]}
+    if params:
+        control["params"] = params
+    if kids:
+        control["controls"] = kids
+    return control
+
+
+def _oscal_source(dest, ac_controls=None, pm_controls=None):
+    dest.mkdir(parents=True, exist_ok=True)
+    if ac_controls is None:
+        ac_controls = [
+            _oscal_control("ac-1", "Policy and Procedures",
+                           "Develop a policy reviewed {{ insert: param, ac-1_prm_1 }}.",
+                           params=[{"id": "ac-1_prm_1", "label": "an organisation-defined frequency"}],
+                           kids=[_oscal_control("ac-1.1", "Automated Review",
+                                                "Review using {{ insert: param, ac-1_prm_1 }}.")]),
+            _oscal_control("ac-3", "Access Enforcement", "Enforce approved authorisations."),
+        ]
+    if pm_controls is None:
+        pm_controls = [
+            _oscal_control("pm-1", "Information Security Program Plan", "Develop a plan."),
+            _oscal_control("pm-2", "Information Security Program Leadership Role",
+                           "Appoint a senior officer.",
+                           kids=[_oscal_control("pm-2.1", "An Enhancement",
+                                                "Selected by no baseline.")]),
+            _oscal_control("pm-5", "System Inventory", "Maintain an inventory."),
+        ]
+    catalog = {"catalog": {
+        "uuid": "11111111-2222-3333-4444-555555555555",
+        "metadata": {"title": "synthetic", "last-modified": "2026-01-01T00:00:00Z",
+                     "version": "5.1.1", "oscal-version": "1.1.2"},
+        "groups": [{"id": "ac", "title": "Access Control", "controls": ac_controls},
+                   {"id": "pm", "title": "Program Management", "controls": pm_controls}]}}
+    (dest / rebuild_mod.CATALOG_FILE).write_text(json.dumps(catalog), encoding="utf-8")
+
+    def profile(ids):
+        return {"profile": {"uuid": "p", "metadata": {"title": "b", "version": "5.1.1"},
+                            "imports": [{"href": "#c", "include-controls": [{"with-ids": ids}]}]}}
+    for key, ids in (("low", ["ac-1"]), ("moderate", ["ac-1", "ac-3"]),
+                     ("high", ["ac-1", "ac-1.1", "ac-3"]), ("privacy", ["ac-1", "pm-5"])):
+        (dest / rebuild_mod.BASELINE_FILES[key]).write_text(
+            json.dumps(profile(ids)), encoding="utf-8")
+    return dest
+
+
+def test_a_rebuild_writes_the_catalogue_the_rest_of_the_tool_reads(tmp_path, monkeypatch):
+    """Everything after the extraction was unmeasured: the baselines, the
+    programme layer, the provenance, the identifier conversion. This runs the
+    real function against a small source and reads what lands on disk."""
+    src = _oscal_source(tmp_path / "src")
+    out = tmp_path / "out"
+    monkeypatch.setattr(rebuild_mod, "OUT_DIR", out)
+
+    assert rebuild_mod.build_nist(src, None) == 0
+    assert sorted(p.name for p in out.iterdir()) == [
+        "AC.jsonl", "PM.jsonl", "baselines.json", "meta.json"]
+
+    baselines = json.loads((out / "baselines.json").read_text(encoding="utf-8"))
+    assert baselines["high"] == ["AC-1", "AC-1(1)", "AC-3"], \
+        "ac-1.1 has to arrive as AC-1(1) -- the form used in prose and audits"
+    # The programme layer is the PM family and is read from no baseline, because
+    # SP 800-53B assigns no PM control to Low, Moderate, or High.
+    assert baselines["program"] == ["PM-1", "PM-2", "PM-5"], \
+        "base controls only; NIST tailors which enhancements apply and this tool does not"
+
+    meta = json.loads((out / "meta.json").read_text(encoding="utf-8"))
+    assert meta["all_families"] == ["AC", "PM"]
+    assert meta["families_extracted"] == ["AC", "PM"]
+    assert meta["families_stale"] == []
+    assert meta["partial"] is False
+    assert meta["oscal_version"] == "5.1.1"
+    assert meta["baseline_counts"]["program"] == 3
+
+    # The parameter defined on the parent and referenced by the enhancement.
+    records = {json.loads(line)["id"]: json.loads(line)
+               for line in (out / "AC.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()}
+    assert "{{ insert:" not in records["AC-1(1)"]["statement"], \
+        "a sibling's parameter has to resolve, or the catalogue ships a placeholder"
+    assert "an organisation-defined frequency" in records["AC-1(1)"]["statement"]
+
+
+def test_a_partial_rebuild_says_the_directory_now_mixes_two_builds(tmp_path, monkeypatch, capsys):
+    """A partial rebuild writes the families it was asked for and leaves the rest
+    where a previous run put them, so the directory can hold material from two
+    builds while the provenance names only the newer one. Every consumer reads
+    the directory rather than the provenance."""
+    src = _oscal_source(tmp_path / "src")
+    out = tmp_path / "out"
+    monkeypatch.setattr(rebuild_mod, "OUT_DIR", out)
+
+    rebuild_mod.build_nist(src, None)           # full, so PM.jsonl exists
+    capsys.readouterr()
+    rebuild_mod.build_nist(src, {"ac"})         # partial, PM skipped
+
+    meta = json.loads((out / "meta.json").read_text(encoding="utf-8"))
+    assert meta["partial"] is True
+    assert meta["families_extracted"] == ["AC"]
+    assert meta["families_present"] == ["AC", "PM"]
+    assert meta["families_stale"] == ["PM"]
+    assert "WARNING" in capsys.readouterr().err
+
+    # The programme set is carried forward from the file on disk rather than
+    # recomputed from an extraction that never walked PM.
+    baselines = json.loads((out / "baselines.json").read_text(encoding="utf-8"))
+    assert baselines["program"] == ["PM-1", "PM-2", "PM-5"]
+
+
+def test_a_rebuild_that_walks_the_programme_family_and_finds_nothing_refuses(tmp_path, monkeypatch):
+    """The condition for carrying the programme set forward is that PM was
+    *skipped*, not that the set came out empty. Written the second way, a
+    rebuild that did walk PM and extracted nothing would republish the stale
+    file and report success -- which is the failure the check exists to catch."""
+    src = _oscal_source(tmp_path / "src", pm_controls=[])
+    out = tmp_path / "out"
+    monkeypatch.setattr(rebuild_mod, "OUT_DIR", out)
+    with pytest.raises(SystemExit) as excinfo:
+        rebuild_mod.build_nist(src, None)
+    assert "no controls" in str(excinfo.value)
+
+
+def test_a_parameter_with_no_label_stops_the_publish_before_anything_is_written(tmp_path, monkeypatch):
+    """A statement shipping a raw `{{ insert: param, ... }}` is a catalogue that
+    reads as authoritative and is not. The refusal has to come before the write,
+    or the bad file is on disk while the error is on the terminal."""
+    src = _oscal_source(tmp_path / "src", ac_controls=[
+        _oscal_control("ac-1", "Policy",
+                       "Review {{ insert: param, ac-1_prm_nobody_declared }}."),
+    ])
+    out = tmp_path / "out"
+    monkeypatch.setattr(rebuild_mod, "OUT_DIR", out)
+    with pytest.raises(SystemExit) as excinfo:
+        rebuild_mod.build_nist(src, None)
+    assert "ac-1_prm_nobody_declared" in str(excinfo.value)
+    assert not (out / "AC.jsonl").exists(), "nothing may be written before the check passes"
+
+
+def test_the_rebuild_command_line_runs(tmp_path, monkeypatch):
+    """main() dispatches on --catalog and refuses --offline without a source."""
+    src = _oscal_source(tmp_path / "src")
+    out = tmp_path / "out"
+    monkeypatch.setattr(rebuild_mod, "OUT_DIR", out)
+    monkeypatch.setattr(sys, "argv", ["rebuild_catalogs.py", "--catalog", "nist",
+                                      "--offline", "--source-dir", str(src)])
+    assert rebuild_mod.main() == 0
+    assert (out / "baselines.json").exists()
+
+    monkeypatch.setattr(sys, "argv", ["rebuild_catalogs.py", "--offline"])
+    with pytest.raises(SystemExit):
+        rebuild_mod.main()
+
+
+# --- the HIPAA rebuild's publish path ------------------------------------------
+
+def _cfr_section(sec_id, standards, inline_specs=0, group_headings=0):
+    letters = "abcdefghijklmnop"
+    paragraphs = [
+        f"<P>({letters[i]}) Standard: Safeguard number {i + 1}. A covered entity "
+        f"must do the thing.</P>"
+        for i in range(standards)
+    ]
+    paragraphs += [
+        f"<P>({letters[0]})({i + 1}) Spec number {i + 1} (Required). Do the "
+        f"specified thing.</P>"
+        for i in range(inline_specs)
+    ]
+    # A designation on a group heading belongs to the specifications beneath it
+    # rather than to itself, which is why the count check adds two.
+    paragraphs += [
+        f"<P>({letters[1]})({i + 1}) Implementation specifications "
+        f"(Addressable)\u2014(i) Grouped item {i + 1}. Do the grouped thing.</P>"
+        for i in range(group_headings)
+    ]
+    return f'<DIV8 N="{sec_id}" TYPE="SECTION">' + "".join(paragraphs) + "</DIV8>"
+
+
+def _cfr_source(path, counts, inline=3, groups=2):
+    body = "".join(
+        _cfr_section(sec, n,
+                     inline_specs=inline if sec == "164.308" else 0,
+                     group_headings=groups if sec == "164.308" else 0)
+        for sec, n in counts.items())
+    path.write_text(f'<?xml version="1.0"?><ECFR>{body}</ECFR>', encoding="utf-8")
+    return path
+
+
+SYNTHETIC_CFR_COUNTS = {"164.308": 3, "164.310": 2, "164.312": 2, "164.314": 1, "164.316": 1}
+
+
+def test_the_hipaa_rebuild_writes_a_clause_list_and_its_provenance(tmp_path, monkeypatch):
+    """Everything after the extraction was unmeasured. The real regulation is a
+    network call away and the shape is what matters, so this drives the command
+    line against a small source with the same structure."""
+    source = _cfr_source(tmp_path / "title-45.xml", SYNTHETIC_CFR_COUNTS)
+    out = tmp_path / "out"
+    monkeypatch.setattr(hipaa_mod, "OUT_DIR", out)
+    monkeypatch.setattr(hipaa_mod, "EXPECTED_STANDARDS", SYNTHETIC_CFR_COUNTS)
+    monkeypatch.setattr(sys, "argv", ["rebuild_overlay_hipaa.py", "--offline",
+                                      "--source", str(source), "--date", "2026-03-01"])
+    assert hipaa_mod.main() == 0
+
+    clauses = [json.loads(line) for line
+               in (out / "criteria.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert [c["kind"] for c in clauses].count("standard") == sum(SYNTHETIC_CFR_COUNTS.values())
+    assert {c["designation_source"] for c in clauses if c["kind"] == "implementation_specification"} \
+        == {"inline", "group heading"}
+
+    meta = json.loads((out / "source.json").read_text(encoding="utf-8"))
+    assert meta["point_in_time"] == "2026-03-01"
+    assert meta["standards"] == sum(SYNTHETIC_CFR_COUNTS.values())
+    assert meta["standards_per_section"] == SYNTHETIC_CFR_COUNTS
+
+
+def test_a_short_clause_list_stops_the_hipaa_rebuild(tmp_path, monkeypatch):
+    """Nine administrative standards, four physical, five technical. Asserted
+    rather than assumed, so a change in the regulation or a regression in this
+    parser fails loudly instead of producing a clause list nobody counted."""
+    source = _cfr_source(tmp_path / "title-45.xml", SYNTHETIC_CFR_COUNTS)
+    out = tmp_path / "out"
+    monkeypatch.setattr(hipaa_mod, "OUT_DIR", out)
+    expected = dict(SYNTHETIC_CFR_COUNTS, **{"164.308": 9})
+    monkeypatch.setattr(hipaa_mod, "EXPECTED_STANDARDS", expected)
+    monkeypatch.setattr(sys, "argv", ["rebuild_overlay_hipaa.py", "--offline",
+                                      "--source", str(source)])
+    with pytest.raises(SystemExit) as excinfo:
+        hipaa_mod.main()
+    assert "expected 9 standards, extracted 3" in str(excinfo.value)
+    assert not out.exists(), "nothing may be written when the count does not hold"
+
+
+def test_a_dropped_implementation_specification_stops_the_hipaa_rebuild(tmp_path, monkeypatch):
+    """Every paragraph carrying (Required) or (Addressable) has to end up
+    somewhere. Counting them in the source and again in the output is what
+    catches a specification the paragraph parser walked past."""
+    # Three group headings, so the designation count exceeds inline + 2.
+    source = _cfr_source(tmp_path / "title-45.xml", SYNTHETIC_CFR_COUNTS, groups=3)
+    out = tmp_path / "out"
+    monkeypatch.setattr(hipaa_mod, "OUT_DIR", out)
+    monkeypatch.setattr(hipaa_mod, "EXPECTED_STANDARDS", SYNTHETIC_CFR_COUNTS)
+    monkeypatch.setattr(sys, "argv", ["rebuild_overlay_hipaa.py", "--offline",
+                                      "--source", str(source)])
+    with pytest.raises(SystemExit) as excinfo:
+        hipaa_mod.main()
+    assert "was dropped" in str(excinfo.value) or "captured inline" in str(excinfo.value)
+
+
+def test_a_missing_section_stops_the_hipaa_rebuild(tmp_path, monkeypatch):
+    """Subpart C has five sections. Four is a source that changed shape."""
+    counts = dict(SYNTHETIC_CFR_COUNTS)
+    counts.pop("164.316")
+    source = _cfr_source(tmp_path / "title-45.xml", counts)
+    with pytest.raises(SystemExit) as excinfo:
+        hipaa_mod.extract(ET.parse(source).getroot())
+    assert "164.316" in str(excinfo.value)
+
+
+def test_the_hipaa_command_line_refuses_offline_without_a_source(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["rebuild_overlay_hipaa.py", "--offline"])
+    with pytest.raises(SystemExit):
+        hipaa_mod.main()
 
 
 def test_the_golden_cases_still_span_the_scale():
