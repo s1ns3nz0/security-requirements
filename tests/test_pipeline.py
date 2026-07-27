@@ -2641,3 +2641,89 @@ def test_the_two_consumers_of_the_exclusion_answer_separately(type_id, system_in
     warnings = " ".join(result["consistency_warnings"])
     assert "declares no authentication" in warnings
     assert type_id in warnings, "everything declared is assumed reachable"
+
+
+# --- round three: five more authoritative repositories ------------------------
+
+def _onprem(**declared):
+    base = {"version": "0.1.0",
+            "inferred": {"csp": "none", "deployment_model": "onprem", "stack": ["java"],
+                         "entrypoints": ["http: REST API"], "auth_mechanism": "oidc"},
+            "declared": {"data_types": [{"id": "internal_ops"}], "users": ["internal_staff"],
+                         "availability": {"rto": "rto_hours", "rpo": "rpo_minutes"}}}
+    base["declared"].update(declared)
+    return base
+
+
+def test_a_country_is_an_answer_to_where_data_is_stored():
+    """The region map held cloud provider region codes only.
+
+    An on-premise service has no cloud region to give, and `region_storage: KR`
+    -- exactly the vocabulary `user_regions` uses two lines down the same
+    profile -- came back "not in the region map" and switched cross-border
+    detection off. Every on-premise profile tested hit it.
+    """
+    profile = _onprem(user_regions=["JP"])
+    profile["inferred"]["region_storage"] = "KR"
+    cross = sb.run(profile)["cross_border"]
+    assert cross and not cross["undetermined"]
+    assert cross["storage_country"] == "KR"
+    assert cross["offshore_for"] == ["JP"]
+
+    # A cloud region still resolves through the map.
+    profile["inferred"]["region_storage"] = "ap-northeast-2"
+    assert sb.run(profile)["cross_border"]["storage_country"] == "KR"
+
+    # And something that is neither is still reported as undetermined rather
+    # than guessed at.
+    profile["inferred"]["region_storage"] = "datacentre-3"
+    assert sb.run(profile)["cross_border"]["undetermined"] is True
+
+
+def test_the_korean_trigger_follows_the_flag_too():
+    """gdpr_personal_data was made to follow the classification table's
+    personal_data flag; pipa_general, its counterpart, was left behind. It
+    reached the three types that happened to name it, so a Korean service
+    processing pseudonymous analytics -- personal data by the table's own
+    reckoning -- was routed to no Korean regime at all."""
+    profile = _onprem(data_types=[{"id": "analytics_pseudonymous"}], user_regions=["KR"])
+    assert "pipa-isms-p" in sb.run(profile)["applicable_overlays"]
+
+    # Category-specific triggers stay per-type: sensitive data and children are
+    # not "personal data with a narrower list".
+    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+                            "classification.yaml").read_text(encoding="utf-8"))
+    following = {k for k, v in table["regulatory_triggers"].items() if v.get("all_personal_data")}
+    assert following == {"gdpr_personal_data", "pipa_general"}
+
+
+def test_isms_p_scope_reads_the_flag_not_a_fourth_copy_of_it(profile):
+    """"What is personal data" was written down four times in this repository.
+
+    Three were found and two removed. The fourth was here, in the ISMS-P scope
+    selector, holding seven of the nine types -- so a Korean service processing
+    pseudonymous analytics was assessed at ISMS scope and told no personal data
+    was declared, on a derivation that had just listed some.
+    """
+    meta = yaml.safe_load((REPO_ROOT / "overlays" / "pipa-isms-p" /
+                           "meta.yaml").read_text(encoding="utf-8"))
+    assert meta["scope_selector"].get("data_types_personal") is True
+    assert "data_types" not in meta["scope_selector"]
+
+    korean = _onprem(data_types=[{"id": "analytics_pseudonymous"}], user_regions=["KR"])
+    derived = sb.run(korean)
+    _, reason, scope = overlay_mod.applies(overlay_mod.load("pipa-isms-p"), korean, derived)
+    assert scope["scope"] == "ISMS-P", reason
+
+
+def test_a_declared_certification_reaches_the_overlays_that_apply():
+    """Q5 asks what regulation or contractual obligation is already fixed, and
+    the answer went nowhere: routing came only from the data types, and an
+    elective regime has no data type to route from. That is what elective
+    means."""
+    profile = _onprem(regulations_declared=["SOC 2 Type II", "ISO/IEC 27001"])
+    applicable = sb.run(profile)["applicable_overlays"]
+    assert "soc2" in applicable and "iso-27001" in applicable
+
+    # Not named, not listed -- an elective regime is a choice, not a default.
+    assert not ({"soc2", "iso-27001"} & set(sb.run(_onprem())["applicable_overlays"]))

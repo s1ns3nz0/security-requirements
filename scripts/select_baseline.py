@@ -547,7 +547,15 @@ def detect_cross_border(profile: dict, user_regions: set[str]) -> dict | None:
         # regions to compare it against. Saying nothing is right: a transfer
         # question needs both ends.
         return None
+    # A country code is the answer for anything not in a cloud region, and an
+    # on-premise service has no cloud region to give. The map held provider
+    # region codes only, so `region_storage: KR` -- exactly the vocabulary
+    # `user_regions` uses two lines further down the same profile -- came back
+    # "not in the region map" and switched cross-border detection off. Every
+    # on-premise profile tested hit it.
     country = REGION_COUNTRY.get(region)
+    if not country and len(region) == 2 and region.isalpha():
+        country = region.upper()
     if not country:
         return {"storage_region": region, "storage_country": None,
                 "user_regions": sorted(user_regions), "undetermined": True}
@@ -806,6 +814,28 @@ def run(profile: dict) -> dict:
                     f"and re-run -- the derivation is reading it as the first.")
                 break
 
+    # Q5 asks what regulation or contractual obligation is already fixed, and
+    # the answer went nowhere. A profile naming SOC 2 and ISO 27001 listed
+    # neither under the overlays that apply, because routing came only from the
+    # data types -- and an elective regime has no data type to route from. That
+    # is what elective means. The eighth field found in this repository that was
+    # gathered, written down, and read by nobody.
+    stated = " ".join(str(x).lower()
+                      for x in (profile.get("declared") or {}).get("regulations_declared") or [])
+    if stated:
+        for overlay_dir in sorted((REPO_ROOT / "overlays").iterdir()):
+            meta_path = overlay_dir / "meta.yaml"
+            if not meta_path.exists():
+                continue
+            meta = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
+            elective = meta.get("elective")
+            if not elective:
+                continue
+            aliases = [a.lower() for a in elective.get("aliases") or [meta["id"]]]
+            if any(a in stated for a in aliases) and meta["id"] not in {o["id"] for o in overlays}:
+                overlays.append({"id": meta["id"], "trigger": "declared",
+                                 "label": meta.get("name", meta["id"])})
+
     # `auth_mechanism` was gathered by the interview, given a rule of its own in
     # the schema so that `none` would survive normalisation -- "the service has
     # no authentication, which is a finding rather than a gap in the interview"
@@ -1002,7 +1032,9 @@ def render_gate(result: dict) -> str:
             out.append(f"  ? storage region {cb['storage_region']} not in the region map; country undetermined")
         else:
             out.append(
-                f"  ! stored in {cb['storage_country']} ({cb['storage_region']}), "
+                f"  ! stored in {cb['storage_country']}"
+                + (f" ({cb['storage_region']})"
+                   if cb["storage_region"].upper() != cb["storage_country"] else "") + ", "
                 f"users in {', '.join(cb['offshore_for'])} -- transfer requirements apply"
             )
     if result["threat_flags"]:

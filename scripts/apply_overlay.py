@@ -182,8 +182,20 @@ def applies(overlay: dict, profile: dict, derived: dict | None = None) -> tuple[
     if selector.get("mode") == "categories":
         return True, *select_categories(selector, profile, derived)
 
+    # A regime whose scope turns on personal data says so. Written as a list,
+    # it becomes another copy of the classification table's personal_data flag
+    # -- the fourth found in this repository, after the flag itself, the table's
+    # per-type routing, and GDPR's own applies_when. This one held seven of the
+    # nine types, so a Korean service processing pseudonymous analytics was
+    # assessed at ISMS scope and told no personal data was declared, on a
+    # derivation that had just listed some.
     deciding = set(selector.get("data_types") or [])
-    if deciding & types:
+    if selector.get("data_types_personal"):
+        present = bool(set(derived.get("personal_data_types") or []) if derived
+                       else _personal_types(types))
+    else:
+        present = bool(deciding & types)
+    if present:
         scope = selector.get("when_present") or default
         reason = scope.get("reason", "the deciding data types are declared")
     else:

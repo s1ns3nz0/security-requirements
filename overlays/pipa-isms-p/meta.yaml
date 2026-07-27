@@ -36,14 +36,10 @@ applies_when:
   user_regions_any: [KR]
 
 scope_selector:
-  data_types:
-    - basic_contact
-    - government_id
-    - sensitive_attributes
-    - biometric
-    - minors_data
-    - precise_location
-    - health_records
+  # Not a list. Personal data is what the P in ISMS-P means, and a list here is
+  # a copy of the classification table's personal_data flag that had already
+  # drifted two types short of it.
+  data_types_personal: true
   when_present:
     scope: ISMS-P
     areas: null
