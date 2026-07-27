@@ -5140,3 +5140,45 @@ def test_the_published_file_names_no_internal_artefact():
         assert ".security-requirements" not in document
 
     assert "REQ-A-B-01" in documents[0], "the requirement is still defined"
+
+
+def test_the_walker_reads_a_control_the_way_an_auditor_cites_it():
+    """Enhancements, alternate parameter identifiers, and nested statement items
+    -- the three things that decide whether a control's text arrives intact."""
+    rebuild_mod.UNRESOLVED.clear()
+    catalog = {"groups": [{"id": "ac", "controls": [
+        {"id": "ac-2", "title": "Account Management",
+         "props": [{"name": "implementation-level", "value": "organization"}],
+         # OSCAL carries a second identifier for the same parameter, and the
+         # prose cites whichever it likes.
+         "params": [{"id": "ac-2_odp.01", "label": "a documented period",
+                     "props": [{"name": "alt-identifier", "value": "ac-02_odp.01"}]}],
+         "parts": [{"name": "statement", "prose": "Review {{ insert: param, ac-02_odp.01 }}."},
+                   {"name": "guidance", "prose": "Some guidance."}],
+         "controls": [
+             {"id": "ac-2.1", "title": "Automated System Account Management",
+              "parts": [{"name": "statement", "parts": [
+                  {"name": "item", "props": [{"name": "label", "value": "(a)"}],
+                   "prose": "Do the first thing."},
+                  {"name": "item", "props": [{"name": "label", "value": "(b)"}],
+                   "prose": "Do the second.",
+                   "parts": [{"name": "item", "props": [{"name": "label", "value": "(1)"}],
+                              "prose": "Nested."}]}]}]}]}]}]}
+
+    globals_ = rebuild_mod.build_global_params(catalog)
+    assert "ac-02_odp.01" in globals_, "the alternate identifier resolves to the same label"
+
+    records = list(rebuild_mod.walk_controls(catalog["groups"][0]["controls"], "ac", globals_))
+    parent, enhancement = records
+
+    assert parent["id"] == "AC-2" and parent["is_enhancement"] is False
+    assert parent["implementation_level"] == "organization"
+    assert parent["statement"] == "Review [assignment: a documented period]."
+    assert parent["guidance"] == "Some guidance."
+
+    assert enhancement["id"] == "AC-2(1)", "the form an auditor cites"
+    assert enhancement["is_enhancement"] is True
+    assert enhancement["parent"] == "AC-2"
+    assert enhancement["statement"] == "(a) Do the first thing.\n(b) Do the second.\n(1) Nested."
+
+    assert not rebuild_mod.UNRESOLVED
