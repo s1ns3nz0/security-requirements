@@ -1464,12 +1464,44 @@ def test_clauses_no_delivery_team_control_touches_are_named(profile):
     can close, and saying so is worth more than the count it sits under.
     """
     derived = sb.run(profile)
-    result = overlay_mod.evaluate(overlay_mod.load("hipaa-security-rule"), derived["controls"])
+    result = overlay_mod.evaluate(overlay_mod.load("hipaa-security-rule"),
+                                  derived["controls"], profile=profile)
     org_only = {row["clause"] for row in result["org_only"]}
     assert org_only, "some administrative safeguards must land outside the team's reach"
-    assert org_only <= {row["clause"] for row in result["covered"]}
+    assert org_only <= {row["clause"] for row in result["covered"] + result["partial"]}
     assert "164.308(a)(2)" in org_only     # assigned security responsibility
-    assert "cannot be closed inside this repository" in overlay_mod.render(result, "test")
+    assert "no control in this" in overlay_mod.render(result, "test")
+
+
+def test_a_shared_obligation_is_not_reported_as_untouchable(profile):
+    """The tool contradicting itself on the same page.
+
+    Three clauses carry a responsibility_note saying the regime treats the
+    obligation as shared and naming the team's half -- producing everything held
+    about one person, propagating an erasure to each recipient. Every control
+    mapped to them is the organisation's, so they land in org_only, and the
+    report said "nothing the delivery team builds touches them" directly beneath
+    a mapping that says the opposite.
+
+    The note never arrived because the row was assembled from four hand-picked
+    mapping fields. The row is the mapping now, so the next field added to the
+    files reaches the report without anyone remembering to carry it.
+    """
+    eu = copy.deepcopy(profile)
+    eu["declared"]["user_regions"] = ["DE"]
+    eu["declared"]["data_types"] = [{"id": "basic_contact"}, {"id": "audit_logs"}]
+    derived = sb.run(eu)
+    result = overlay_mod.evaluate(overlay_mod.load("gdpr"), derived["controls"], profile=eu)
+
+    rows = {row["clause"]: row for row in result["org_only"]}
+    assert "Art. 15" in rows, "the right of access is reached only by organisational controls"
+    assert rows["Art. 15"]["responsibility_hint"] == "shared"
+    assert (rows["Art. 15"].get("responsibility_note") or "").strip(), \
+        "the mapping's note must survive into the evaluated row"
+
+    rendered = overlay_mod.render(result, "test")
+    assert "the team's half is not" in rendered
+    assert "producing everything held about one" in rendered
 
 
 def test_gdpr_is_mostly_unmappable_and_that_is_the_finding():
@@ -2269,3 +2301,186 @@ def test_a_multi_cloud_profile_is_not_warned_about(profile):
     mixed["inferred"]["managed_services"] = [{"id": "aws-s3"}, {"id": "gcp-gke"}]
     result = classify_resp.classify(mixed, ["AC-3", "SC-13"])
     assert not result["services_foreign"]
+
+
+# --- a high water mark that could be talked down ------------------------------
+
+def _one_type(type_id, **declared):
+    return {"version": "0.1.0",
+            "inferred": {"csp": "none", "deployment_model": "onprem",
+                         "stack": ["python"], "entrypoints": ["http: REST API"]},
+            "declared": {"data_types": [{"id": t} for t in ([type_id] if isinstance(type_id, str) else type_id)],
+                         "users": ["internal_staff"],
+                         "availability": {"rto": "rto_hours", "rpo": "rpo_minutes"},
+                         **declared}}
+
+
+def test_a_concrete_level_survives_deferral_on_the_other_axis():
+    """A type is deferred as soon as *either* axis reads inherit_max.
+
+    The deferred pass then wrote a categorisation snapshot to both axes, which
+    is right for the axis that inherits and throws away the table's answer on
+    the axis that does not. ml_training_data -- confidentiality inherit_max,
+    integrity moderate -- derived LOW integrity on its own, from a table that
+    says moderate. A water mark the axis beside it can talk down is not a water
+    mark.
+    """
+    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+                            "classification.yaml").read_text(encoding="utf-8"))
+    spec = {t["id"]: t for t in table["types"]}["ml_training_data"]
+    assert spec["confidentiality"] == "inherit_max" and spec["integrity"] == "moderate"
+
+    assert sb.run(_one_type("ml_training_data"))["impact"]["integrity"]["level"] == "moderate"
+
+    # And adding something lower must not lower it.
+    assert sb.run(_one_type(["internal_ops", "ml_training_data"])
+                  )["impact"]["integrity"]["level"] == "moderate"
+
+    # The exclusion it was protecting still holds: a type that inherits on both
+    # axes must not launder system information into the water mark.
+    assert sb.run(_one_type(["config_secrets", "audit_logs"])
+                  )["impact"]["confidentiality"]["level"] == "low"
+
+
+def test_an_integrity_reason_never_exceeds_its_own_answer():
+    """"audit and access logs: high" printed under "Integrity LOW".
+
+    Both were correct -- the high came from content the water mark excludes --
+    and a reader cannot tell that from a bare number. Confidentiality had
+    explained itself since the exclusion was introduced; integrity was left
+    bare, which was an oversight rather than a distinction.
+    """
+    # config_secrets is what creates the excess: it is system information, so it
+    # stays out of the water mark while still being content an inheriting store
+    # would hold.
+    result = sb.run(_one_type(["internal_ops", "app_logs", "config_secrets", "audit_logs"]))
+    integrity = result["impact"]["integrity"]
+    assert integrity["level"] == "low"
+    exceeds = [line for line in integrity["because"]
+               if line.rstrip().endswith(": high") or line.rstrip().endswith(": moderate")]
+    assert exceeds, "this fixture exists to produce one"
+    for line in exceeds:
+        assert "the excess coming from system information" in line, \
+            f"a reason above the answer must say why: {line}"
+
+
+def test_a_missing_authentication_is_a_finding_not_a_blank():
+    """`auth_mechanism` was gathered, given a rule of its own so that `none`
+    would survive normalisation -- the schema says the absence "is a finding
+    rather than a gap in the interview" -- and then read by nothing. The
+    distinction was carefully preserved and carefully discarded."""
+    served = _one_type("internal_ops")
+    served["inferred"]["auth_mechanism"] = "none"
+    warnings = sb.run(served)["consistency_warnings"]
+    assert any("declares no authentication" in w for w in warnings)
+
+    # An empty field is a different fact from a deliberate absence, and the
+    # message has to distinguish them or the author cannot tell what to write.
+    del served["inferred"]["auth_mechanism"]
+    warnings = sb.run(served)["consistency_warnings"]
+    assert any("no auth_mechanism was recorded" in w for w in warnings)
+    # And the message must not claim a difference the derivation does not make:
+    # the field selects no control, and saying otherwise overstates it in a tool
+    # whose whole output is requirements.
+    assert any("Nothing below changes either way" in w for w in warnings)
+
+    # And a service that records one is left alone.
+    served["inferred"]["auth_mechanism"] = "oidc"
+    assert not sb.run(served)["consistency_warnings"]
+
+
+def test_a_published_service_is_not_told_to_declare_what_it_declared():
+    """Rekor is a transparency log: unauthenticated reads are the design, and
+    the profile already carries intended_public. The first version of the check
+    told it to go and declare that, which is how a check teaches people to skim
+    past it."""
+    published = _one_type("internal_ops")
+    published["declared"]["data_types"] = [
+        {"id": "public_content", "modifiers": ["intended_public"]},
+        {"id": "audit_logs"},
+    ]
+    published["inferred"]["auth_mechanism"] = "none"
+    warnings = sb.run(published)["consistency_warnings"]
+    assert any("consistent, for reading" in w for w in warnings)
+    assert not any("say so against the data types" in w for w in warnings)
+    # It must still say what an unauthenticated write path costs.
+    assert any("changes state" in w for w in warnings)
+
+
+def test_one_published_type_does_not_vouch_for_the_whole_service():
+    """The reassuring branch was reached by `any(intended_public)`.
+
+    A profile declaring published documentation alongside health records
+    derived HIGH confidentiality and was told its unauthenticated reads were
+    consistent. Asked of the table instead, it was wrong the other way: a
+    transparency log declares audit_logs, whose table value is inherit_max, and
+    inheriting from published content it comes out low.
+    """
+    def warn(types):
+        p = _one_type("internal_ops")
+        p["declared"]["data_types"] = types
+        p["inferred"]["auth_mechanism"] = "none"
+        result = sb.run(p)
+        return result["impact"]["confidentiality"]["level"], result["consistency_warnings"]
+
+    public = {"id": "public_content", "modifiers": ["intended_public"]}
+
+    level, warnings = warn([public, {"id": "health_records"}])
+    assert level == "high"
+    assert any("Not everything here is published" in w for w in warnings)
+    assert any("health_records" in w for w in warnings), "name what is not published"
+    assert not any("consistent, for reading" in w for w in warnings)
+
+    # The transparency-log shape must still be recognised.
+    level, warnings = warn([public, {"id": "audit_logs"}, {"id": "config_secrets"}])
+    assert level == "low"
+    assert any("consistent, for reading" in w for w in warnings)
+
+    # And low is not public: internal operational data declares nothing public.
+    level, warnings = warn([{"id": "internal_ops"}])
+    assert level == "low"
+    assert not any("intended for publication" in w for w in warnings)
+
+
+def test_inheritance_does_not_depend_on_declaration_order():
+    """Two people entering the same facts in a different order got documents
+    that explained them differently.
+
+    `[audit_logs, ml_training_data]` had the audit log inherit low and the
+    reverse order had it inherit moderate. The system level came out the same
+    both ways, so the answer was never wrong -- but a derivation nobody can
+    reproduce is not evidence of anything.
+    """
+    def derive(order):
+        result = sb.run(_one_type(order))
+        return (result["impact"]["integrity"]["level"],
+                [line for line in result["impact"]["integrity"]["because"] if "audit" in line])
+
+    forward = derive(["audit_logs", "ml_training_data"])
+    reverse = derive(["ml_training_data", "audit_logs"])
+    assert forward == reverse
+
+    # Order-independent and right: the freeze that made it reproducible also
+    # hid the concrete axis of a deferred entry, so the log briefly inherited
+    # low from a table that says moderate.
+    assert forward[0] == "moderate"
+    assert "moderate" in forward[1][0]
+
+
+def test_deferral_is_a_property_of_the_entry_not_of_one_axis():
+    """The `allow_inherit` test lived inside the confidentiality branch, so a
+    type declaring `integrity: inherit_max` beside a concrete confidentiality
+    was evaluated in the first pass against an unfinished pool. No type in the
+    table is shaped that way, so nothing had gone wrong -- the machinery simply
+    did not implement the rule it describes."""
+    import inspect
+    source = inspect.getsource(sb.derive_confidentiality_integrity)
+    assert 'if not allow_inherit and "inherit_max" in (c_raw, i_raw):' in source
+
+    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+                            "classification.yaml").read_text(encoding="utf-8"))
+    integrity_only = [t["id"] for t in table["types"]
+                      if t["integrity"] == "inherit_max" and t["confidentiality"] != "inherit_max"]
+    assert not integrity_only, (
+        f"{integrity_only} inherits on integrity alone; the seeding path raises rather "
+        f"than guess at its modified confidentiality, so that path needs writing")

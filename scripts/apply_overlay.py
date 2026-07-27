@@ -293,10 +293,14 @@ def evaluate(overlay: dict, derived_controls: list[str], scope: dict | None = No
         record = criteria[m["clause"]]
         if areas and (record.get("area") or record.get("category")) not in areas:
             continue
-        row = {"clause": m["clause"], "title": m["title"],
-               "controls": m["controls"],
-               "responsibility_hint": m.get("responsibility_hint"),
-               "notes": m.get("notes")}
+        # The whole mapping, not a hand-picked four fields. Picked by hand, a
+        # field added to the files went nowhere: responsibility_note was written
+        # into three overlays and required by the validator on the same day, and
+        # never reached the report, so the report said "nothing the delivery
+        # team builds touches this" about a clause whose own note explained
+        # which half the team owns. Copying the record makes that unreachable
+        # for the next field as well.
+        row = dict(m)
         if m["standalone"]:
             standalone.append(row)
             continue
@@ -420,17 +424,30 @@ def render(result: dict, reason: str) -> str:
     out.append(f"  {result['clause_count']:>4}  clauses")
 
     if result.get("org_only"):
+        n = len(result["org_only"])
         owners = ("the organisation or the provider owns"
                   if any(r.get("layer") == "csp_claimed" for r in result["org_only"])
                   else "the organisation owns")
         out += ["",
-                f"  {len(result['org_only'])} of the reached clauses are reached only through controls",
-                f"  {owners}. Nothing the delivery team builds touches",
-                "  them, so they cannot be closed inside this repository:"]
+                f"  {n} of the reached clause{'s' if n != 1 else ''} "
+                f"{'are' if n != 1 else 'is'} reached only through",
+                f"  controls {owners}, so no control in this",
+                "  derivation closes them:"]
         for row in result["org_only"][:12]:
             out.append(f"  ~ {row['clause']}  {row['title'][:56]}")
-        if len(result["org_only"]) > 12:
-            out.append(f"  ~ ... and {len(result['org_only']) - 12} more")
+            # Where the regime says the obligation is shared and the mapped
+            # controls are all the organisation's, the team still owes
+            # something that no control in the catalogue expresses. That is the
+            # most useful line on the page, and printing the list without it
+            # said the opposite of what the mapping says.
+            note = " ".join((row.get("responsibility_note") or "").split())
+            if row.get("responsibility_hint") == "shared" and note:
+                out.append("      the regime treats this as shared, and the team's half is not")
+                out.append("      expressed by any control here:")
+                for chunk in _wrap(note, 66):
+                    out.append(f"        {chunk}")
+        if n > 12:
+            out.append(f"  ~ ... and {n - 12} more")
 
     if result["standalone"]:
         out += ["", "Clauses the derivation cannot produce -- these are the audit surprises:"]

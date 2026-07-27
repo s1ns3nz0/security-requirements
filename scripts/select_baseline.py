@@ -184,9 +184,17 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
         label = spec["label"]
         c_raw, i_raw = spec["confidentiality"], spec["integrity"]
 
+        # Deferral is a property of the entry, not of one axis. The test lived
+        # inside the confidentiality branch, so a type declaring
+        # `integrity: inherit_max` beside a concrete confidentiality was
+        # evaluated in the first pass and inherited from a content pool that was
+        # not finished being built. No type in the table is shaped that way
+        # today, which is why nothing had gone wrong yet -- the machinery simply
+        # did not implement the rule it describes.
+        if not allow_inherit and "inherit_max" in (c_raw, i_raw):
+            return None
+
         if c_raw == "inherit_max":
-            if not allow_inherit:
-                return None
             # Two numbers for one store. `c` is what it actually holds, which is
             # what a requirement about protecting it must reflect. What it
             # contributes to categorisation is computed separately below, from
@@ -243,13 +251,28 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
                     "note": (mod.get("note") or "").strip(),
                 })
 
-        i = i_raw if i_raw != "inherit_max" else highest(content_i)
+        if i_raw == "inherit_max":
+            i = highest(content_i)
+            categorised_i_here = highest(concrete_i)
+            i_note = "inherits highest (" + i + ")"
+            if categorised_i_here != i:
+                # Without this, the reason line printed a value the answer did
+                # not contain -- "audit and access logs: high" under "Integrity
+                # LOW" -- and a reader cannot tell whether the number or the
+                # reason is the broken one. Confidentiality had explained
+                # itself since the exclusion was introduced; integrity was left
+                # bare, and the asymmetry was an oversight rather than a
+                # distinction.
+                i_note += (f"; categorised at {categorised_i_here}, the excess coming "
+                           f"from system information")
+        else:
+            i, i_note = i_raw, None
 
         reason = label + (f" ({note})" if note else "")
         if applied:
             reason += " [" + "; ".join(applied) + "]"
         conf_why.append(f"{reason}: {c}")
-        integ_why.append(f"{label}: {i}")
+        integ_why.append(f"{label}{f' ({i_note})' if i_note else ''}: {i}")
         triggers.extend(spec.get("regulatory_triggers", []) or [])
         flags.extend(spec.get("flags", []) or [])
         return c, i
@@ -285,22 +308,78 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
         result = evaluate(entry, allow_inherit=False)
         if result is None:
             deferred.append(entry)
+            # A deferred entry still knows one of its two answers. Deferral is
+            # triggered by whichever axis inherits; the other is in the table and
+            # belongs in both pools now, or the store that inherits from it will
+            # be told the content is lower than it is. Freezing the pools without
+            # this made the answer order-independent and wrong: a log holding
+            # model training data inherited low integrity from a table that says
+            # moderate.
+            #
+            # No modifier in the table has an integrity effect, so the integrity
+            # value needs none applied. Confidentiality would; no type currently
+            # inherits on integrity alone, and if one is added the assertion
+            # below will say so rather than quietly using an unmodified value.
+            spec = types[entry["id"]]
+            if spec["integrity"] != "inherit_max":
+                concrete_i.append(spec["integrity"])
+                content_i.append(spec["integrity"])
+            if spec["confidentiality"] != "inherit_max":
+                raise ProfileError(
+                    f"{entry['id']}: a type that inherits on integrity alone needs the "
+                    f"modifier effects applied to its confidentiality before it can seed "
+                    f"the pools, and that path has never been exercised. Add it to "
+                    f"derive_confidentiality_integrity rather than letting the unmodified "
+                    f"value through."
+                )
             continue
         concrete_c.append(result[0])
         concrete_i.append(result[1])
         content_c.append(result[0])
         content_i.append(result[1])
 
+    # The pools are frozen before the second pass rather than grown during it.
+    # Grown during it, an inheriting store saw whichever inheriting stores
+    # happened to be declared above it: `[audit_logs, ml_training_data]` had the
+    # audit log inherit low and `[ml_training_data, audit_logs]` had it inherit
+    # moderate. The system level came out the same either way, so nothing was
+    # wrong with the answer -- but two people entering the same facts in a
+    # different order got documents that explained them differently, and a
+    # derivation nobody can reproduce is not evidence of anything.
+    #
+    # Freezing loses nothing: every deferred entry inherits the same maximum of
+    # the concrete content, and a deferred entry that holds another deferred
+    # entry's content would have inherited that same maximum anyway.
+    frozen_content_c, frozen_content_i = list(content_c), list(content_i)
+    frozen_concrete_c, frozen_concrete_i = list(concrete_c), list(concrete_i)
+    content_c, content_i = frozen_content_c, frozen_content_i
+    concrete_c, concrete_i = frozen_concrete_c, frozen_concrete_i
+
+    resolved_deferred = []
     for entry in deferred:
         categorised_c, categorised_i = highest(concrete_c), highest(concrete_i)
         c, i = evaluate(entry, allow_inherit=True)
+        resolved_deferred.append((entry, c, i, categorised_c, categorised_i))
+
+    for entry, c, i, categorised_c, categorised_i in resolved_deferred:
         content_c.append(c)
         content_i.append(i)
-        # An inheriting store adds nothing new to categorisation: it holds a
-        # copy of what is already counted. Appending its content level would
-        # launder system information into the water mark.
-        concrete_c.append(categorised_c)
-        concrete_i.append(categorised_i)
+        # An inheriting store adds nothing new to categorisation *on the axis it
+        # inherits*: it holds a copy of what is already counted, and appending
+        # its content level there would launder system information into the
+        # water mark.
+        #
+        # On an axis it does not inherit, it adds exactly what the table says.
+        # Applying the snapshot to both axes discarded that: a type is deferred
+        # as soon as either axis reads inherit_max, so ml_training_data --
+        # confidentiality inherit_max, integrity moderate -- had its declared
+        # moderate integrity thrown away. A service holding nothing but model
+        # training data derived LOW integrity from a table that says moderate,
+        # and a high water mark that can be talked down by the axis next to it
+        # is not a high water mark.
+        spec = types[entry["id"]]
+        concrete_c.append(categorised_c if spec["confidentiality"] == "inherit_max" else c)
+        concrete_i.append(categorised_i if spec["integrity"] == "inherit_max" else i)
 
     for entry in system_only:
         spec = types[entry["id"]]
@@ -343,9 +422,21 @@ def derive_availability(profile: dict, table: dict) -> dict:
     for key, lookup, label in (("rto", rto, "recovery time"), ("rpo", rpo, "recovery point")):
         value = declared.get(key)
         if not value:
-            raise ProfileError(f"declared.availability.{key} is missing (Q2)")
+            raise ProfileError(
+                f"declared.availability.{key} is missing (Q2); "
+                f"accepted: {', '.join(lookup)}"
+            )
         if value not in lookup:
-            raise ProfileError(f"unknown {key} bucket {value!r}; see {AVAILABILITY.name}")
+            # Naming the file is not naming the answer. `rto_days` and
+            # `rpo_none` are both things a person writes -- days is a real
+            # recovery objective and an append-only log genuinely has no
+            # recovery point -- and neither is a bucket. Sending the author to
+            # open a catalogue to find that out costs a round trip for a
+            # one-word fix, which is why the modifier check stopped doing it.
+            raise ProfileError(
+                f"unknown {key} bucket {value!r}; accepted: {', '.join(lookup)}. "
+                f"See {AVAILABILITY.name}"
+            )
         spec = lookup[value]
         levels.append(spec["availability"])
         why.append(f"{spec['label']}: {spec['availability']}")
@@ -354,7 +445,10 @@ def derive_availability(profile: dict, table: dict) -> dict:
 
     for amp_id in declared.get("amplifiers", []) or []:
         if amp_id not in amps:
-            raise ProfileError(f"unknown amplifier {amp_id!r}; see {AVAILABILITY.name}")
+            raise ProfileError(
+                f"unknown amplifier {amp_id!r}; accepted: {', '.join(amps)}. "
+                f"See {AVAILABILITY.name}"
+            )
         spec = amps[amp_id]
         levels.append(spec["availability"])
         why.append(f"{spec['label']}: {spec['availability']}")
@@ -638,6 +732,77 @@ def run(profile: dict) -> dict:
             derived_controls.append(control_id)
 
     shape = detect_shape(profile)
+
+    # `auth_mechanism` was gathered by the interview, given a rule of its own in
+    # the schema so that `none` would survive normalisation -- "the service has
+    # no authentication, which is a finding rather than a gap in the interview"
+    # -- and then read by nothing. The distinction was carefully preserved and
+    # carefully discarded. It is the seventh field of this kind found here.
+    #
+    # Where a service is served and no authentication was recorded, that is
+    # worth one line. It is not worth a control: whether the absence is right
+    # depends on what the entrypoints do, which a profile cannot settle.
+    auth = (profile.get("inferred") or {}).get("auth_mechanism")
+    if shape["shape"] in ("service", "service_assumed"):
+        if auth is None:
+            consistency.append(
+                "no auth_mechanism was recorded for a served entrypoint. Nothing below "
+                "changes either way -- the field selects no control -- but an unanswered "
+                "question and an answer of `none` are different facts, and only one of "
+                "them is a finding. Write `auth_mechanism: none` if that is the answer.")
+        elif str(auth).strip().lower() == "none":
+            # `any(intended_public)` was the wrong quantifier and it failed in
+            # the direction that reassures: a profile declaring published
+            # documentation *alongside* health records derived HIGH
+            # confidentiality and was told its unauthenticated reads were
+            # consistent. The question is not whether something here is public,
+            # it is whether anything here is not.
+            #
+            # Asked of the table it was still wrong, in the other direction: a
+            # transparency log declares audit_logs, whose table value is
+            # inherit_max, and inheriting from published content it comes out
+            # low. The answer already exists -- it is the confidentiality this
+            # derivation just produced, after modifiers, inheritance, and the
+            # system-information exclusion. Anything else is a second opinion
+            # that can disagree with the number on the page.
+            declared_public = any(
+                "intended_public" in (e.get("modifiers") or [])
+                for e in (profile.get("declared") or {}).get("data_types", [])
+                if isinstance(e, dict))
+            # Both halves are needed and each was wrong on its own. The modifier
+            # alone let one published document vouch for a service that also
+            # holds health records. The derived level alone called internal
+            # operational data "already declared as intended for publication",
+            # which it is not -- low is not public.
+            published = declared_public and confidentiality["level"] == "low"
+            confidential = [
+                e["id"] for e in (profile.get("declared") or {}).get("data_types", [])
+                if isinstance(e, dict)
+                and not types_table_types.get(e["id"], {}).get("system_information")
+                and "intended_public" not in (e.get("modifiers") or [])
+            ] if not published else []
+            if published:
+                # Telling an author to declare what they have already declared
+                # is how a check teaches people to skim past it. A transparency
+                # log reads without authentication by design; what it still
+                # cannot do without one is tell two writers apart.
+                consistency.append(
+                    "no authentication, on content already declared as intended for "
+                    "publication -- consistent, for reading. Any entrypoint that changes "
+                    "state still needs a caller it can name, and the requirements below "
+                    "cannot tell which of the entrypoints those are.")
+            else:
+                named = ", ".join(sorted(confidential))
+                consistency.append(
+                    "the service is served and declares no authentication. Every "
+                    "requirement below that assumes an identified caller -- session "
+                    "handling, least privilege, per-user audit -- has nothing to attach "
+                    "to."
+                    + (f" Not everything here is published: {named}."
+                       " If those are not reachable without a caller, the profile is not"
+                       " saying so." if named else
+                       " If the entrypoints are genuinely public, say so against the"
+                       " data types instead."))
 
     return {
         "impact": impact,
