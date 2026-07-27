@@ -119,7 +119,9 @@ def load_json(name: str, source_dir: Path | None, base: str = UPSTREAM) -> dict:
 # parsing
 # --------------------------------------------------------------------------
 
-LEAKED_PARAM_RE = re.compile(r"\[assignment: ([a-z]{2}-\d+[._][a-z0-9_.]*)\]")
+# Parameter identifiers that no label could be found for, collected as the
+# prose is rendered rather than recognised in it afterwards.
+UNRESOLVED: set[str] = set()
 
 
 def param_label(param: dict) -> str:
@@ -146,6 +148,12 @@ def param_label(param: dict) -> str:
     if guidelines:
         return guidelines[0].get("prose", "").rstrip(";")
 
+    # This is where the leak actually begins. The identifier is returned as the
+    # label, so by the time prose is rendered the map has the key and its value
+    # is the id -- resolution sees nothing wrong. Recorded here, at the point
+    # where no label could be found, rather than recognised later in the
+    # rendered string.
+    UNRESOLVED.add(param["id"])
     return param["id"]
 
 
@@ -182,7 +190,17 @@ def resolve_params(prose: str, params: dict[str, str]) -> str:
     """
     def sub(match: re.Match) -> str:
         key = match.group(1)
-        return f"[assignment: {params.get(key, key)}]"
+        label = params.get(key)
+        if label is None:
+            # Recorded here, where the fact is known. The first version of the
+            # check looked for identifier-shaped text in the rendered output,
+            # which infers provenance from a string: a future OSCAL identifier
+            # in another grammar slips past, and a human label that happens to
+            # look like one is rejected. Whether the map had the key is not a
+            # matter of appearance.
+            UNRESOLVED.add(key)
+            label = key
+        return f"[assignment: {label}]"
 
     return PARAM_RE.sub(sub, prose)
 
@@ -490,6 +508,7 @@ def build_nist(src_dir: Path | None, wanted: set[str] | None) -> int:
     global_params = build_global_params(catalog)
 
     counts = {}
+    extracted: dict[str, list[dict]] = {}
     program_records: list[dict] = []
     for group in catalog["groups"]:
         family = group["id"]
@@ -498,31 +517,30 @@ def build_nist(src_dir: Path | None, wanted: set[str] | None) -> int:
         records = list(walk_controls(group.get("controls", []), family, global_params))
         if family.upper() == "PM":
             program_records = records
-        path = OUT_DIR / f"{family.upper()}.jsonl"
+        extracted[family.upper()] = records
+        counts[family.upper()] = len(records)
+        print(f"  {family.upper():<4} {len(records):>4} controls", file=sys.stderr)
+
+    # Checked once, over everything, before a single file is replaced. Checked
+    # per family as each was written, the first failure left the catalogue half
+    # rebuilt -- some families new, the rest old, baselines.json and meta.json
+    # still describing the previous run -- and never looked at the families
+    # after it.
+    if UNRESOLVED:
+        raise SystemExit(
+            f"{len(UNRESOLVED)} parameter(s) have no label and would ship as raw "
+            f"identifiers: {', '.join(sorted(UNRESOLVED)[:8])}"
+            f"{' ...' if len(UNRESOLVED) > 8 else ''}.\n"
+            f"`[assignment: ac-07_odp.04]` reads like a decision the organisation is "
+            f"meant to make. param_label does not handle the shape upstream used; add "
+            f"it rather than letting the identifier through. Nothing was written."
+        )
+
+    for family, records in extracted.items():
+        path = OUT_DIR / f"{family}.jsonl"
         with path.open("w", encoding="utf-8") as fh:
             for record in records:
                 fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-        # A parameter the global map does not know falls back to its own
-        # identifier, so `[assignment: ac-07_odp.04]` ships into a compliance
-        # document looking like a decision the reader is meant to make. The
-        # bundled catalogue is clean today; this is what keeps it clean when
-        # upstream adds a parameter shape nobody here has seen.
-        leaked = sorted({
-            match.group(1)
-            for record in records
-            for field in ("statement", "guidance", "title")
-            for match in LEAKED_PARAM_RE.finditer(str(record.get(field) or ""))
-        })
-        if leaked:
-            raise SystemExit(
-                f"{family.upper()}: {len(leaked)} unresolved parameter(s) would ship as raw "
-                f"identifiers -- {', '.join(leaked[:6])}"
-                f"{' ...' if len(leaked) > 6 else ''}. param_label does not handle the shape "
-                f"upstream used; add it rather than letting the id through."
-            )
-
-        counts[family.upper()] = len(records)
-        print(f"  {family.upper():<4} {len(records):>4} controls -> {path.name}", file=sys.stderr)
 
     baselines = {}
     for name, filename in BASELINE_FILES.items():

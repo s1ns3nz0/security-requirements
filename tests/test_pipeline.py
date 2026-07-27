@@ -11,6 +11,7 @@ guard. Those are marked.
 from __future__ import annotations
 
 import copy
+import re
 import json
 import sys
 from pathlib import Path
@@ -3962,25 +3963,95 @@ def test_every_parameter_shape_upstream_uses_becomes_readable(param, expected):
     assert rebuild_mod.param_label(param) == expected
 
 
+def test_the_build_refuses_when_a_parameter_has_no_label(tmp_path, monkeypatch):
+    """Asserting the shipped catalogue is clean proves the data, not the guard.
+
+    A synthetic release with a parameter shape param_label does not handle: the
+    build must fail, name every offender rather than the first, and leave the
+    output directory untouched.
+    """
+    catalog = {"catalog": {"groups": [{
+        "id": "zz",
+        "controls": [
+            {"id": "zz-1", "title": "First",
+             "params": [{"id": "zz-1_odp.01", "unheard-of-shape": {"x": 1}}],
+             "parts": [{"name": "statement",
+                        "prose": "Do the thing {{ insert: param, zz-1_odp.01 }}."}]},
+            {"id": "zz-2", "title": "Second",
+             "params": [{"id": "zz-2_odp.01", "unheard-of-shape": {"x": 1}}],
+             "parts": [{"name": "statement",
+                        "prose": "Do the other {{ insert: param, zz-2_odp.01 }}."}]},
+        ]}]}}
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / rebuild_mod.CATALOG_FILE).write_text(json.dumps(catalog), encoding="utf-8")
+
+    out = tmp_path / "out"
+    monkeypatch.setattr(rebuild_mod, "OUT_DIR", out)
+    rebuild_mod.UNRESOLVED.clear()
+
+    # The baselines are fetched after the extraction; the guard must fire first.
+    for name in rebuild_mod.BASELINE_FILES.values():
+        (source / name).write_text(json.dumps({"profile": {"imports": []}}), encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc:
+        rebuild_mod.build_nist(source, {"zz"})
+
+    message = str(exc.value)
+    assert "zz-1_odp.01" in message and "zz-2_odp.01" in message, \
+        "every offender, not only the family that failed first"
+    assert "Nothing was written" in message
+    assert not out.exists() or not list(out.glob("*.jsonl")), \
+        "the catalogue must not be left half rebuilt"
+
+    rebuild_mod.UNRESOLVED.clear()
+
+
+def test_an_unresolved_parameter_is_recorded_where_it_is_known():
+    """The first version looked for identifier-shaped text in the rendered
+    output, which infers provenance from a string: a future OSCAL identifier in
+    another grammar slips past, and a human label that happens to look like one
+    is rejected. Whether the map had the key is not a matter of appearance."""
+    rebuild_mod.UNRESOLVED.clear()
+    rebuild_mod.resolve_params("A {{ insert: param, known }}.", {"known": "a period"})
+    assert not rebuild_mod.UNRESOLVED
+
+    # The leak begins in param_label, which returns the identifier as the label
+    # -- so by the time prose is rendered the map has the key and resolution
+    # sees nothing wrong. That is where it is recorded.
+    rebuild_mod.param_label({"id": "zz-1_odp.01", "unheard-of-shape": {}})
+    assert rebuild_mod.UNRESOLVED == {"zz-1_odp.01"}
+    rebuild_mod.UNRESOLVED.clear()
+    for known in ({"id": "x", "label": "a period"},
+                  {"id": "x", "select": {"choice": ["a", "b"]}},
+                  {"id": "x", "guidelines": [{"prose": "define it;"}]}):
+        rebuild_mod.param_label(known)
+    assert not rebuild_mod.UNRESOLVED
+
+    # A label that looks exactly like an identifier is not an unresolved one.
+    rebuild_mod.resolve_params("A {{ insert: param, k }}.", {"k": "ac-2.1"})
+    assert not rebuild_mod.UNRESOLVED
+
+    # And an identifier in a grammar this repository has never seen still counts.
+    rebuild_mod.resolve_params("A {{ insert: param, 7F3A-UUID-LIKE }}.", {})
+    assert rebuild_mod.UNRESOLVED == {"7F3A-UUID-LIKE"}
+    rebuild_mod.UNRESOLVED.clear()
+
+
 def test_no_raw_parameter_identifier_ships_in_the_catalog():
     """`[assignment: ac-07_odp.04]` reads like a decision the organisation is
-    meant to make. The bundled catalogue is clean; the build now refuses rather
-    than relying on anyone noticing."""
-    leaked = []
+    meant to make. The shipped catalogue carries none -- a fact about the data;
+    the guard that keeps it that way is tested above."""
+    leaked = re.compile(r"\[assignment: ([a-z]{2}-\d+[._][a-z0-9_.]*)\]")
+    found = []
     for path in sorted((REPO_ROOT / "catalogs" / "nist-800-53r5").glob("*.jsonl")):
         for line in path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
             record = json.loads(line)
             for field in ("statement", "guidance", "title"):
-                leaked += [m.group(1) for m in
-                           rebuild_mod.LEAKED_PARAM_RE.finditer(str(record.get(field) or ""))]
-    assert not leaked, leaked[:10]
-
-    # And the check would see one.
-    assert rebuild_mod.LEAKED_PARAM_RE.search("Review accounts [assignment: ac-07_odp.04].")
-    assert not rebuild_mod.LEAKED_PARAM_RE.search("Review accounts [assignment: a period].")
-
+                found += [m.group(1) for m in leaked.finditer(str(record.get(field) or ""))]
+    assert not found, found[:10]
 
 def test_an_unfilled_assignment_stays_visible():
     """These are the points where an organisation must decide something. A
@@ -4002,3 +4073,50 @@ def test_the_baseline_parser_reads_every_import():
     ]}}
     assert rebuild_mod.parse_baseline(profile) == ["AC-2", "AC-2(1)", "SC-28"]
     assert rebuild_mod.parse_baseline({"profile": {}}) == []
+
+
+# --- the HIPAA overlay build, also at 0% --------------------------------------
+
+import rebuild_overlay_hipaa as hipaa_mod  # noqa: E402
+
+
+@pytest.mark.parametrize("mark,path,level,why", [
+    ("a", [], 0, "a top-level letter"),
+    ("1", ["a"], 1, "a digit"),
+    ("i", ["a", "1"], 2, "roman, deep enough to be roman"),
+    ("A", ["a", "1", "i"], 3, "a capital"),
+    ("i", ["a"], 0, "roman too shallow -- it is the letter i"),
+    ("v", ["a", "1"], 2, "v is also a numeral"),
+    ("x", ["a", "1"], 2, "and so is x"),
+    ("iv", ["a", "1"], 2, "two characters"),
+    ("b", ["a", "1"], 0, "an ordinary letter at depth two"),
+])
+def test_cfr_paragraph_levels_disambiguate_the_letters_that_are_also_numerals(mark, path, level, why):
+    """CFR paragraphs alternate (a) (1) (i) (A), and i, v, and x are both. The
+    depth reached so far is what settles them, so the rule has to be exercised
+    on both readings of the same character."""
+    assert hipaa_mod.level_of(mark, path) == level, why
+
+
+def test_the_shipped_hipaa_overlay_still_matches_what_was_counted():
+    """The build refuses to ship a clause list nobody has counted. The list it
+    shipped is the one the count was taken from, and nothing checked that
+    afterwards."""
+    criteria = [json.loads(line) for line in
+                (REPO_ROOT / "overlays" / "hipaa-security-rule" / "criteria.jsonl")
+                .read_text(encoding="utf-8").splitlines() if line.strip()]
+    meta = yaml.safe_load((REPO_ROOT / "overlays" / "hipaa-security-rule" /
+                           "meta.yaml").read_text(encoding="utf-8"))
+    assert len(criteria) == meta["criteria_count"] == 68
+
+    # Every implementation specification carries its designation, and the two
+    # values are the ones the regulation uses.
+    designations = {c.get("designation") for c in criteria}
+    assert designations <= {None, "Required", "Addressable"}
+    assert sum(1 for c in criteria if c.get("designation")) == 46
+
+    # And the standards are distributed across the sections the build asserts.
+    from collections import Counter
+    per_section = Counter(c["section"] for c in criteria if not c.get("designation"))
+    for section, expected in hipaa_mod.EXPECTED_STANDARDS.items():
+        assert per_section.get(section, 0) == expected, section
