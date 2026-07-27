@@ -131,8 +131,16 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
         flags.extend(spec.get("flags", []) or [])
         return c, i
 
-    deferred = []
+    deferred, system_only = [], []
     for entry in selected:
+        if types[entry["id"]].get("system_information"):
+            # Categorisation follows the business information a system holds.
+            # Credentials and secrets are present in nearly every service; if
+            # they entered the high water mark, every consumer-facing
+            # application would land on the High baseline and no team would act
+            # on the result. They still force their own requirements.
+            system_only.append(entry)
+            continue
         result = evaluate(entry, allow_inherit=False)
         if result is None:
             deferred.append(entry)
@@ -144,6 +152,12 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
         c, i = evaluate(entry, allow_inherit=True)
         concrete_c.append(c)
         concrete_i.append(i)
+
+    for entry in system_only:
+        spec = types[entry["id"]]
+        conf_why.append(f"{spec['label']}: system information, excluded from the water mark")
+        triggers.extend(spec.get("regulatory_triggers", []) or [])
+        flags.extend(spec.get("flags", []) or [])
 
     confidentiality = {"level": highest(concrete_c), "because": conf_why}
     integrity = {"level": highest(concrete_i), "because": integ_why}

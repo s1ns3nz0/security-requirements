@@ -1,0 +1,58 @@
+# Golden case 3 -- internal operations console, self-hosted
+#
+# SYNTHETIC. No real organisation is described here.
+#
+# The low-impact case, and the one most likely to be got wrong in the
+# unhelpful direction. A tool used by twelve staff, holding no customer data,
+# tolerating a day of downtime, must land on the Low baseline. If it lands on
+# Moderate the derivation is inflating, and the team will correctly ignore the
+# result.
+#
+# It also exercises the onprem deployment model, where the infrastructure
+# controls that are provider-claimed everywhere else return to the operator.
+
+version: "0.1.0"
+locale: en
+generated_at: "2026-07-27"
+catalog_versions:
+  nist_800_53: r5
+  data_types: "0.2.0"
+
+repo:
+  visibility: private
+  root: "."
+
+inferred:
+  csp: none
+  deployment_model: onprem
+  managed_services: []
+  stack: [python, django]
+  auth_mechanism: saml_okta
+  entrypoints:
+    - "GET /admin/"
+    - "POST /admin/jobs/run"
+  external_integrations:
+    - name: slack
+      purpose: notification
+      data_sent: [internal_ops]
+  region_storage: onprem-seoul
+
+declared:
+  data_types:
+    - id: internal_ops
+    - id: app_logs
+    - id: audit_logs
+  availability:
+    rto: rto_day_plus
+    rpo: rpo_hours_plus
+    amplifiers: [internal_tool_only]
+  users:
+    - internal_staff
+  regulations_declared: []
+  existing_org_controls:
+    - sso
+    - central_logging
+    - security_policy
+    - access_review
+    - incident_response
+  user_regions: [KR]

@@ -32,9 +32,23 @@ Some steps are lookups. Never perform those with judgement — call the script.
 | 11. Lint and link-check | script | `scripts/lint.py` |
 
 "Which controls are in the Moderate baseline" is a table lookup. Answering it
-from memory is slower, non-reproducible, and invents identifiers. The catalog
-is bundled precisely so this never happens — and `lint.py` fails the build if a
-requirement cites an identifier the catalog does not contain.
+from memory is slower, non-reproducible, and invents identifiers. The catalogs
+are bundled precisely so this never happens — and `lint.py` fails the build if a
+requirement cites an identifier they do not contain.
+
+## Catalogs to consult, never recall
+
+| Path | Contents |
+|---|---|
+| `catalogs/nist-800-53r5/<FAMILY>.jsonl` | 1,196 controls; `baselines.json` holds the Low, Moderate, High, and Privacy sets |
+| `catalogs/csf-2.0/subcategories.jsonl` | 106 subcategories; use these for the `csf` field and the document's structure |
+| `catalogs/asvs-5/V<n>.jsonl` | 345 application requirements with levels; cite as `ASVS-V1.1.1` |
+| `catalogs/csp-rules/aws.md` | Provider behaviour that changes what a requirement must say |
+
+Grep them. Every identifier written into a requirement is checked against them,
+and there is no CSF-to-800-53 crosswalk to lean on — NIST does not publish one
+in a form that can be bundled, so the CSF subcategory is your judgement and only
+its existence is verified.
 
 ## Non-negotiable rules
 

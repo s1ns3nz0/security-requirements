@@ -1,0 +1,156 @@
+[
+  {
+    "id": "GV.OC",
+    "function": "GV",
+    "function_name": "GOVERN",
+    "title": "Organizational Context",
+    "statement": "The circumstances - mission, stakeholder expectations, dependencies, and legal, regulatory, and contractual requirements - surrounding the organization's cybersecurity risk management decisions are understood"
+  },
+  {
+    "id": "GV.OV",
+    "function": "GV",
+    "function_name": "GOVERN",
+    "title": "Oversight",
+    "statement": "Results of organization-wide cybersecurity risk management activities and performance are used to inform, improve, and adjust the risk management strategy"
+  },
+  {
+    "id": "GV.PO",
+    "function": "GV",
+    "function_name": "GOVERN",
+    "title": "Policy",
+    "statement": "Organizational cybersecurity policy is established, communicated, and enforced"
+  },
+  {
+    "id": "GV.RM",
+    "function": "GV",
+    "function_name": "GOVERN",
+    "title": "Risk Management Strategy",
+    "statement": "The organization's priorities, constraints, risk tolerance and appetite statements, and assumptions are established, communicated, and used to support operational risk decisions"
+  },
+  {
+    "id": "GV.RR",
+    "function": "GV",
+    "function_name": "GOVERN",
+    "title": "Roles, Responsibilities, and Authorities",
+    "statement": "Cybersecurity roles, responsibilities, and authorities to foster accountability, performance assessment, and continuous improvement are established and communicated"
+  },
+  {
+    "id": "GV.SC",
+    "function": "GV",
+    "function_name": "GOVERN",
+    "title": "Cybersecurity Supply Chain Risk Management",
+    "statement": "Cyber supply chain risk management processes are identified, established, managed, monitored, and improved by organizational stakeholders"
+  },
+  {
+    "id": "ID.AM",
+    "function": "ID",
+    "function_name": "IDENTIFY",
+    "title": "Asset Management",
+    "statement": "Assets (e.g., data, hardware, software, systems, facilities, services, people) that enable the organization to achieve business purposes are identified and managed consistent with their relative importance to organizational objectives and the organization's risk strategy"
+  },
+  {
+    "id": "ID.IM",
+    "function": "ID",
+    "function_name": "IDENTIFY",
+    "title": "Improvement",
+    "statement": "Improvements to organizational cybersecurity risk management processes, procedures and activities are identified across all CSF Functions"
+  },
+  {
+    "id": "ID.RA",
+    "function": "ID",
+    "function_name": "IDENTIFY",
+    "title": "Risk Assessment",
+    "statement": "The cybersecurity risk to the organization, assets, and individuals is understood by the organization"
+  },
+  {
+    "id": "PR.AA",
+    "function": "PR",
+    "function_name": "PROTECT",
+    "title": "Identity Management, Authentication, and Access Control",
+    "statement": "Access to physical and logical assets is limited to authorized users, services, and hardware and managed commensurate with the assessed risk of unauthorized access"
+  },
+  {
+    "id": "PR.AT",
+    "function": "PR",
+    "function_name": "PROTECT",
+    "title": "Awareness and Training",
+    "statement": "The organization's personnel are provided with cybersecurity awareness and training so that they can perform their cybersecurity-related tasks"
+  },
+  {
+    "id": "PR.DS",
+    "function": "PR",
+    "function_name": "PROTECT",
+    "title": "Data Security",
+    "statement": "Data are managed consistent with the organization's risk strategy to protect the confidentiality, integrity, and availability of information"
+  },
+  {
+    "id": "PR.IR",
+    "function": "PR",
+    "function_name": "PROTECT",
+    "title": "Technology Infrastructure Resilience",
+    "statement": "Security architectures are managed with the organization's risk strategy to protect asset confidentiality, integrity, and availability, and organizational resilience"
+  },
+  {
+    "id": "PR.PS",
+    "function": "PR",
+    "function_name": "PROTECT",
+    "title": "Platform Security",
+    "statement": "The hardware, software (e.g., firmware, operating systems, applications), and services of physical and virtual platforms are managed consistent with the organization's risk strategy to protect their confidentiality, integrity, and availability"
+  },
+  {
+    "id": "DE.AE",
+    "function": "DE",
+    "function_name": "DETECT",
+    "title": "Adverse Event Analysis",
+    "statement": "Anomalies, indicators of compromise, and other potentially adverse events are analyzed to characterize the events and detect cybersecurity incidents"
+  },
+  {
+    "id": "DE.CM",
+    "function": "DE",
+    "function_name": "DETECT",
+    "title": "Continuous Monitoring",
+    "statement": "Assets are monitored to find anomalies, indicators of compromise, and other potentially adverse events"
+  },
+  {
+    "id": "RS.AN",
+    "function": "RS",
+    "function_name": "RESPOND",
+    "title": "Incident Analysis",
+    "statement": "Investigations are conducted to ensure effective response and support forensics and recovery activities"
+  },
+  {
+    "id": "RS.CO",
+    "function": "RS",
+    "function_name": "RESPOND",
+    "title": "Incident Response Reporting and Communication",
+    "statement": "Response activities are coordinated with internal and external stakeholders as required by laws, regulations, or policies"
+  },
+  {
+    "id": "RS.MA",
+    "function": "RS",
+    "function_name": "RESPOND",
+    "title": "Incident Management",
+    "statement": "Responses to detected cybersecurity incidents are managed"
+  },
+  {
+    "id": "RS.MI",
+    "function": "RS",
+    "function_name": "RESPOND",
+    "title": "Incident Mitigation",
+    "statement": "Activities are performed to prevent expansion of an event and mitigate its effects"
+  },
+  {
+    "id": "RC.CO",
+    "function": "RC",
+    "function_name": "RECOVER",
+    "title": "Incident Recovery Communication",
+    "statement": "Restoration activities are coordinated with internal and external parties"
+  },
+  {
+    "id": "RC.RP",
+    "function": "RC",
+    "function_name": "RECOVER",
+    "title": "Incident Recovery Plan Execution",
+    "statement": "Restoration activities are performed to ensure operational availability of systems and services affected by cybersecurity incidents"
+  }
+]

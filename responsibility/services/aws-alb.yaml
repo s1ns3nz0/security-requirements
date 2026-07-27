@@ -1,0 +1,76 @@
+# AWS Application Load Balancer -- control responsibility
+
+service: aws-alb
+provider: aws
+display_name: "AWS Application Load Balancer"
+reviewed: true
+reviewed_on: "2026-07-27"
+
+controls:
+
+  SC-8:
+    responsibility: shared
+    csp_part: "Terminates TLS and manages the listener certificate lifecycle through ACM."
+    team_part: >-
+      Redirect HTTP to HTTPS, and use a current SSL policy. The default policy
+      on an older listener may still permit TLS versions the requirement
+      excludes, and it does not change when AWS publishes a newer one.
+    evidence:
+      - "AWS SOC 2 Type II report"
+      - "terraform: aws_lb_listener.ssl_policy"
+    verification:
+      method: iac_inspect
+      target: "aws_lb_listener"
+      expect: "port 80 listener redirects to HTTPS; ssl_policy permits TLS 1.2 and above only"
+
+  SC-7:
+    responsibility: shared
+    csp_part: "Enforces the attached security groups at the load balancer."
+    team_part: >-
+      Targets must accept traffic only from the load balancer security group.
+      A target security group open to the VPC CIDR lets any workload in the VPC
+      reach the application directly, past every listener rule.
+    verification:
+      method: iac_inspect
+      target: "target security group ingress"
+      expect: "source is the load balancer security group, not a CIDR range"
+
+  SC-5:
+    responsibility: shared
+    csp_part: "Scales capacity and absorbs network-layer floods."
+    team_part: >-
+      Attach a web ACL for application-layer protection, and set idle and
+      deregistration timeouts so slow-request attacks do not hold connections.
+
+  AU-2:
+    responsibility: shared
+    csp_part: "Records control-plane changes to the load balancer."
+    team_part: >-
+      Access logs are off by default and are the only record of requests that
+      never reached the application -- which includes everything a WAF blocked
+      and everything that hit a 4xx at the listener.
+    verification:
+      method: iac_inspect
+      target: "aws_lb.access_logs"
+      expect: "enabled with a bucket, and a retention policy on that bucket"
+
+  SC-23:
+    responsibility: team
+    team_part: >-
+      Where the load balancer terminates TLS, the application must read the
+      client address from X-Forwarded-For rather than the socket, and must not
+      trust that header on any path the load balancer does not front.
+    note: >-
+      Getting this wrong makes every rate limit and audit record attribute the
+      action to the load balancer instead of the caller.
+
+  AC-4:
+    responsibility: team
+    team_part: >-
+      Listener rules route by host and path. A default rule forwarding
+      unmatched traffic to an internal target group exposes internal routes
+      that were never meant to be reachable from the internet.
+    verification:
+      method: iac_inspect
+      target: "aws_lb_listener_rule and default_action"
+      expect: "default action is a fixed response, not a forward to an internal target"

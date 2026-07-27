@@ -29,13 +29,47 @@
   ],
   "families_extracted": [
     "AC",
+    "AT",
     "AU",
-    "SC"
+    "CA",
+    "CM",
+    "CP",
+    "IA",
+    "IR",
+    "MA",
+    "MP",
+    "PE",
+    "PL",
+    "PM",
+    "PS",
+    "PT",
+    "RA",
+    "SA",
+    "SC",
+    "SI",
+    "SR"
   ],
   "control_counts": {
     "AC": 147,
+    "AT": 17,
     "AU": 69,
-    "SC": 162
+    "CA": 32,
+    "CM": 66,
+    "CP": 56,
+    "IA": 74,
+    "IR": 42,
+    "MA": 30,
+    "MP": 30,
+    "PE": 59,
+    "PL": 17,
+    "PM": 37,
+    "PS": 18,
+    "PT": 21,
+    "RA": 26,
+    "SA": 147,
+    "SC": 162,
+    "SI": 119,
+    "SR": 27
   },
   "baseline_counts": {
     "low": 149,
@@ -43,5 +77,5 @@
     "high": 370,
     "privacy": 96
   },
-  "partial": true
+  "partial": false
 }

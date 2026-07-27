@@ -1,0 +1,11 @@
+{
+  "source": "https://github.com/usnistgov/oscal-content",
+  "publication": "NIST Cybersecurity Framework 2.0",
+  "oscal_version": "1.2.0",
+  "oscal_last_modified": "2026-05-11T16:01:09.00000-00:00",
+  "license": "US Government work, public domain",
+  "subcategory_count": 106,
+  "category_count": 22,
+  "withdrawn_or_legacy_skipped": 38,
+  "note": "The upstream OSCAL release carries CSF 1.1 material alongside 2.0. Entries marked status=withdrawn and categories outside the published CSF 2.0 set are excluded."
+}

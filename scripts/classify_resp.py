@@ -78,18 +78,44 @@ def load_services(profile: dict) -> tuple[dict, list[str], list[str]]:
     return specs, curated, uncurated
 
 
-def build_layer_map(layers: dict, deployment_model: str | None) -> dict:
-    mapping = dict(layers.get("default", {}))
+def resolve_layer(control_id: str, layers: dict, deployment_model: str | None) -> tuple[str | None, str | None]:
+    """Return (responsibility, source) for a control, most specific rule first.
+
+    Family defaults carry the bulk of the mapping so that a new control in a
+    known family resolves to something defensible rather than UNDETERMINED, and
+    the override lists stay short enough to review.
+    """
     models = layers.get("deployment_models", {})
     if deployment_model and deployment_model in models:
-        mapping.update(models[deployment_model].get("overrides", {}))
-    return mapping
+        overrides = models[deployment_model].get("overrides", {}) or {}
+        if control_id in overrides:
+            return overrides[control_id], f"layers.yaml:{deployment_model}"
+
+    control_overrides = layers.get("control_overrides", {}) or {}
+    if control_id in control_overrides:
+        return control_overrides[control_id], "layers.yaml:control"
+
+    # An enhancement with no rule of its own follows its base control.
+    if "(" in control_id:
+        base = control_id.split("(")[0]
+        if deployment_model and deployment_model in models:
+            overrides = models[deployment_model].get("overrides", {}) or {}
+            if base in overrides:
+                return overrides[base], f"layers.yaml:{deployment_model}"
+        if base in control_overrides:
+            return control_overrides[base], "layers.yaml:control"
+
+    family_defaults = layers.get("family_defaults", {}) or {}
+    family = control_id.split("-")[0]
+    if family in family_defaults:
+        return family_defaults[family], "layers.yaml:family"
+
+    return None, None
 
 
 def classify(profile: dict, controls: list[str]) -> dict:
     layers = yaml.safe_load(LAYERS.read_text(encoding="utf-8"))
     deployment_model = (profile.get("inferred") or {}).get("deployment_model")
-    layer_map = build_layer_map(layers, deployment_model)
 
     specs, curated, uncurated = load_services(profile)
     org_controls = set((profile.get("declared") or {}).get("existing_org_controls", []) or [])
@@ -97,11 +123,11 @@ def classify(profile: dict, controls: list[str]) -> dict:
 
     results = []
     for control_id in controls:
-        layer_answer = layer_map.get(control_id)
+        layer_answer, layer_source = resolve_layer(control_id, layers, deployment_model)
         entry = {
             "control": control_id,
             "responsibility": layer_answer or "undetermined",
-            "source": "layers.yaml" if layer_answer else None,
+            "source": layer_source,
             "services": [],
             "unverified": False,
         }

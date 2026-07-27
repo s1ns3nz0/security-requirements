@@ -33,9 +33,25 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CATALOG_DIR = REPO_ROOT / "catalogs" / "nist-800-53r5"
+CSF_DIR = REPO_ROOT / "catalogs" / "csf-2.0"
+ASVS_DIR = REPO_ROOT / "catalogs" / "asvs-5"
 
 ID_RE = re.compile(r"^REQ-[A-Z0-9]+(?:-[A-Z0-9]+)*-\d{2}$")
 NIST_RE = re.compile(r"^[A-Z]{2}-\d+(?:\(\d+\))?$")
+CSF_RE = re.compile(r"^[A-Z]{2}\.[A-Z]{2}-\d{2}$")
+ASVS_RE = re.compile(r"^ASVS-V\d+(?:\.\d+)*$")
+
+# How a requirement may be checked. A closed set, because "verify it somehow"
+# is not a verification method and the downstream automation planned for v2
+# dispatches on this value.
+VERIFICATION_METHODS = {
+    "iac_inspect",    # read infrastructure-as-code or the resolved plan
+    "config_api",     # query the running configuration through a provider API
+    "code_grep",      # locate a construct in the source
+    "test_case",      # an automated test asserts the property
+    "artifact_review", # read a document, report, or agreement
+    "manual",         # a person checks and records the result
+}
 
 # Terms that make a requirement undecidable when they carry the obligation.
 VAGUE = {
@@ -95,6 +111,17 @@ def known_families() -> set[str]:
     return set(json.loads(path.read_text(encoding="utf-8")).get("all_families", []))
 
 
+def load_ids(directory: Path, pattern: str = "*.jsonl") -> set[str]:
+    if not directory.exists():
+        return set()
+    ids = set()
+    for path in directory.glob(pattern):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                ids.add(json.loads(line)["id"])
+    return ids
+
+
 def check_sources(
     req_id: str,
     sources: list[str],
@@ -103,9 +130,16 @@ def check_sources(
     known: set[str],
 ) -> list[Finding]:
     findings = []
+    asvs_ids = load_ids(ASVS_DIR)
     for source in sources:
-        if source.startswith("ASVS-") or source.startswith("PR.") or source.startswith("ID."):
-            continue  # checked against their own catalogs once bundled
+        if source.startswith("ASVS-"):
+            if not ASVS_RE.match(source):
+                findings.append(Finding("ERROR", req_id, "source-format",
+                                        f"{source!r} is not an ASVS requirement identifier"))
+            elif asvs_ids and source not in asvs_ids:
+                findings.append(Finding("ERROR", req_id, "source-unknown",
+                                        f"{source} does not exist in the ASVS catalog -- invented identifier"))
+            continue
         if not NIST_RE.match(source):
             findings.append(Finding("ERROR", req_id, "source-format",
                                     f"{source!r} is not a control identifier"))
@@ -157,6 +191,7 @@ def lint(doc: dict, locale: str, threats: dict | None) -> list[Finding]:
     catalog = load_catalog_ids()
     bundled = bundled_families()
     known = known_families()
+    csf_ids = load_ids(CSF_DIR)
     findings = []
 
     for req in doc.get("requirements", []) or []:
@@ -175,6 +210,14 @@ def lint(doc: dict, locale: str, threats: dict | None) -> list[Finding]:
         findings += check_statement(req_id, statement, locale)
         findings += check_sources(req_id, managed.get("sources", []) or [], catalog, bundled, known)
 
+        for csf_id in managed.get("csf", []) or []:
+            if not CSF_RE.match(csf_id):
+                findings.append(Finding("ERROR", req_id, "csf-format",
+                                        f"{csf_id!r} is not a CSF 2.0 subcategory identifier"))
+            elif csf_ids and csf_id not in csf_ids:
+                findings.append(Finding("ERROR", req_id, "csf-unknown",
+                                        f"{csf_id} does not exist in CSF 2.0 -- invented identifier"))
+
         verification = managed.get("verification")
         if not verification:
             findings.append(Finding("ERROR", req_id, "no-verification",
@@ -184,6 +227,10 @@ def lint(doc: dict, locale: str, threats: dict | None) -> list[Finding]:
                 if not verification.get(field):
                     findings.append(Finding("ERROR", req_id, "verification-incomplete",
                                             f"verification.{field} is missing"))
+            method = verification.get("method")
+            if method and method not in VERIFICATION_METHODS:
+                findings.append(Finding("ERROR", req_id, "verification-method",
+                                        f"{method!r} is not one of {sorted(VERIFICATION_METHODS)}"))
 
         if managed.get("responsibility") == "csp_claimed" and not managed.get("evidence"):
             findings.append(Finding("ERROR", req_id, "no-evidence",

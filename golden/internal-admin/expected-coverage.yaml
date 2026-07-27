@@ -1,0 +1,72 @@
+# Golden case 3 -- expected coverage
+#
+# This case is scored as much on restraint as on recall. An internal tool with
+# no customer data should produce a short document. A long one means the
+# derivation is not tailoring, and the reader learns to ignore it.
+
+version: "0.1.0"
+profile: internal-admin
+
+topics:
+
+  - id: privileged-action-audit
+    must_cover: true
+    critical: true
+    description: "Administrative actions are recorded with actor, action, and subject"
+    match_any: [audit, record, who, actor, administrative action, privileged action]
+    why: >-
+      The entire risk of an operations console is what staff can do with it.
+      If the derivation produces only one useful requirement, this is it.
+
+  - id: job-execution-authorisation
+    must_cover: true
+    critical: true
+    description: "Destructive or bulk operations require authorisation beyond console access"
+    match_any: [approval, second, confirm, destructive, bulk, dual, elevated]
+    why: >-
+      A console that runs jobs is a remote code execution surface for whoever
+      holds a session. No baseline control states this; it comes from looking
+      at what the entrypoints actually do.
+
+  - id: session-handling
+    must_cover: true
+    description: "Session lifetime and termination for an interactive console"
+    match_any: [session, timeout, terminate, idle, re-authent]
+
+  - id: least-privilege
+    must_cover: true
+    description: "Console roles are separated rather than a single admin role"
+    match_any: [least privilege, role, separate, scope]
+
+  - id: log-retention
+    must_cover: false
+    description: "Audit log retention set deliberately"
+    match_any: [retention, retain, keep]
+
+must_not_cover:
+  - id: introduce-sso
+    match_any: ["introduce single sign", "implement centralised authentication", "deploy an identity provider"]
+    why: "Q6 declared SSO. It belongs in the organisational bucket, already answered."
+
+  - id: introduce-central-logging
+    match_any: ["build a central log", "introduce centralised logging", "deploy a log aggregation"]
+    why: "Q6 declared central log collection."
+
+  - id: customer-data-protection
+    match_any: [customer data, personal data of users, data subject, consent]
+    why: >-
+      The profile declares no personal data. Requirements about protecting it
+      mean the derivation ignored the profile and fell back to a generic set.
+
+  - id: high-availability-engineering
+    match_any: [multi-region, hot standby, failover site, high availability]
+    why: >-
+      RTO is a day or more and the tool has a manual fallback. Availability
+      engineering here is waste dressed as diligence.
+
+scoring:
+  recall_threshold: 0.85
+  critical_required: true
+  # This case additionally asserts the derived baseline, checked in the test
+  # suite rather than here: system impact must be low.
+  expected_impact: low

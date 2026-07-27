@@ -1,0 +1,94 @@
+# Golden case 4 -- expected coverage
+#
+# The uncovered-regulation behaviour is the primary assertion here. A tool that
+# quietly produces plausible requirements for a PCI-scoped system, without
+# saying it does not support PCI DSS, is worse than one that produces nothing:
+# the reader believes they are covered.
+
+version: "0.1.0"
+profile: commerce-payments
+
+topics:
+
+  - id: cardholder-data-scope
+    must_cover: true
+    critical: true
+    description: "Cardholder data scope is stated, and PCI DSS is declared as not covered"
+    match_any: [cardholder, card data, pci, scope, out of scope, not supported]
+    why: >-
+      Raw PAN handling is declared. Silence here is the failure mode this whole
+      design exists to avoid.
+
+  - id: payment-flow-integrity
+    must_cover: true
+    critical: true
+    description: "Authorisation, capture, and refund cannot be replayed or reordered"
+    match_any: [idempoten, replay, refund, double, reconcil, ledger]
+    why: >-
+      Money movement is business logic. No control catalogue expresses it, and
+      no scanner sees it, because the replayed request is well formed.
+
+  - id: third-party-data-sharing
+    must_cover: true
+    critical: true
+    description: "Data sent to the fraud vendor is limited to what the purpose requires"
+    match_any: [fraud, vendor, third-party, processor, minimis, minimiz, share]
+    why: >-
+      The profile sends contact details, transaction history, and precise
+      location to a fraud vendor. That is the widest egress in the system and
+      it is invisible in the network topology.
+
+  - id: cross-border-transfer
+    must_cover: true
+    critical: true
+    description: "Storage in the US for EU customers is raised as a transfer question"
+    match_any: [cross-border, transfer, residency, region, adequacy, offshore]
+    why: >-
+      Storage is us-east-1 and customers are in DE and FR. The tool does not
+      make the legal determination but must not stay silent about it.
+
+  - id: encryption-at-rest
+    must_cover: true
+    description: "Data at rest encrypted with key custody addressed"
+    match_any: [at rest, encrypt, key, kms]
+
+  - id: transport-encryption
+    must_cover: true
+    description: "Transport encryption end to end, including the origin hop"
+    match_any: [tls, transit, origin, certificate]
+
+  - id: host-patching
+    must_cover: true
+    description: "Guest operating system patching is the team's responsibility"
+    match_any: [patch, flaw remediation, update, operating system, instance]
+    why: >-
+      IaaS deployment. If this is marked provider-claimed the deployment model
+      override is not being applied.
+
+  - id: session-management
+    must_cover: true
+    description: "Custom session cookie handling is bounded and revocable"
+    match_any: [session, cookie, expire, revoke, fixation]
+
+  - id: staff-access-to-orders
+    must_cover: false
+    description: "Internal staff access to customer orders is scoped and recorded"
+    match_any: [staff, support, internal user, impersonat, elevated]
+
+  - id: availability-engineering
+    must_cover: false
+    description: "Recovery objectives measured in minutes are engineered for"
+    match_any: [failover, multi-az, redundan, recovery time, standby]
+
+must_not_cover:
+  - id: implied-pci-coverage
+    match_any: ["meets PCI DSS", "PCI DSS compliant", "satisfies PCI DSS", "PCI compliance achieved"]
+    why: >-
+      v1 supports no PCI overlay. Any phrasing suggesting the requirement set
+      satisfies PCI DSS is a false assurance, which is the one failure this
+      tool must never produce.
+
+scoring:
+  recall_threshold: 0.85
+  critical_required: true
+  expected_impact: high

@@ -1,127 +1,243 @@
-# Coarse responsibility mapping by deployment model
+# Responsibility mapping by deployment model
 #
-# This is the first pass. Service-specific files in responsibility/services/
-# override it where a managed service changes the answer.
+# Resolution order, most specific wins:
+#
+#   responsibility/services/<id>.yaml   service-specific curation
+#   deployment_models.<model>.overrides
+#   control_overrides
+#   family_defaults
 #
 # Four buckets, not three. The fourth -- `shared` -- is the largest and the one
 # that matters most. SC-13 is the canonical case: the provider runs the key
-# management infrastructure, but enabling encryption on the bucket is the
-# team's job. Collapsing shared into csp_claimed is exactly how real gaps are
-# created, because nobody ends up owning the half that was theirs.
+# management infrastructure, but enabling encryption on the store is the team's
+# job. Collapsing shared into csp_claimed is exactly how real gaps are created,
+# because nobody ends up owning the half that was theirs.
 #
 #   csp_claimed  the provider performs this; the customer's duty is to obtain
-#                and retain evidence. Never stated as fact -- it is a claim
-#                that an auditor will ask you to substantiate.
+#                and retain evidence. Never stated as fact -- it is a claim an
+#                auditor will ask you to substantiate.
 #   shared       both parties act. Both halves must be stated separately.
 #   org          an organisational control, outside the delivery team
-#                (HR, physical security, policy, audit programme).
+#                (HR, physical security, policy, training, audit programme).
 #   team         the delivery team implements it in code or configuration.
 #
-# Scope: only the AC, AU, and SC families are mapped, because only those are
-# currently bundled. Anything else resolves to UNDETERMINED rather than being
-# silently omitted.
+# Assignments assume a cloud-hosted service. The `onprem` model moves the
+# infrastructure controls back to the operator.
+#
+# These are defaults, not verdicts. A control landing in `org` still has to be
+# answered at audit; it is simply answered by someone other than the delivery
+# team.
 
-version: "0.1.0"
-families_mapped: [AC, AU, SC]
+version: "0.2.0"
+families_mapped: [AC, AT, AU, CA, CM, CP, IA, IR, MA, MP, PE, PL, PM, PS, PT, RA, SA, SC, SI, SR]
 
 # ---------------------------------------------------------------------------
-# Applies to every deployment model unless overridden below.
+# Family defaults
 # ---------------------------------------------------------------------------
-default:
-  # Policy and procedure controls. These are documents the organisation owns;
-  # a delivery team cannot satisfy them by writing code.
+family_defaults:
+  AC: team          # access enforcement lives in the system
+  AT: org           # awareness and role-based training
+  AU: team          # what to log and how long to keep it
+  CA: org           # assessment and authorisation is a programme activity
+  CM: team          # configuration of this system
+  CP: org           # contingency planning is a programme activity
+  IA: team          # identification and authentication of this system's users
+  IR: org           # incident response is a programme activity
+  MA: csp_claimed   # the provider maintains the infrastructure
+  MP: csp_claimed   # the provider handles physical media
+  PE: csp_claimed   # the provider runs the facility
+  PL: org           # planning documents
+  PM: org           # programme management, organisation-wide by definition
+  PS: org           # personnel security
+  PT: org           # privacy programme; specific controls move to the team below
+  RA: org           # risk assessment is a programme activity
+  SA: org           # acquisition; development controls move to the team below
+  SC: shared        # provider infrastructure plus team configuration
+  SI: team          # integrity of this system's code and data
+  SR: org           # supply chain programme; verification moves to the team
+
+# ---------------------------------------------------------------------------
+# Control-level overrides
+# ---------------------------------------------------------------------------
+control_overrides:
+
+  # -- policy and procedure controls: documents the organisation owns.
+  #    A delivery team cannot satisfy these by writing code.
   AC-1: org
+  AT-1: org
   AU-1: org
+  CA-1: org
+  CM-1: org
+  CP-1: org
+  IA-1: org
+  IR-1: org
+  MA-1: org
+  MP-1: org
+  PE-1: org
+  PL-1: org
+  PS-1: org
+  PT-1: org
+  RA-1: org
+  SA-1: org
   SC-1: org
+  SI-1: org
+  SR-1: org
 
-  # Account and access management
-  AC-2: team
-  AC-2(1): team
-  AC-2(2): team
-  AC-2(3): team
-  AC-2(4): team
-  AC-2(5): org
-  AC-2(13): team
-  AC-3: team
-  AC-4: team
-  AC-5: org
-  AC-6: team
-  AC-6(1): team
-  AC-6(2): team
-  AC-6(5): team
-  AC-6(7): org
-  AC-6(9): team
-  AC-6(10): team
-  AC-7: team
-  AC-8: team
-  AC-14: team
-  AC-21: team
-  AC-22: team
-
-  # Session handling. AC-11 is workstation session lock -- an endpoint
-  # management concern, not an application one. AC-12 is application session
-  # termination and belongs to the team. These are routinely confused.
-  AC-11: org
+  # -- AC: enterprise endpoint and network estate is not this service
+  AC-5: org         # separation of duties
+  AC-6(7): org      # privilege review
+  AC-11: org        # device lock -- an endpoint concern, not an application one
   AC-11(1): org
-  AC-12: team
-
-  # Enterprise endpoint and network estate, not the service under review
-  AC-17: org
+  AC-17: org        # remote access to the corporate estate
   AC-17(1): org
   AC-17(2): org
   AC-17(3): org
   AC-17(4): org
-  AC-18: org
+  AC-18: org        # wireless
   AC-18(1): org
   AC-18(3): org
-  AC-19: org
+  AC-19: org        # mobile devices
   AC-19(5): org
-  AC-20: org
+  AC-20: org        # use of external systems
   AC-20(1): org
   AC-20(2): org
+  AC-4: shared      # information flow enforcement: provider network primitives
+  AC-12: team       # session termination -- application, not device lock
 
-  # Audit
-  AU-2: team
-  AU-3: team
-  AU-3(1): team
-  AU-4: shared
-  AU-5: shared
-  AU-6: org
+  # -- AU
+  AU-4: shared      # audit storage capacity
+  AU-5: shared      # response to audit processing failure
+  AU-6: org         # audit review and analysis is a monitoring function
   AU-6(1): shared
   AU-6(3): org
-  AU-7: shared
+  AU-7: shared      # audit reduction and reporting
   AU-7(1): shared
-  AU-8: csp_claimed
-  AU-9: shared
-  AU-9(4): team
-  AU-11: team
-  AU-12: shared
+  AU-8: csp_claimed # time stamps from the platform clock
+  AU-9: shared      # protection of audit information
+  AU-9(4): team     # access to audit tooling by a subset of privileged users
+  AU-11: team       # retention period is a configuration the team sets
+  AU-12: shared     # audit record generation
 
-  # System and communications protection
-  SC-2: team
-  SC-4: team
-  SC-5: shared
-  SC-7: shared
-  SC-7(3): shared
-  SC-7(4): shared
-  SC-7(5): shared
-  SC-7(7): team
-  SC-7(8): team
-  SC-8: shared
-  SC-8(1): shared
-  SC-10: shared
-  SC-12: shared
-  SC-13: shared
-  SC-15: org
-  SC-17: org
-  SC-18: team
+  # -- CA
+  CA-3: team        # information exchange: the service's own integrations
+  CA-7: shared      # continuous monitoring
+  CA-7(4): shared
+  CA-9: team        # internal system connections
+
+  # -- CM
+  CM-2(7): org      # high-risk area configurations (travel)
+  CM-3(4): org      # security representatives on the change board
+  CM-9: org         # configuration management plan
+  CM-10: org        # software usage restrictions and licensing
+  CM-11: org        # user-installed software on endpoints
+  CM-12: team       # information location
+  CM-12(1): team
+
+  # -- CP: the plan is organisational, the mechanisms are not
+  CP-6: shared      # alternate storage site: cross-region replication
+  CP-6(1): shared
+  CP-6(3): shared
+  CP-7: shared      # alternate processing site: multi-AZ or multi-region
+  CP-7(1): shared
+  CP-7(2): shared
+  CP-7(3): csp_claimed
+  CP-8: csp_claimed # telecommunications services
+  CP-8(1): csp_claimed
+  CP-8(2): csp_claimed
+  CP-9: shared      # system backup
+  CP-9(1): team     # testing restores is the half that gets skipped
+  CP-9(8): shared   # cryptographic protection of backups
+  CP-10: shared     # recovery and reconstitution
+  CP-10(2): team    # transaction recovery is application logic
+
+  # -- IA
+  IA-2(12): org     # PIV credential acceptance: US federal context
+  IA-3: shared      # device identification and authentication
+  IA-7: shared      # cryptographic module authentication
+  IA-8(1): org
+  IA-8(4): org
+  IA-12: org        # identity proofing, unless the service itself does KYC
+  IA-12(2): org
+  IA-12(3): org
+  IA-12(5): org
+
+  # -- IR: the programme is organisational, the hooks are not
+  IR-4(1): shared   # automated incident handling
+  IR-5: shared      # incident monitoring
+  IR-6(1): shared   # automated reporting
+  IR-7(1): shared
+
+  # -- MP / PE: cloud-hosted exceptions
+  MP-7: org         # media use policy applies to endpoints
+  PE-17: org        # alternate work site is an HR and facilities matter
+
+  # -- PL
+  PL-8: team        # security architecture of this system
+  PL-10: org        # baseline selection
+  PL-11: org        # baseline tailoring
+
+  # -- PT: privacy controls that land on the delivery team
+  PT-2: team        # authority to process personally identifiable information
+  PT-3: team        # processing purposes
+  PT-4: team        # consent
+  PT-5: team        # privacy notice
+  PT-6: org         # system of records notice
+  PT-7: team        # specific categories of personally identifiable information
+  PT-8: org         # computer matching requirements
+
+  # -- RA
+  RA-5: shared      # vulnerability monitoring and scanning
+  RA-5(2): shared
+  RA-5(5): team     # scanning with privileged access
+  RA-5(11): org     # public disclosure programme
+  RA-9: team        # criticality analysis of this system's components
+
+  # -- SA: development controls belong to the team
+  SA-3: team        # system development life cycle
+  SA-4(9): team     # functions, ports, protocols in use
+  SA-4(10): org     # approved PIV products
+  SA-5: team        # system documentation
+  SA-8: team        # security and privacy engineering principles
+  SA-9: shared      # external system services
+  SA-9(2): team
+  SA-10: team       # developer configuration management
+  SA-11: team       # developer testing and evaluation
+  SA-15: team       # development process, standards, and tools
+  SA-15(3): team
+  SA-22: team       # unsupported system components
+
+  # -- SC (cloud defaults; services refine these)
+  SC-2: team        # separation of system and user functionality
+  SC-4: team        # information in shared system resources
+  SC-7(7): team     # split tunnelling
+  SC-7(8): team     # route traffic to authenticated proxy servers
+  SC-15: org        # collaborative computing devices
+  SC-17: org        # public key infrastructure certificates
+  SC-18: team       # mobile code
   SC-20: csp_claimed
   SC-21: csp_claimed
   SC-22: csp_claimed
-  SC-23: team
-  SC-28: shared
-  SC-28(1): shared
-  SC-39: shared
+  SC-23: team       # session authenticity
+  SC-39: shared     # process isolation
+
+  # -- SI
+  SI-3: shared      # malicious code protection
+  SI-4: shared      # system monitoring
+  SI-4(2): shared
+  SI-4(4): shared
+  SI-4(5): shared
+  SI-5: org         # security alerts and advisories
+  SI-8: csp_claimed # spam protection on a managed mail service
+  SI-8(2): csp_claimed
+  SI-16: csp_claimed # memory protection by the managed runtime
+
+  # -- SR: verification lands on the team, the programme does not
+  SR-3: team        # supply chain controls and processes
+  SR-10: team       # inspection of systems or components
+  SR-11: team       # component authenticity
+  SR-11(1): org     # anti-counterfeit training
+  SR-11(2): team
+  SR-12: shared     # component disposal
 
 # ---------------------------------------------------------------------------
 # Deployment model overrides
@@ -131,29 +247,46 @@ deployment_models:
   serverless:
     description: "Functions and managed services; no customer-managed hosts."
     overrides:
-      # No operating system to isolate; the platform enforces process and
-      # tenant separation.
-      SC-39: csp_claimed
-      # Log storage and retention are platform-managed capacity; the team still
-      # chooses the retention period (AU-11 stays with the team).
-      AU-4: csp_claimed
-      # No customer-managed load balancer to fail closed on its own.
-      SC-5: shared
+      SC-39: csp_claimed   # the platform enforces process and tenant separation
+      AU-4: csp_claimed    # log storage capacity is platform-managed
+      SC-5: shared         # no customer-managed load balancer to fail closed
+      CM-2: shared         # the baseline configuration is largely the platform's
+      CM-6: shared
+      SI-2: shared         # runtime patching belongs to the provider
+      SI-2(2): shared
+      SI-3: csp_claimed
+      SI-7: shared
 
   paas:
-    description: "Managed runtime; provider owns the host, team owns the app."
+    description: "Managed runtime; the provider owns the host, the team owns the app."
     overrides:
       SC-39: csp_claimed
+      SI-2: shared
+      SI-16: csp_claimed
 
   iaas:
     description: "Customer-managed virtual machines."
     overrides:
-      # The team owns the guest OS, so isolation and host boundary controls
-      # move back to them.
-      SC-39: team
+      SC-39: team          # the team owns the guest operating system
       AU-4: team
       SC-7: team
       SC-7(3): team
+      SI-2: team           # patching the guest is the team's
+      SI-2(2): team
+      SI-3: team
+      SI-16: team
+      MA-2: shared         # controlled maintenance of the instances
+      CM-6: team
+
+  saas:
+    description: "The organisation consumes a third-party application."
+    overrides:
+      SA-9: team           # the vendor relationship is the primary control
+      SA-9(2): team
+      SI-2: csp_claimed
+      SC-7: csp_claimed
+      CM-2: csp_claimed
+      CM-6: shared         # tenant-side configuration remains the team's
 
   onprem:
     description: "Self-hosted infrastructure."
@@ -169,3 +302,25 @@ deployment_models:
       SC-21: team
       SC-22: team
       SC-12: team
+      SI-2: team
+      SI-3: team
+      SI-8: team
+      SI-16: team
+      MA-2: org            # maintenance returns to the operator
+      MA-3: org
+      MA-4: org
+      MA-5: org
+      MA-6: org
+      MP-2: org
+      MP-4: org
+      MP-5: org
+      MP-6: org
+      PE-2: org
+      PE-3: org
+      PE-6: org
+      PE-9: org
+      PE-11: org
+      PE-13: org
+      PE-14: org
+      CP-7: org
+      CP-8: org

@@ -1,0 +1,30 @@
+{
+  "source": "https://github.com/OWASP/ASVS",
+  "publication": "OWASP Application Security Verification Standard 5.0.0",
+  "license": "CC BY-SA 4.0",
+  "requirement_count": 345,
+  "chapters": [
+    "V1",
+    "V10",
+    "V11",
+    "V12",
+    "V13",
+    "V14",
+    "V15",
+    "V16",
+    "V17",
+    "V2",
+    "V3",
+    "V4",
+    "V5",
+    "V6",
+    "V7",
+    "V8",
+    "V9"
+  ],
+  "level_counts": {
+    "2": 183,
+    "1": 70,
+    "3": 92
+  }
+}

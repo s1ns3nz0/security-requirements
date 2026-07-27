@@ -1,0 +1,82 @@
+# Amazon DynamoDB -- control responsibility
+
+service: aws-dynamodb
+provider: aws
+display_name: "Amazon DynamoDB"
+reviewed: true
+reviewed_on: "2026-07-27"
+
+controls:
+
+  SC-28:
+    responsibility: shared
+    csp_part: "Encrypts all tables at rest; encryption cannot be disabled."
+    team_part: >-
+      Choose the key. The default is an AWS-owned key, which gives the
+      organisation no key custody and no ability to revoke access by disabling
+      the key.
+    evidence:
+      - "AWS SOC 2 Type II report"
+      - "terraform: aws_dynamodb_table.server_side_encryption"
+    verification:
+      method: iac_inspect
+      target: "aws_dynamodb_table.server_side_encryption"
+      expect: "enabled with a customer-managed kms_key_arn where key custody is required"
+
+  SC-4:
+    responsibility: team
+    team_part: >-
+      For multi-tenant tables, make the tenant identifier the partition key and
+      enforce it with an IAM condition on dynamodb:LeadingKeys. Filtering in
+      application code fails open the first time a query is written without the
+      condition.
+    note: >-
+      This is the control that catches tenant isolation in a single-table
+      design. A scan without a partition key returns every tenant's items and
+      is syntactically valid.
+    verification:
+      method: iac_inspect
+      target: "IAM policy for the table"
+      expect: "dynamodb:LeadingKeys condition bound to the caller's tenant"
+
+  AC-6:
+    responsibility: team
+    team_part: >-
+      Separate read and write policies, and deny dynamodb:Scan on tables
+      holding personal data unless a specific job requires it.
+
+  AU-2:
+    responsibility: shared
+    csp_part: "CloudTrail records control-plane actions on the table."
+    team_part: >-
+      Data-plane access is only recorded if streams or CloudTrail data events
+      are enabled. Table modification is visible; item reads are not.
+    verification:
+      method: iac_inspect
+      target: "aws_cloudtrail event_selector"
+      expect: "data resource of type AWS::DynamoDB::Table where item access must be recorded"
+
+  CP-9:
+    responsibility: shared
+    csp_part: "Provides point-in-time recovery and on-demand backups."
+    team_part: >-
+      Point-in-time recovery is off by default and cannot be applied
+      retroactively. It has to be enabled before the data it would have
+      protected exists.
+    evidence:
+      - "terraform: aws_dynamodb_table.point_in_time_recovery"
+    verification:
+      method: iac_inspect
+      target: "aws_dynamodb_table.point_in_time_recovery"
+      expect: "enabled = true"
+
+  SI-12:
+    responsibility: team
+    team_part: >-
+      Set time-to-live on items subject to a retention limit. Without it,
+      personal data persists until someone deletes it by hand, which is to say
+      indefinitely.
+    verification:
+      method: iac_inspect
+      target: "aws_dynamodb_table.ttl"
+      expect: "enabled with an attribute_name, for tables holding personal data"

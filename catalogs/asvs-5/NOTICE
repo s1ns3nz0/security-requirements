@@ -1,0 +1,11 @@
+OWASP Application Security Verification Standard 5.0.0
+Copyright the OWASP Foundation and ASVS contributors.
+Licensed under CC BY-SA 4.0.
+
+Changes made:
+  - The upstream flat JSON was split into one JSON Lines file per chapter.
+  - Field names were normalised (req_id -> id, req_description -> statement,
+    L -> level).
+  - Requirement text itself was not altered.
+
+Produced by scripts/rebuild_catalogs.py. OWASP does not endorse this project.

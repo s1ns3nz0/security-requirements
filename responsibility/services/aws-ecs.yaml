@@ -1,0 +1,85 @@
+# Amazon ECS (Fargate and EC2 launch types) -- control responsibility
+
+service: aws-ecs
+provider: aws
+display_name: "Amazon ECS"
+reviewed: true
+reviewed_on: "2026-07-27"
+
+controls:
+
+  SI-2:
+    responsibility: shared
+    csp_part: >-
+      On Fargate, patches the host and the container runtime. On the EC2 launch
+      type it patches neither -- the container instances are yours.
+    team_part: >-
+      Rebuild and redeploy the container image to pick up base image and
+      dependency patches. A long-running task keeps whatever it started with,
+      and nothing forces a redeploy.
+    evidence:
+      - "AWS shared responsibility model, container services"
+    verification:
+      method: iac_inspect
+      target: "task definition image tag"
+      expect: "an immutable digest or a version tag, not :latest"
+
+  AC-6:
+    responsibility: team
+    team_part: >-
+      Set the task role separately from the execution role. The execution role
+      pulls images and writes logs; the task role is what the application code
+      can use. Merging them hands application code the ability to pull and
+      register images.
+    verification:
+      method: iac_inspect
+      target: "aws_ecs_task_definition.task_role_arn, execution_role_arn"
+      expect: "two distinct roles"
+
+  SC-2:
+    responsibility: team
+    team_part: >-
+      Run the container as a non-root user with a read-only root filesystem.
+      Neither is the default, and both are single fields in the task definition.
+    verification:
+      method: iac_inspect
+      target: "container definition"
+      expect: "user set to a non-root uid, readonlyRootFilesystem true"
+
+  SC-39:
+    responsibility: csp_claimed
+    csp_part: "On Fargate, each task runs in its own isolation boundary with no shared kernel between tasks."
+    evidence:
+      - "AWS SOC 2 Type II report"
+      - "AWS Fargate security overview"
+    note: >-
+      On the EC2 launch type this is not inherited: tasks on the same instance
+      share a kernel, and the responsibility returns to the team.
+
+  SC-7:
+    responsibility: shared
+    csp_part: "Security group enforcement at the task elastic network interface."
+    team_part: >-
+      Place tasks in private subnets. assign_public_ip on a task in a public
+      subnet exposes the container directly, and it is a common default in
+      quick-start configurations.
+    verification:
+      method: iac_inspect
+      target: "aws_ecs_service.network_configuration"
+      expect: "assign_public_ip = false with private subnets"
+
+  IA-5:
+    responsibility: team
+    team_part: >-
+      Inject secrets through the `secrets` field so they are resolved at task
+      start. Values placed in `environment` are stored in the task definition
+      and readable by anyone who can describe it.
+    verification:
+      method: iac_inspect
+      target: "container definition environment vs secrets"
+      expect: "no credential-shaped values under environment"
+
+  AU-2:
+    responsibility: shared
+    csp_part: "Records control-plane actions and delivers container stdout to the configured log driver."
+    team_part: "Configure the log driver and a retention period on the destination log group."

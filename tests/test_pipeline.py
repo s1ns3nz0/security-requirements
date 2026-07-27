@@ -27,6 +27,21 @@ import merge  # noqa: E402
 import select_baseline as sb  # noqa: E402
 
 GOLDEN = REPO_ROOT / "golden" / "b2b-saas-aws"
+GOLDEN_ROOT = REPO_ROOT / "golden"
+
+# The four golden cases exist to keep the whole range of the scale reachable.
+# If every profile lands on Moderate, the derivation is not discriminating and
+# the tailoring is decorative.
+EXPECTED_IMPACT = {
+    "internal-admin": "low",
+    "b2b-saas-aws": "moderate",
+    "mobile-backend": "moderate",
+    "commerce-payments": "high",
+}
+
+
+def load_golden(name: str) -> dict:
+    return yaml.safe_load((GOLDEN_ROOT / name / "profile.yaml").read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")
@@ -63,6 +78,37 @@ def test_baseline_sizes_match_publication():
     assert len(baselines["high"]) == 370
 
 
+def test_all_twenty_families_are_bundled():
+    meta = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" / "meta.json").read_text(encoding="utf-8"))
+    assert len(meta["families_extracted"]) == 20
+    assert meta["partial"] is False
+
+
+def test_csf_matches_published_structure():
+    """Regression: the OSCAL release carries CSF 1.1 alongside 2.0.
+
+    Taken whole it yields 185 subcategories across 34 categories. Filtering the
+    entries marked withdrawn, and the categories outside the published CSF 2.0
+    set, must land on exactly the 106 and 22 that NIST publishes. Anything else
+    means the filter drifted and the bundled structure is wrong.
+    """
+    meta = json.loads((REPO_ROOT / "catalogs" / "csf-2.0" / "meta.json").read_text(encoding="utf-8"))
+    assert meta["subcategory_count"] == 106
+    assert meta["category_count"] == 22
+
+
+def test_asvs_is_bundled_with_its_licence():
+    asvs = REPO_ROOT / "catalogs" / "asvs-5"
+    meta = json.loads((asvs / "meta.json").read_text(encoding="utf-8"))
+    assert meta["requirement_count"] > 300
+    assert meta["license"] == "CC BY-SA 4.0"
+    # The share-alike condition is confined by keeping the adapted material in
+    # its own directory with its own licence and a statement of changes.
+    assert (asvs / "LICENSE").exists()
+    assert (asvs / "NOTICE").exists()
+    assert "CC BY-SA 4.0" in (asvs / "LICENSE").read_text(encoding="utf-8")
+
+
 def test_no_unresolved_parameter_placeholders():
     """Regression: select choices nest parameter references two levels deep.
 
@@ -86,6 +132,28 @@ def test_enhancement_identifiers_use_audit_notation():
 # ---------------------------------------------------------------------------
 # impact derivation
 # ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("name,expected", sorted(EXPECTED_IMPACT.items()))
+def test_golden_cases_span_the_scale(name, expected):
+    """Every level must be reachable.
+
+    Two regressions live here. Credentials were categorised as business
+    information, which put every consumer application on the High baseline.
+    Audit log integrity was a fixed Moderate, which put every system that keeps
+    audit logs -- that is, every system -- at Moderate or above and made Low
+    unreachable. Both produced documents nobody would act on.
+    """
+    result = sb.run(load_golden(name))
+    assert result["impact"]["system"] == expected
+
+
+def test_no_undetermined_responsibility_for_any_golden_case():
+    for name in EXPECTED_IMPACT:
+        profile = load_golden(name)
+        derived = sb.run(profile)
+        result = classify_resp.classify(profile, derived["controls"])
+        assert result["counts"]["undetermined"] == 0, f"{name} has unmapped controls"
+
 
 def test_ordinary_b2b_saas_lands_on_moderate(derived):
     """Regression: a commercial SaaS was landing on the High baseline.
@@ -142,6 +210,29 @@ def test_encryption_is_not_an_accepted_modifier(profile):
 def test_backups_inherit_the_highest_level(profile):
     reasons = sb.run(profile)["impact"]["confidentiality"]["because"]
     assert any("backups" in r.lower() and "inherits" in r for r in reasons)
+
+
+def test_credentials_are_excluded_from_the_water_mark(profile):
+    """Regression: adding credentials to a Moderate profile forced it to High.
+
+    FIPS 199 categorises a system by the business information it holds.
+    Credentials are system information and are present in nearly every service.
+    """
+    with_creds = copy.deepcopy(profile)
+    with_creds["declared"]["data_types"].append({"id": "account_credentials"})
+    result = sb.run(with_creds)
+    assert result["impact"]["system"] == "moderate"
+    assert any("system information" in r for r in result["impact"]["confidentiality"]["because"])
+
+
+def test_audit_logs_do_not_raise_a_low_system(profile):
+    """Regression: a fixed Moderate on audit log integrity made Low unreachable."""
+    low = copy.deepcopy(profile)
+    low["declared"]["data_types"] = [{"id": "internal_ops"}, {"id": "audit_logs"}, {"id": "app_logs"}]
+    low["declared"]["availability"] = {
+        "rto": "rto_day_plus", "rpo": "rpo_hours_plus", "amplifiers": ["internal_tool_only"],
+    }
+    assert sb.run(low)["impact"]["system"] == "low"
 
 
 def test_safety_critical_forces_high_availability(profile):
@@ -206,9 +297,23 @@ def test_unknown_region_is_undetermined_not_guessed(profile):
 # ---------------------------------------------------------------------------
 
 def test_uncurated_services_are_reported(profile, derived):
-    result = classify_resp.classify(profile, derived["controls"])
-    assert "aws-lambda" in result["services_uncurated"]
+    """A service with no curated file must be named, not silently absorbed.
+
+    The alternative is a matrix that looks equally confident everywhere, and a
+    reader with no way to tell which parts were actually reviewed.
+    """
+    with_unknown = copy.deepcopy(profile)
+    with_unknown["inferred"]["managed_services"].append(
+        {"id": "aws-bedrock", "evidence": "src/llm/client.ts:8"}
+    )
+    result = classify_resp.classify(with_unknown, derived["controls"])
+    assert "aws-bedrock" in result["services_uncurated"]
     assert "aws-s3" in result["services_curated"]
+
+
+def test_curated_services_cover_the_common_aws_surface(profile, derived):
+    result = classify_resp.classify(profile, derived["controls"])
+    assert result["services_uncurated"] == []
 
 
 def test_service_curation_overrides_the_layer(profile, derived):
@@ -243,6 +348,43 @@ def test_deployment_model_override_applies(profile, derived):
     onprem["inferred"]["deployment_model"] = "onprem"
     onprem["inferred"]["managed_services"] = []
     assert classify_resp.classify(onprem, ["SC-39"])["controls"][0]["responsibility"] == "team"
+
+
+def test_patching_moves_with_the_deployment_model(profile):
+    """SI-2 is the clearest case: on serverless the provider patches the
+    runtime, on self-managed instances the team does. Getting this backwards
+    either hands the team work that is not theirs or drops work that is."""
+    serverless = classify_resp.classify(profile, ["SI-2"])["controls"][0]
+    assert serverless["responsibility"] == "shared"
+
+    iaas = copy.deepcopy(profile)
+    iaas["inferred"]["deployment_model"] = "iaas"
+    iaas["inferred"]["managed_services"] = []
+    assert classify_resp.classify(iaas, ["SI-2"])["controls"][0]["responsibility"] == "team"
+
+
+def test_family_default_covers_unlisted_controls(profile):
+    """A control with no rule of its own must resolve, not fall to UNDETERMINED.
+
+    PS-9 has no override anywhere; it should follow the PS family default.
+    """
+    entry = classify_resp.classify(profile, ["PS-9"])["controls"][0]
+    assert entry["responsibility"] == "org"
+    assert entry["source"] == "layers.yaml:family"
+
+
+def test_enhancement_follows_its_base_control(profile):
+    """CP-6(1) has no rule of its own and must follow CP-6 rather than the CP
+    family default, which is org."""
+    entry = classify_resp.classify(profile, ["CP-6(1)"])["controls"][0]
+    assert entry["responsibility"] == "shared"
+
+
+def test_physical_controls_never_reach_a_cloud_team(profile, derived):
+    result = classify_resp.classify(profile, derived["controls"])
+    physical = [e for e in result["controls"] if e["control"].startswith("PE-") and e["control"] != "PE-1"]
+    assert physical
+    assert all(e["responsibility"] in ("csp_claimed", "org") for e in physical)
 
 
 # ---------------------------------------------------------------------------
@@ -368,9 +510,23 @@ def test_invented_family_is_blocked_not_merely_warned():
 
 
 def test_unbundled_family_is_a_warning_not_an_error():
-    findings = lint_mod.lint(_doc(sources=["CP-9"]), "en", None)
-    matching = [f for f in findings if f.rule == "source-unbundled"]
-    assert matching and matching[0].level == "WARN"
+    """All twenty families are bundled now, so this path only appears after a
+    partial extraction. It still has to behave: a real family that is merely
+    absent is a warning, an invented one is an error, and the two must not be
+    confused."""
+    findings = lint_mod.check_sources(
+        "REQ-X-Y-01",
+        ["CP-9"],
+        catalog=set(),
+        bundled={"AC", "AU", "SC"},
+        known=lint_mod.known_families(),
+    )
+    assert [f for f in findings if f.rule == "source-unbundled" and f.level == "WARN"]
+
+    invented = lint_mod.check_sources(
+        "REQ-X-Y-01", ["ZZ-9"], catalog=set(), bundled={"AC"}, known=lint_mod.known_families()
+    )
+    assert [f for f in invented if f.level == "ERROR"]
 
 
 def test_vague_statement_is_blocked():
@@ -402,6 +558,36 @@ def test_threat_derived_requirement_may_cite_no_control():
 def test_requirement_with_no_basis_at_all_is_flagged():
     findings = lint_mod.lint(_doc(sources=[], threat_refs=[]), "en", None)
     assert "no-basis" in _rules(findings)
+
+
+def test_invented_asvs_identifier_is_blocked():
+    findings = lint_mod.lint(_doc(sources=["ASVS-V6.9.9"]), "en", None)
+    assert any(f.level == "ERROR" and f.rule == "source-unknown" for f in findings)
+
+
+def test_real_asvs_identifier_passes():
+    assert "ASVS-V1.1.1" in lint_mod.load_ids(lint_mod.ASVS_DIR)
+    findings = lint_mod.lint(_doc(sources=["ASVS-V1.1.1"]), "en", None)
+    assert not [f for f in findings if f.level == "ERROR"]
+
+
+def test_invented_csf_subcategory_is_blocked():
+    findings = lint_mod.lint(_doc(csf=["PR.ZZ-99"]), "en", None)
+    assert any(f.level == "ERROR" and f.rule == "csf-unknown" for f in findings)
+
+
+def test_real_csf_subcategory_passes():
+    findings = lint_mod.lint(_doc(csf=["PR.DS-01"]), "en", None)
+    assert not [f for f in findings if f.level == "ERROR"]
+
+
+def test_verification_method_is_a_closed_set():
+    """"Verify it somehow" is not a method, and v2 automation dispatches on
+    this value."""
+    findings = lint_mod.lint(
+        _doc(verification={"method": "wave_hands", "expect": "ok"}), "en", None
+    )
+    assert any(f.level == "ERROR" and f.rule == "verification-method" for f in findings)
 
 
 def test_golden_fixture_passes_lint():

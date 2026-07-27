@@ -1,0 +1,87 @@
+# Golden case 2 -- expected coverage
+#
+# See golden/b2b-saas-aws/expected-coverage.yaml for how scoring works: by
+# topic, never by wording, with keyword hints as an approximation of the real
+# question ("was this subject addressed at all?").
+
+version: "0.1.0"
+profile: mobile-backend
+
+topics:
+
+  - id: location-retention-minimisation
+    must_cover: true
+    critical: true
+    description: "Precise location retained only as long as the stated purpose requires"
+    match_any: [location, retention, minimis, minimiz, purpose, ttl]
+    why: >-
+      Location is the highest-consequence data here and the baseline has no
+      control that says "collect less of it". It only comes out of the privacy
+      pass plus the declared data type.
+
+  - id: analytics-reidentification
+    must_cover: true
+    critical: true
+    description: "Pseudonymous analytics cannot be re-joined to accounts"
+    match_any: [re-identif, reidentif, relink, linkab, pseudonym, device id, device_id]
+    why: >-
+      The profile declares pseudonymisation with a split key, which is exactly
+      the configuration whose residual risk is linkability. Missing this means
+      the LINDDUN pass did not run.
+
+  - id: crash-report-egress
+    must_cover: true
+    critical: true
+    description: "Crash reports do not carry personal data out of the boundary"
+    match_any: [crash, crashlytics, stack trace, scrub, breadcrumb, third-party report]
+    why: >-
+      The profile marks the crash reporter payload UNDETERMINED. An unresolved
+      third-party egress must produce a requirement, not silence.
+
+  - id: mobile-client-trust
+    must_cover: true
+    critical: true
+    description: "Server does not trust values supplied by the mobile client for authorisation"
+    match_any: [client-supplied, client supplied, server-side, tamper, trust the client, spoof]
+    why: >-
+      A mobile client is attacker-controlled. Baselines are written for systems
+      where the endpoint is managed, so nothing in them states this.
+
+  - id: token-lifetime
+    must_cover: true
+    description: "Session and refresh token lifetimes are bounded and revocable"
+    match_any: [token, session, refresh, revoke, expire]
+
+  - id: upload-validation
+    must_cover: true
+    description: "Uploaded media is validated and stored outside any execution path"
+    match_any: [upload, media, content type, validate, sanitis, sanitiz]
+
+  - id: transport-encryption
+    must_cover: true
+    description: "Transport encryption with certificate verification"
+    match_any: [tls, transit, certificate, pinning]
+
+  - id: credential-storage
+    must_cover: true
+    description: "Authenticator storage and password policy"
+    match_any: [password, hash, credential, authenticator]
+
+  - id: rate-limiting
+    must_cover: false
+    description: "Anonymous entrypoints are rate limited"
+    match_any: [rate limit, throttl, abuse]
+
+must_not_cover:
+  - id: physical-security
+    match_any: [physical access, badge, data centre entry, visitor log]
+    why: "PaaS deployment. Physical controls are provider-claimed."
+  - id: personnel-screening
+    match_any: [background check, personnel screening, position risk]
+    why: >-
+      Personnel security is an organisational control and must not reach the
+      delivery team as engineering work.
+
+scoring:
+  recall_threshold: 0.85
+  critical_required: true

@@ -1,0 +1,82 @@
+# Amazon CloudFront -- control responsibility
+
+service: aws-cloudfront
+provider: aws
+display_name: "Amazon CloudFront"
+reviewed: true
+reviewed_on: "2026-07-27"
+
+controls:
+
+  SC-8:
+    responsibility: shared
+    csp_part: "Terminates TLS at the edge and manages the edge certificates."
+    team_part: >-
+      Redirect or reject plain HTTP at the viewer, and require TLS to the
+      origin. A distribution that terminates TLS at the edge and speaks HTTP to
+      the origin leaves the second hop in cleartext, which is the hop nobody
+      looks at.
+    evidence:
+      - "AWS SOC 2 Type II report"
+    verification:
+      method: iac_inspect
+      target: "aws_cloudfront_distribution"
+      expect: "viewer_protocol_policy is redirect-to-https or https-only; origin_protocol_policy is https-only"
+
+  SC-8(1):
+    responsibility: team
+    team_part: "Set minimum_protocol_version to a TLS version the requirement permits."
+    verification:
+      method: iac_inspect
+      target: "aws_cloudfront_distribution.viewer_certificate.minimum_protocol_version"
+      expect: "TLSv1.2 or higher"
+
+  AC-3:
+    responsibility: team
+    team_part: >-
+      Use origin access control so the origin bucket is reachable only through
+      the distribution. Otherwise the bucket URL bypasses every control applied
+      at the edge -- the WAF, the geo restriction, the signed URLs.
+    verification:
+      method: iac_inspect
+      target: "aws_cloudfront_origin_access_control"
+      expect: "present and referenced by the S3 origin, with the bucket policy restricted to it"
+
+  SC-5:
+    responsibility: shared
+    csp_part: "Absorbs volumetric attacks at the edge as part of the platform."
+    team_part: "Attach a web ACL with rate limiting for application-layer floods."
+
+  AU-2:
+    responsibility: shared
+    csp_part: "Records control-plane changes to the distribution."
+    team_part: >-
+      Standard or real-time access logs are off by default. Without them there
+      is no record of what was served to whom from the cache.
+    verification:
+      method: iac_inspect
+      target: "aws_cloudfront_distribution.logging_config"
+      expect: "bucket and prefix configured"
+
+  SC-4:
+    responsibility: team
+    team_part: >-
+      Review the cache key and the forwarded headers. Caching a response that
+      varies by user without including the distinguishing header in the cache
+      key serves one user's content to another -- the classic cache poisoning
+      of personal data.
+    note: >-
+      This is the CloudFront-specific tenant isolation failure. It is invisible
+      to code review because the application behaved correctly; the edge
+      reused the response.
+    verification:
+      method: iac_inspect
+      target: "cache_policy / origin_request_policy"
+      expect: "authenticated responses are not cached, or the cache key includes the identity header"
+
+  AC-21:
+    responsibility: team
+    team_part: >-
+      Where distribution content is restricted, use signed URLs or signed
+      cookies with short lifetimes, and confirm that the origin cannot be
+      reached without them.

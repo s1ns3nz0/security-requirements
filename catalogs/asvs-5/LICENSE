@@ -1,0 +1,18 @@
+The files in this directory are derived from the OWASP Application Security
+Verification Standard:
+
+    https://github.com/OWASP/ASVS
+    OWASP Application Security Verification Standard 5.0.0
+
+The ASVS is licensed under the Creative Commons Attribution-ShareAlike 4.0
+International licence (CC BY-SA 4.0):
+
+    https://creativecommons.org/licenses/by-sa/4.0/
+
+The transformation applied here -- the upstream flat JSON reshaped into one
+JSON Lines file per chapter -- is an adaptation, so the contents of this
+directory remain under CC BY-SA 4.0. Requirement text is reproduced verbatim.
+
+This directory is a separate work included in a collection. The share-alike
+condition applies to these files and does not extend to the rest of the
+repository, which is licensed under Apache-2.0.

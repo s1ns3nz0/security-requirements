@@ -1,0 +1,86 @@
+# Amazon API Gateway -- control responsibility
+
+service: aws-api-gateway
+provider: aws
+display_name: "Amazon API Gateway"
+reviewed: true
+reviewed_on: "2026-07-27"
+
+controls:
+
+  AC-3:
+    responsibility: team
+    team_part: >-
+      An authoriser must be attached to every route. Routes are open by
+      default, so an unauthenticated route is created by omission rather than
+      by decision -- and omission does not show up in review.
+    verification:
+      method: iac_inspect
+      target: "aws_apigatewayv2_route.authorization_type"
+      expect: "no route left at NONE unless public access is an explicit requirement"
+
+  AC-4:
+    responsibility: shared
+    csp_part: "Private endpoint and resource policy machinery."
+    team_part: "Restrict the API to a VPC endpoint where it should not be reachable from the internet."
+
+  SC-8:
+    responsibility: shared
+    csp_part: "TLS termination on the managed endpoint."
+    team_part: >-
+      Set a minimum TLS version on the custom domain. The default security
+      policy on a custom domain may permit versions the requirement excludes.
+    verification:
+      method: iac_inspect
+      target: "aws_apigatewayv2_domain_name.domain_name_configuration.security_policy"
+      expect: "TLS 1.2 or higher"
+
+  SC-5:
+    responsibility: shared
+    csp_part: "Absorbs volumetric traffic at the edge."
+    team_part: >-
+      Configure throttling and usage plans. The default account limit protects
+      the account, not the backend behind this API.
+    verification:
+      method: iac_inspect
+      target: "aws_apigatewayv2_stage.default_route_settings"
+      expect: "throttling_burst_limit and throttling_rate_limit set"
+
+  AU-2:
+    responsibility: shared
+    csp_part: "Control-plane changes are recorded in CloudTrail."
+    team_part: >-
+      Access logging is off by default. Without it there is no record of who
+      called which route, which is the record an incident actually needs.
+    verification:
+      method: iac_inspect
+      target: "aws_apigatewayv2_stage.access_log_settings"
+      expect: "destination_arn and format including requestId, identity, and route"
+
+  SI-10:
+    responsibility: team
+    team_part: >-
+      Attach request validators or a schema to each route. Validation performed
+      only in the handler leaves the parsing surface exposed.
+
+  SI-11:
+    responsibility: team
+    team_part: >-
+      Map backend errors to responses that do not disclose stack traces,
+      internal hostnames, or SQL fragments. Gateway responses are templated and
+      are easy to leave at their verbose defaults.
+    verification:
+      method: iac_inspect
+      target: "aws_api_gateway_gateway_response"
+      expect: "error responses do not interpolate backend error text"
+
+  AC-21:
+    responsibility: team
+    team_part: >-
+      Where the API is exposed to browsers, constrain CORS to known origins.
+      A wildcard origin combined with credentialed requests removes the
+      browser's cross-origin protection entirely.
+    verification:
+      method: iac_inspect
+      target: "aws_apigatewayv2_api.cors_configuration"
+      expect: "allow_origins enumerated, not '*', when allow_credentials is true"

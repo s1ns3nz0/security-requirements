@@ -1,0 +1,71 @@
+# Golden case 2 -- consumer mobile backend on GCP
+#
+# SYNTHETIC. No real organisation is described here.
+#
+# Exercises paths golden case 1 does not: a non-AWS provider with no curated
+# service files, a PaaS deployment model, precise location data, and an
+# anonymous-plus-consumer user mix. The uncurated-service path is the point --
+# every managed service here should surface as unverified rather than silently
+# falling back to a confident-looking answer.
+
+version: "0.1.0"
+locale: en
+generated_at: "2026-07-27"
+catalog_versions:
+  nist_800_53: r5
+  data_types: "0.2.0"
+
+repo:
+  visibility: private
+  root: "."
+
+inferred:
+  csp: gcp
+  deployment_model: paas
+  managed_services:
+    - id: gcp-cloud-run
+      evidence: "deploy/service.yaml:3"
+    - id: gcp-cloud-sql
+      evidence: "terraform/db.tf:8"
+    - id: gcp-firebase-auth
+      evidence: "src/auth/firebase.ts:5"
+    - id: gcp-cloud-storage
+      evidence: "terraform/media.tf:2"
+  stack: [kotlin, spring-boot]
+  auth_mechanism: firebase_id_token
+  entrypoints:
+    - "POST /v1/sessions"
+    - "GET /v1/feed"
+    - "POST /v1/media"
+    - "POST /v1/location/ping"
+  external_integrations:
+    - name: firebase-cloud-messaging
+      purpose: push_notification
+      data_sent: [basic_contact]
+    - name: amplitude
+      purpose: product_analytics
+      data_sent: [analytics_pseudonymous]
+    - name: crashlytics
+      purpose: crash_reporting
+      data_sent: UNDETERMINED
+  region_storage: asia-northeast3
+
+declared:
+  data_types:
+    - id: basic_contact
+    - id: account_credentials
+    - id: precise_location
+    - id: user_generated_content
+    - id: analytics_pseudonymous
+      modifiers: [pseudonymized_split_key]
+    - id: app_logs
+  availability:
+    rto: rto_hours
+    rpo: rpo_minutes
+    amplifiers: [contractual_sla]
+  users:
+    - anonymous_public
+    - authenticated_individual
+  regulations_declared: []
+  existing_org_controls: [security_policy]
+  user_regions: [KR]

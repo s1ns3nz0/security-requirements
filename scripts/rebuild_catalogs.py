@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rebuild the bundled NIST SP 800-53 control catalog from upstream OSCAL content.
+"""Rebuild the bundled reference catalogs from upstream sources.
 
 Why this script exists
 ----------------------
@@ -7,25 +7,41 @@ Control identifiers and statement text are *reference data*, not something a
 language model should recall. A single fabricated identifier -- ``SC-28(4)``
 reads as plausibly as the three enhancements that do exist -- is enough to
 discredit an entire compliance deliverable.
-So the catalog is bundled, derived mechanically from NIST's OSCAL release, and
-every requirement's ``sources`` list is link-checked against it at build time.
+So the catalogs are bundled, derived mechanically from the upstream releases,
+and every cited identifier is link-checked against them at build time.
 
-Source
-------
-https://github.com/usnistgov/oscal-content (NIST SP 800-53 Rev 5)
-US Government work -- public domain. See catalogs/nist-800-53r5/LICENSE.
+Sources
+-------
+NIST SP 800-53 Rev 5 / SP 800-53B and the NIST Cybersecurity Framework 2.0, from
+https://github.com/usnistgov/oscal-content. US Government works, public domain.
+
+OWASP Application Security Verification Standard 5.0 from
+https://github.com/OWASP/ASVS, licensed CC BY-SA 4.0. It is written to its own
+directory carrying its own LICENSE and NOTICE, so the share-alike condition
+stays confined to the adapted material.
 
 Usage
 -----
-    python3 scripts/rebuild_catalogs.py                    # all 20 families
-    python3 scripts/rebuild_catalogs.py --families ac,au,sc
-    python3 scripts/rebuild_catalogs.py --offline --oscal-dir path/to/json
+    python3 scripts/rebuild_catalogs.py                        # everything
+    python3 scripts/rebuild_catalogs.py --catalog nist --families ac,au,sc
+    python3 scripts/rebuild_catalogs.py --offline --source-dir path/to/downloads
 
 Output
 ------
     catalogs/nist-800-53r5/<FAMILY>.jsonl   one control per line
     catalogs/nist-800-53r5/baselines.json   control ids per SP 800-53B baseline
     catalogs/nist-800-53r5/meta.json        provenance and counts
+    catalogs/csf-2.0/subcategories.jsonl    106 subcategories under 22 categories
+    catalogs/asvs-5/V<n>.jsonl              requirements per chapter, with level
+
+No CSF-to-800-53 crosswalk is bundled
+-------------------------------------
+NIST publishes those mappings through the Cybersecurity and Privacy Reference
+Tool rather than in OSCAL, and its JSON endpoints do not respond. Rather than
+hand-author a mapping and present it as authoritative, requirements carry a CSF
+subcategory chosen when they are written, and lint.py verifies that the cited
+identifier exists in the bundled CSF catalog. That preserves the integrity
+guarantee without inventing a correspondence NIST has not published here.
 """
 
 from __future__ import annotations
@@ -38,18 +54,49 @@ import urllib.request
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-OUT_DIR = REPO_ROOT / "catalogs" / "nist-800-53r5"
+CATALOGS = REPO_ROOT / "catalogs"
+OUT_DIR = CATALOGS / "nist-800-53r5"
+CSF_OUT_DIR = CATALOGS / "csf-2.0"
+ASVS_OUT_DIR = CATALOGS / "asvs-5"
 
 UPSTREAM = (
     "https://raw.githubusercontent.com/usnistgov/oscal-content/main"
     "/nist.gov/SP800-53/rev5/json"
 )
+CSF_UPSTREAM = (
+    "https://raw.githubusercontent.com/usnistgov/oscal-content/main"
+    "/nist.gov/CSF/v2.0/json"
+)
+ASVS_UPSTREAM = (
+    "https://raw.githubusercontent.com/OWASP/ASVS/master/5.0/docs_en"
+)
+
 CATALOG_FILE = "NIST_SP-800-53_rev5_catalog-min.json"
+CSF_FILE = "NIST_CSF_v2.0_catalog-min.json"
+ASVS_FILE = "OWASP_Application_Security_Verification_Standard_5.0.0_en.flat.json"
 BASELINE_FILES = {
     "low": "NIST_SP-800-53_rev5_LOW-baseline_profile-min.json",
     "moderate": "NIST_SP-800-53_rev5_MODERATE-baseline_profile-min.json",
     "high": "NIST_SP-800-53_rev5_HIGH-baseline_profile-min.json",
     "privacy": "NIST_SP-800-53_rev5_PRIVACY-baseline_profile-min.json",
+}
+
+# Published structure of CSF 2.0. The OSCAL release carries CSF 1.1 material
+# alongside 2.0 -- 185 subcategories across 34 categories -- with the retired
+# 1.1 entries marked ``status: withdrawn``. Filtering those out yields exactly
+# the 106 subcategories under 22 categories that NIST publishes, which is the
+# assertion test_csf_matches_published_structure holds the extraction to.
+CSF_20_CATEGORIES = {
+    "GV.OC", "GV.RM", "GV.RR", "GV.PO", "GV.OV", "GV.SC",
+    "ID.AM", "ID.RA", "ID.IM",
+    "PR.AA", "PR.AT", "PR.DS", "PR.PS", "PR.IR",
+    "DE.CM", "DE.AE",
+    "RS.MA", "RS.AN", "RS.CO", "RS.MI",
+    "RC.RP", "RC.CO",
+}
+CSF_FUNCTIONS = {
+    "GV": "GOVERN", "ID": "IDENTIFY", "PR": "PROTECT",
+    "DE": "DETECT", "RS": "RESPOND", "RC": "RECOVER",
 }
 
 PARAM_RE = re.compile(r"\{\{\s*insert:\s*param,\s*([^}\s]+)\s*\}\}")
@@ -59,12 +106,12 @@ PARAM_RE = re.compile(r"\{\{\s*insert:\s*param,\s*([^}\s]+)\s*\}\}")
 # fetching
 # --------------------------------------------------------------------------
 
-def load_json(name: str, oscal_dir: Path | None) -> dict:
-    if oscal_dir is not None:
-        return json.loads((oscal_dir / name).read_text(encoding="utf-8"))
-    url = f"{UPSTREAM}/{name}"
+def load_json(name: str, source_dir: Path | None, base: str = UPSTREAM) -> dict:
+    if source_dir is not None:
+        return json.loads((source_dir / name).read_text(encoding="utf-8"))
+    url = f"{base}/{name}"
     print(f"  fetching {name} ...", file=sys.stderr)
-    with urllib.request.urlopen(url, timeout=120) as resp:
+    with urllib.request.urlopen(url, timeout=180) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -249,28 +296,190 @@ def parse_baseline(profile: dict) -> list[str]:
 
 
 # --------------------------------------------------------------------------
+# CSF 2.0
+# --------------------------------------------------------------------------
+
+def prop(item: dict, name: str) -> str | None:
+    for entry in item.get("props", []) or []:
+        if entry.get("name") == name:
+            return entry.get("value")
+    return None
+
+
+def statement_of(item: dict) -> str:
+    for part in item.get("parts", []) or []:
+        if part.get("name") == "statement":
+            return part.get("prose", "")
+    return ""
+
+
+def build_csf(source_dir: Path | None) -> dict:
+    print("Rebuilding NIST CSF 2.0", file=sys.stderr)
+    catalog = load_json(CSF_FILE, source_dir, CSF_UPSTREAM)["catalog"]
+
+    CSF_OUT_DIR.mkdir(parents=True, exist_ok=True)
+    records, categories, skipped = [], [], 0
+
+    for group in catalog.get("groups", []):
+        function = group["id"].upper()
+        for category in group.get("controls", []):
+            if category.get("class") != "category":
+                continue
+            if category["id"] not in CSF_20_CATEGORIES:
+                skipped += 1
+                continue
+            categories.append({
+                "id": category["id"],
+                "function": function,
+                "function_name": CSF_FUNCTIONS.get(function, function),
+                "title": category.get("title", ""),
+                "statement": statement_of(category),
+            })
+            for sub in category.get("controls", []) or []:
+                if sub.get("class") != "subcategory":
+                    continue
+                if prop(sub, "status") == "withdrawn":
+                    skipped += 1
+                    continue
+                records.append({
+                    "id": sub["id"],
+                    "function": function,
+                    "function_name": CSF_FUNCTIONS.get(function, function),
+                    "category": category["id"],
+                    "category_title": category.get("title", ""),
+                    "statement": statement_of(sub),
+                    "examples": [
+                        part.get("prose", "")
+                        for part in sub.get("parts", []) or []
+                        if part.get("name") == "example"
+                    ],
+                    "risk_party": prop(sub, "risk-party"),
+                })
+
+    with (CSF_OUT_DIR / "subcategories.jsonl").open("w", encoding="utf-8") as fh:
+        for record in records:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    (CSF_OUT_DIR / "categories.json").write_text(
+        json.dumps(categories, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+
+    meta = {
+        "source": "https://github.com/usnistgov/oscal-content",
+        "publication": "NIST Cybersecurity Framework 2.0",
+        "oscal_version": catalog["metadata"].get("version"),
+        "oscal_last_modified": catalog["metadata"].get("last-modified"),
+        "license": "US Government work, public domain",
+        "subcategory_count": len(records),
+        "category_count": len(categories),
+        "withdrawn_or_legacy_skipped": skipped,
+        "note": (
+            "The upstream OSCAL release carries CSF 1.1 material alongside 2.0. "
+            "Entries marked status=withdrawn and categories outside the published "
+            "CSF 2.0 set are excluded."
+        ),
+    }
+    (CSF_OUT_DIR / "meta.json").write_text(
+        json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    print(f"  {len(records)} subcategories / {len(categories)} categories "
+          f"({skipped} legacy or withdrawn entries excluded)", file=sys.stderr)
+    return meta
+
+
+# --------------------------------------------------------------------------
+# OWASP ASVS 5.0
+# --------------------------------------------------------------------------
+
+ASVS_LICENSE = """\
+The files in this directory are derived from the OWASP Application Security
+Verification Standard:
+
+    https://github.com/OWASP/ASVS
+    OWASP Application Security Verification Standard 5.0.0
+
+The ASVS is licensed under the Creative Commons Attribution-ShareAlike 4.0
+International licence (CC BY-SA 4.0):
+
+    https://creativecommons.org/licenses/by-sa/4.0/
+
+The transformation applied here -- the upstream flat JSON reshaped into one
+JSON Lines file per chapter -- is an adaptation, so the contents of this
+directory remain under CC BY-SA 4.0. Requirement text is reproduced verbatim.
+
+This directory is a separate work included in a collection. The share-alike
+condition applies to these files and does not extend to the rest of the
+repository, which is licensed under Apache-2.0.
+"""
+
+ASVS_NOTICE = """\
+OWASP Application Security Verification Standard 5.0.0
+Copyright the OWASP Foundation and ASVS contributors.
+Licensed under CC BY-SA 4.0.
+
+Changes made:
+  - The upstream flat JSON was split into one JSON Lines file per chapter.
+  - Field names were normalised (req_id -> id, req_description -> statement,
+    L -> level).
+  - Requirement text itself was not altered.
+
+Produced by scripts/rebuild_catalogs.py. OWASP does not endorse this project.
+"""
+
+
+def build_asvs(source_dir: Path | None) -> dict:
+    print("Rebuilding OWASP ASVS 5.0", file=sys.stderr)
+    payload = load_json(ASVS_FILE, source_dir, ASVS_UPSTREAM)
+    requirements = payload["requirements"]
+
+    ASVS_OUT_DIR.mkdir(parents=True, exist_ok=True)
+    by_chapter: dict[str, list[dict]] = {}
+    levels: dict[str, int] = {}
+
+    for req in requirements:
+        level_raw = (req.get("L") or "").strip()
+        record = {
+            "id": f"ASVS-{req['req_id']}",
+            "req_id": req["req_id"],
+            "chapter": req["chapter_id"],
+            "chapter_name": req["chapter_name"],
+            "section": req["section_id"],
+            "section_name": req["section_name"],
+            "statement": req["req_description"],
+            "level": int(level_raw) if level_raw.isdigit() else None,
+        }
+        by_chapter.setdefault(req["chapter_id"], []).append(record)
+        key = level_raw or "unspecified"
+        levels[key] = levels.get(key, 0) + 1
+
+    for chapter, records in sorted(by_chapter.items()):
+        with (ASVS_OUT_DIR / f"{chapter}.jsonl").open("w", encoding="utf-8") as fh:
+            for record in records:
+                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    (ASVS_OUT_DIR / "LICENSE").write_text(ASVS_LICENSE, encoding="utf-8")
+    (ASVS_OUT_DIR / "NOTICE").write_text(ASVS_NOTICE, encoding="utf-8")
+
+    meta = {
+        "source": "https://github.com/OWASP/ASVS",
+        "publication": "OWASP Application Security Verification Standard 5.0.0",
+        "license": "CC BY-SA 4.0",
+        "requirement_count": len(requirements),
+        "chapters": sorted(by_chapter),
+        "level_counts": levels,
+    }
+    (ASVS_OUT_DIR / "meta.json").write_text(
+        json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    print(f"  {len(requirements)} requirements across {len(by_chapter)} chapters "
+          f"(levels: {levels})", file=sys.stderr)
+    return meta
+
+
+# --------------------------------------------------------------------------
 # main
 # --------------------------------------------------------------------------
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument(
-        "--families",
-        help="comma separated family ids to extract (default: all). "
-             "Used by the week-1 tracer bullet to keep the working set small.",
-    )
-    ap.add_argument("--offline", action="store_true", help="read from --oscal-dir instead of network")
-    ap.add_argument("--oscal-dir", type=Path, help="directory holding the OSCAL json files")
-    args = ap.parse_args()
-
-    if args.offline and not args.oscal_dir:
-        ap.error("--offline requires --oscal-dir")
-    src_dir = args.oscal_dir if args.offline else None
-
-    wanted = None
-    if args.families:
-        wanted = {f.strip().lower() for f in args.families.split(",") if f.strip()}
-
+def build_nist(src_dir: Path | None, wanted: set[str] | None) -> int:
     print("Rebuilding NIST SP 800-53 Rev 5 catalog", file=sys.stderr)
     catalog = load_json(CATALOG_FILE, src_dir)["catalog"]
 
@@ -319,14 +528,51 @@ def main() -> int:
         json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
 
+    print(f"  wrote {sum(counts.values())} controls to {OUT_DIR}", file=sys.stderr)
+    return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument(
+        "--catalog",
+        choices=["all", "nist", "csf", "asvs"],
+        default="all",
+        help="which catalog to rebuild (default: all)",
+    )
+    ap.add_argument(
+        "--families",
+        help="comma separated 800-53 family ids to extract (default: all). "
+             "Kept for working against a reduced set during development.",
+    )
+    ap.add_argument("--offline", action="store_true",
+                    help="read from --source-dir instead of the network")
+    ap.add_argument("--source-dir", "--oscal-dir", dest="source_dir", type=Path,
+                    help="directory holding the downloaded upstream json files")
+    args = ap.parse_args()
+
+    if args.offline and not args.source_dir:
+        ap.error("--offline requires --source-dir")
+    src_dir = args.source_dir if args.offline else None
+
+    wanted = None
+    if args.families:
+        wanted = {f.strip().lower() for f in args.families.split(",") if f.strip()}
+
+    if args.catalog in ("all", "nist"):
+        build_nist(src_dir, wanted)
+    if args.catalog in ("all", "csf"):
+        build_csf(src_dir)
+    if args.catalog in ("all", "asvs"):
+        build_asvs(src_dir)
+
     if wanted:
         print(
-            "\n  NOTE: partial extraction. baselines.json still lists the full\n"
-            "  baseline, so select_baseline.py will report controls whose family\n"
-            "  is not bundled yet as UNAVAILABLE rather than silently dropping them.",
+            "\n  NOTE: partial 800-53 extraction. baselines.json still lists the full\n"
+            "  baseline, so select_baseline.py reports controls whose family is not\n"
+            "  bundled as UNAVAILABLE rather than silently dropping them.",
             file=sys.stderr,
         )
-    print(f"\nWrote {sum(counts.values())} controls to {OUT_DIR}", file=sys.stderr)
     return 0
 
 

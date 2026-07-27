@@ -1,0 +1,79 @@
+# Golden case 4 -- direct-to-consumer commerce handling card data
+#
+# SYNTHETIC. No real organisation is described here.
+#
+# The high-impact case, and the one that must fire every uncovered-regulation
+# path at once: raw cardholder data (PCI DSS), EU customers (GDPR), and storage
+# outside the customers' region (cross-border transfer). None of these are
+# supported by v1, and the correct behaviour is to say so plainly rather than
+# produce requirements that imply coverage.
+#
+# It also exercises the IaaS deployment model, where infrastructure controls
+# that are provider-claimed on serverless return to the team.
+
+version: "0.1.0"
+locale: en
+generated_at: "2026-07-27"
+catalog_versions:
+  nist_800_53: r5
+  data_types: "0.2.0"
+
+repo:
+  visibility: private
+  root: "."
+
+inferred:
+  csp: aws
+  deployment_model: iaas
+  managed_services:
+    - id: aws-rds
+      evidence: "infra/rds.tf:6"
+    - id: aws-s3
+      evidence: "infra/assets.tf:4"
+    - id: aws-alb
+      evidence: "infra/lb.tf:12"
+    - id: aws-cloudfront
+      evidence: "infra/cdn.tf:3"
+    - id: aws-sqs
+      evidence: "infra/queues.tf:9"
+  stack: [java, spring-boot]
+  auth_mechanism: session_cookie_custom
+  entrypoints:
+    - "POST /checkout"
+    - "POST /payments/authorize"
+    - "POST /refunds"
+    - "GET /orders/{id}"
+    - "POST /webhooks/psp"
+  external_integrations:
+    - name: card-acquirer
+      purpose: payment_authorization
+      data_sent: [payment_card_raw]
+    - name: fraud-scoring-vendor
+      purpose: fraud_detection
+      data_sent: [basic_contact, transaction_history, precise_location]
+    - name: datadog
+      purpose: observability
+      data_sent: [app_logs]
+  region_storage: us-east-1
+
+declared:
+  data_types:
+    - id: basic_contact
+    - id: payment_card_raw
+    - id: bank_account
+    - id: transaction_history
+    - id: account_credentials
+    - id: audit_logs
+    - id: app_logs
+    - id: backups
+  availability:
+    rto: rto_minutes
+    rpo: rpo_zero
+    amplifiers: [revenue_direct, contractual_sla]
+  users:
+    - anonymous_public
+    - authenticated_individual
+    - internal_staff
+  regulations_declared: ["PCI DSS 4.0 required by our acquirer"]
+  existing_org_controls: [security_policy, incident_response]
+  user_regions: [DE, FR, KR]

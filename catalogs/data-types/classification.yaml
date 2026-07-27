@@ -153,16 +153,30 @@ types:
 
   - id: account_credentials
     label: "password hashes, session tokens, recovery codes"
+    system_information: true
     confidentiality: high
     integrity: high
-    rationale: "Theft yields full account takeover and propagates to every other data type."
+    forces_requirements: [credential_storage]
+    rationale: >-
+      Theft yields full account takeover and propagates to every other data
+      type. Excluded from the high water mark: FIPS 199 categorises a system by
+      the business information it holds, and credentials are system information
+      present in almost every service. Counting them would put every
+      consumer-facing application on the High baseline, which is a result no
+      team acts on.
 
   - id: config_secrets
     label: "API keys, certificates, database credentials, key references"
+    system_information: true
     confidentiality: high
     integrity: high
     availability_hint: high
-    rationale: "A path to whole-system compromise, and the one data type whose loss also halts the service."
+    forces_requirements: [secret_management]
+    rationale: >-
+      A path to whole-system compromise, and the one data type whose loss also
+      halts the service. Excluded from the high water mark for the same reason
+      as credentials: it is system information, and its protection is a control
+      rather than an input to categorisation.
 
   # --- financial ---
 
@@ -218,16 +232,20 @@ types:
   - id: internal_ops
     label: "internal operational data (schedules, documents, minutes)"
     confidentiality: low
-    integrity: moderate
-    rationale: "Limited direct impact, though useful to an attacker mapping the organisation."
+    integrity: low
+    rationale: >-
+      Limited direct impact from either exposure or alteration, though useful
+      to an attacker mapping the organisation.
 
   # --- operations and observability ---
 
   - id: app_logs
     label: "application logs"
     confidentiality: low
-    integrity: moderate
-    rationale: "Low by default."
+    integrity: low
+    rationale: >-
+      Low by default. Debugging aids, not evidence -- the integrity obligation
+      belongs to audit_logs, and assigning it here double-counts.
     note: |
       Warning: personal data and tokens leaking into logs is among the most
       common real incidents. Selecting this forces a log sanitisation requirement.
@@ -235,9 +253,17 @@ types:
 
   - id: audit_logs
     label: "audit and access logs"
-    confidentiality: moderate
-    integrity: moderate
-    rationale: "Integrity is the point. An audit log that can be altered is not audit evidence."
+    confidentiality: inherit_max
+    integrity: inherit_max
+    rationale: >-
+      Wholly derivative: an access log over personal data is as sensitive as
+      that data, and one over internal scheduling is not. Audit logs matter --
+      one that can be altered is not audit evidence -- but that obligation
+      comes from the AU family, which is present at every baseline including
+      Low. Assigning a fixed Moderate here to make the point would put every
+      system that keeps audit logs at Moderate or above, which is every system,
+      and would make the Low baseline unreachable. Categorisation states impact;
+      it is not a place to smuggle in requirements.
 
   - id: security_telemetry
     label: "security events and detection alerts"

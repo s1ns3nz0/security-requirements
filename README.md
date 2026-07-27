@@ -7,9 +7,10 @@ plenty of it. This is **prescription**: state what the service must satisfy,
 before or independently of any code existing. That is the artefact a compliance
 or design stage actually needs, and it is the one nothing produces.
 
-> **Status: week 1.** The pipeline runs end to end, but only the AC, AU, and SC
-> control families are bundled and only S3 and RDS are curated. See
-> [DESIGN.md](DESIGN.md) for what is deliberately missing.
+> **Status: pre-release.** The pipeline runs end to end with the full SP 800-53
+> Rev 5 catalog, CSF 2.0, ASVS 5.0, and ten curated AWS services. Not yet
+> exercised against a real repository, and no regulatory overlays ship. See
+> [DESIGN.md](DESIGN.md).
 
 ## What it produces
 
@@ -92,16 +93,35 @@ with an explanation; git history survives deletion.
 `docs/security/` holds the requirement definitions, which are safe to publish
 and better for being read.
 
+## What is bundled
+
+| Catalog | Contents | Licence |
+|---|---|---|
+| NIST SP 800-53 Rev 5 | 1,196 controls across 20 families; Low, Moderate, High, Privacy baselines | US Government work, public domain |
+| NIST CSF 2.0 | 106 subcategories under 22 categories | US Government work, public domain |
+| OWASP ASVS 5.0 | 345 requirements across 17 chapters, with levels | CC BY-SA 4.0, isolated in its own directory |
+| Data type classification | Impact contribution per data type, with jurisdiction-gated regulatory triggers | Apache-2.0 |
+| Responsibility layers | Family defaults and control overrides for five deployment models | Apache-2.0 |
+| Service curation | S3, RDS, Lambda, API Gateway, Cognito, DynamoDB, ECS, SQS, CloudFront, ALB | Apache-2.0 |
+
+CIS Benchmarks, PCI DSS, ISO/IEC 27001 Annex A, and SOC 2 criteria are **not**
+bundled — their terms do not permit redistribution. Provider guidance is
+summarised in our own words with links, never reproduced.
+
 ## Development
 
 ```
-python3 scripts/rebuild_catalogs.py --families ac,au,sc   # build the catalog
-python3 -m pytest tests/                                  # deterministic layer
+python3 scripts/rebuild_catalogs.py     # rebuild every catalog from upstream
+python3 -m pytest tests/                # deterministic layer, 57 tests
 python3 scripts/eval_golden.py golden/b2b-saas-aws requirements.yaml
 ```
 
-Contributions of curated service files are the most useful kind: one file under
-`responsibility/services/` per managed service, one pull request each.
+Four golden cases keep the whole scale reachable — they derive to Low,
+Moderate, Moderate, and High. If they all collapse to one level, the tailoring
+has stopped discriminating.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Curated service files are the most
+useful contribution: one managed service, one file, one pull request.
 
 ## Licence
 

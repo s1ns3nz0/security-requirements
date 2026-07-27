@@ -1,0 +1,71 @@
+# Amazon SQS -- control responsibility
+
+service: aws-sqs
+provider: aws
+display_name: "Amazon SQS"
+reviewed: true
+reviewed_on: "2026-07-27"
+
+controls:
+
+  SC-28:
+    responsibility: shared
+    csp_part: "Encrypts queue contents at rest."
+    team_part: >-
+      Select the key. Queues frequently carry the same personal data as the
+      database they feed, and are frequently left on the service-managed key
+      because a queue does not feel like a data store.
+    evidence:
+      - "AWS SOC 2 Type II report"
+    verification:
+      method: iac_inspect
+      target: "aws_sqs_queue.kms_master_key_id"
+      expect: "a customer-managed key where the payload carries personal data"
+
+  AC-3:
+    responsibility: team
+    team_part: >-
+      Set a queue policy naming the principals that may send and receive.
+      A queue policy allowing "*" with only a source-account condition is
+      reachable by every principal in the account.
+    verification:
+      method: iac_inspect
+      target: "aws_sqs_queue_policy"
+      expect: "explicit principals, no wildcard Principal"
+
+  SC-4:
+    responsibility: team
+    team_part: >-
+      Message bodies persist for the retention period and are visible to every
+      consumer of the queue. Do not place data in the body that the consumer is
+      not entitled to see; pass a reference instead.
+
+  SI-10:
+    responsibility: team
+    team_part: >-
+      Validate message bodies on receipt. A queue is a trust boundary even when
+      both ends are internal, and a consumer that trusts the producer's schema
+      fails the first time an unrelated producer is added.
+
+  CP-10(2):
+    responsibility: team
+    team_part: >-
+      Configure a dead-letter queue and a redrive policy. Without one, a
+      poisoned message is retried until it expires and the failure is silent.
+    verification:
+      method: iac_inspect
+      target: "aws_sqs_queue.redrive_policy"
+      expect: "deadLetterTargetArn set with a maxReceiveCount"
+
+  SI-12:
+    responsibility: team
+    team_part: >-
+      Set the retention period to the shortest value the workload tolerates.
+      The default keeps message bodies for four days.
+
+  AU-2:
+    responsibility: shared
+    csp_part: "CloudTrail records control-plane actions on the queue."
+    team_part: >-
+      Message-level activity is not recorded. Where a message represents a
+      business action, the audit record has to be emitted by the consumer.

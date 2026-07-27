@@ -1,0 +1,86 @@
+# Amazon Cognito -- control responsibility
+
+service: aws-cognito
+provider: aws
+display_name: "Amazon Cognito"
+reviewed: true
+reviewed_on: "2026-07-27"
+
+controls:
+
+  IA-2:
+    responsibility: shared
+    csp_part: "Operates the identity store and the authentication flows."
+    team_part: >-
+      Choose the flows the application enables. Leaving legacy flows such as
+      USER_PASSWORD_AUTH enabled alongside SRP gives an attacker a weaker path
+      to the same account.
+    evidence:
+      - "AWS SOC 2 Type II report"
+    verification:
+      method: iac_inspect
+      target: "aws_cognito_user_pool_client.explicit_auth_flows"
+      expect: "no ALLOW_USER_PASSWORD_AUTH unless required and compensated"
+
+  IA-2(1):
+    responsibility: team
+    team_part: >-
+      Multi-factor authentication is optional by default. For privileged
+      accounts it must be required at the pool level, not merely offered.
+    verification:
+      method: iac_inspect
+      target: "aws_cognito_user_pool.mfa_configuration"
+      expect: "ON, or OPTIONAL with enforcement at the application for privileged roles"
+
+  IA-5:
+    responsibility: shared
+    csp_part: "Stores credentials and enforces the configured password policy."
+    team_part: "Set the password policy and token lifetimes; the defaults are permissive."
+    verification:
+      method: iac_inspect
+      target: "aws_cognito_user_pool.password_policy"
+      expect: "minimum length and composition set deliberately"
+
+  AC-7:
+    responsibility: shared
+    csp_part: "Advanced security features provide adaptive authentication and compromised-credential detection."
+    team_part: >-
+      Advanced security is off by default and billed separately. Without it the
+      pool has no lockout or risk-based response, which is the control AC-7
+      asks for.
+    verification:
+      method: iac_inspect
+      target: "aws_cognito_user_pool.user_pool_add_ons.advanced_security_mode"
+      expect: "ENFORCED, or a documented alternative"
+
+  AC-12:
+    responsibility: team
+    team_part: >-
+      Set refresh token validity and revoke tokens on sign-out. A refresh token
+      valid for the default period outlives any session the user believes they
+      ended.
+    verification:
+      method: iac_inspect
+      target: "aws_cognito_user_pool_client.refresh_token_validity"
+      expect: "bounded, with enable_token_revocation true"
+
+  AC-3:
+    responsibility: team
+    team_part: >-
+      Group or claim membership must be checked by the application. A token
+      issued by the pool proves authentication, not authorisation, and the
+      distinction is where most Cognito integrations fail.
+    note: >-
+      For multi-tenant services the tenant identifier must be a claim the user
+      cannot influence -- not a custom attribute the user can write.
+    verification:
+      method: code_grep
+      target: "token claim verification"
+      expect: "tenant and role claims read from a verified token, not from request input"
+
+  AU-2:
+    responsibility: shared
+    csp_part: "CloudTrail records control-plane changes to the pool."
+    team_part: >-
+      Sign-in events are not delivered anywhere by default. Authentication
+      history is the first thing an incident asks for.

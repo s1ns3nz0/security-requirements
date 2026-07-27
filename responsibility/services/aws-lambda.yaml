@@ -1,0 +1,99 @@
+# AWS Lambda -- control responsibility
+#
+# See aws-s3.yaml for the meaning of reviewed / csp_part / team_part.
+
+service: aws-lambda
+provider: aws
+display_name: "AWS Lambda"
+reviewed: true
+reviewed_on: "2026-07-27"
+
+controls:
+
+  AC-6:
+    responsibility: team
+    team_part: >-
+      One execution role per function, scoped to what that function does.
+      A role shared across every function makes each function as privileged as
+      the most privileged one.
+    verification:
+      method: iac_inspect
+      target: "aws_lambda_function.role"
+      expect: "distinct role per function, no wildcard resource in the attached policy"
+
+  SC-28:
+    responsibility: shared
+    csp_part: "Encrypts environment variables at rest with a service-managed key by default."
+    team_part: >-
+      Supply a customer-managed key where key custody is required. Secrets
+      belong in a secret store rather than environment variables regardless --
+      environment variables are visible to anyone who can read the function
+      configuration.
+    evidence:
+      - "AWS SOC 2 Type II report"
+      - "terraform: aws_lambda_function.kms_key_arn"
+    verification:
+      method: iac_inspect
+      target: "aws_lambda_function"
+      expect: "kms_key_arn set; no credential-shaped values in environment.variables"
+
+  SI-2:
+    responsibility: shared
+    csp_part: "Patches the operating system and language runtime."
+    team_part: >-
+      Update the runtime version before it reaches end of support, and patch
+      the dependencies bundled into the deployment package or layer. The
+      provider does not patch what you shipped.
+    evidence:
+      - "AWS shared responsibility model, compute services"
+    verification:
+      method: iac_inspect
+      target: "aws_lambda_function.runtime"
+      expect: "a runtime version still receiving security updates"
+
+  SI-16:
+    responsibility: csp_claimed
+    csp_part: "Firecracker microVM isolation between invocations and tenants."
+    evidence:
+      - "AWS SOC 2 Type II report"
+      - "AWS Lambda security whitepaper (isolation model)"
+
+  AU-2:
+    responsibility: shared
+    csp_part: "Invocation metrics and control-plane events are recorded by default."
+    team_part: >-
+      Application-level audit events must be emitted deliberately. Invocation
+      counts show that the function ran, not what it did on behalf of whom.
+    verification:
+      method: code_grep
+      target: "audit event emission in handler"
+      expect: "actor, action, and subject recorded for state-changing operations"
+
+  SC-7:
+    responsibility: shared
+    csp_part: "Network isolation of the execution environment."
+    team_part: >-
+      A function outside a VPC has unrestricted egress. Where the function
+      handles regulated data, place it in a VPC and control outbound routes,
+      or the data flow leaves the boundary without passing any inspection point.
+    verification:
+      method: iac_inspect
+      target: "aws_lambda_function.vpc_config"
+      expect: "vpc_config present with security groups restricting egress, where required"
+
+  CM-2:
+    responsibility: shared
+    csp_part: "Provides the immutable runtime image."
+    team_part: "Pin the deployment package and layer versions; do not deploy from a mutable alias."
+
+  SC-5:
+    responsibility: shared
+    csp_part: "Scales the execution environment automatically."
+    team_part: >-
+      Set reserved and maximum concurrency. Unbounded scaling converts a
+      request flood into a bill and exhausts downstream connection pools --
+      the outage moves to the database rather than being prevented.
+    verification:
+      method: iac_inspect
+      target: "aws_lambda_function.reserved_concurrent_executions"
+      expect: "a bound is set for functions reaching a database"
