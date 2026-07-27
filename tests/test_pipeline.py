@@ -4825,19 +4825,43 @@ def test_a_nested_assignment_is_a_second_decision_not_an_artefact():
     carries a time period the organisation must also set: the outer bracket is
     which behaviour, the inner one is how long. Flattening would hide the second
     decision, which is the opposite of why the markers are visible at all.
+
+    Exercised through the generator rather than read out of the checked-in
+    catalogue, which would have passed with resolve_params reverted.
     """
-    ac7 = None
+    catalog = {"groups": [{"id": "ac", "controls": [{
+        "id": "ac-7",
+        "params": [
+            {"id": "ac-07_odp.03", "label": "time period"},
+            {"id": "ac-07_odp.04",
+             "select": {"how-many": "one-or-more", "choice": [
+                 "lock the account or node for {{ insert: param, ac-07_odp.03 }}",
+                 "lock the account or node until released by an administrator"]}},
+        ],
+        "parts": [{"name": "statement",
+                   "prose": "Automatically {{ insert: param, ac-07_odp.04 }}."}],
+    }]}]}
+    globals_ = rebuild_mod.build_global_params(catalog)
+    record = next(iter(rebuild_mod.walk_controls(catalog["groups"][0]["controls"], "ac", globals_)))
+
+    statement = record["statement"]
+    assert "{{" not in statement
+    nested = re.search(r"\[assignment:[^\]]*\[assignment:[^\]]*\]", statement)
+    assert nested, statement
+    assert "time period" in nested.group(0)
+    assert "until released by an administrator" in statement, "the other option survives"
+
+    # And the shipped catalogue reads the same way, which is what makes the
+    # nesting a property of the regulation rather than of this test.
     for line in (REPO_ROOT / "catalogs" / "nist-800-53r5" / "AC.jsonl") \
             .read_text(encoding="utf-8").splitlines():
         if line.strip() and json.loads(line)["id"] == "AC-7":
-            ac7 = json.loads(line)
+            assert re.search(r"\[assignment:[^\]]*\[assignment:[^\]]*\]",
+                             json.loads(line)["statement"])
             break
-    assert ac7, "AC-7 must be in the bundled catalogue"
-    statement = ac7["statement"]
-    assert "[assignment:" in statement
-    nested = re.search(r"\[assignment:[^\]]*\[assignment:[^\]]*\]", statement)
-    assert nested, "AC-7 is the case this test exists for"
-    assert "time period" in nested.group(0)
+    else:
+        raise AssertionError("AC-7 must be in the bundled catalogue")
+
 
 
 def test_the_csf_filter_drops_exactly_what_it_says_it_drops(tmp_path, monkeypatch):

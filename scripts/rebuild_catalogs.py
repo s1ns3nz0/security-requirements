@@ -224,6 +224,15 @@ def resolve_params(prose: str, params: dict[str, str]) -> str:
     opposite of why the markers are kept visible at all. Forty-one shipped
     records read this way.
 
+    Known limitation, raised in review and not fixed here: a consumer matching
+    ``\[assignment:[^\]]*\]`` stops at the first inner bracket and reads the
+    outer decision as ending there. The structured ``assignments`` field beside
+    the prose is flat and does not record which option the inner value belongs
+    to either. Nothing in this repository parses the prose -- the linter and the
+    renderer treat it as text -- so no consumer is wrong today, and changing the
+    delimiters would change every shipped statement. It is written down so the
+    first consumer that does parse it is not surprised.
+
     Keeping the placeholder visible matters: these are the points where an
     organisation must make a decision. A requirement derived from a control
     with an unfilled assignment is incomplete by construction, and the reader
