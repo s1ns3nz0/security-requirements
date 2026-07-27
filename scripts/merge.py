@@ -430,6 +430,16 @@ def apply_merge(draft: list[dict], existing: list[dict], state: dict) -> dict:
         "unchanged": unchanged,
         "retired": retired,
         "reopened": reopened,
+        # Total churn is never a real refresh. A run that retires everything it
+        # had and issues a new identifier for everything it derived is the
+        # signature of a matching failure -- a slug convention changed, an id
+        # scheme moved, a draft assembled from the wrong field -- and the cost
+        # is not cosmetic: the first time this fired, five requirements were
+        # retired including one a human had marked accepted_risk, carrying a
+        # note the tool is never supposed to touch.
+        "total_churn": bool(existing) and bool(draft)
+                       and not unchanged and not updated and not reopened
+                       and len(retired) == len(existing) and len(added) == len(draft),
     }
 
 
@@ -485,6 +495,26 @@ def main() -> int:
         result = apply_merge(draft_items, existing, state)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if result.get("total_churn"):
+        # Refused before the write, because the write is the damage. The file is
+        # overwritten and the counts printed afterwards, so the first run that
+        # hit this had already discarded a requirement a human marked
+        # accepted_risk and the note they wrote against it.
+        print("Refusing to write: this refresh matched nothing.", file=sys.stderr)
+        print(f"  Every one of the {len(result['retired'])} existing requirements would be "
+              f"retired and", file=sys.stderr)
+        print(f"  all {len(result['added'])} derived ones issued under new identifiers. A real "
+              f"change to a", file=sys.stderr)
+        print("  service does not do that; a changed slug convention or an id scheme does.",
+              file=sys.stderr)
+        print("  Anything a human wrote -- accepted risks, notes, owners -- would be lost.",
+              file=sys.stderr)
+        print(f"  Existing: {', '.join(r['id'] for r in existing[:3])}"
+              f"{' ...' if len(existing) > 3 else ''}", file=sys.stderr)
+        print(f"  Derived : {', '.join(result['added'][:3])}"
+              f"{' ...' if len(result['added']) > 3 else ''}", file=sys.stderr)
         return 2
 
     args.existing.parent.mkdir(parents=True, exist_ok=True)

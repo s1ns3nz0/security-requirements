@@ -37,6 +37,15 @@ CSF_DIR = REPO_ROOT / "catalogs" / "csf-2.0"
 ASVS_DIR = REPO_ROOT / "catalogs" / "asvs-5"
 
 ID_RE = re.compile(r"^REQ-[A-Z0-9]+(?:-[A-Z0-9]+)*-\d{2}$")
+
+# The fields `managed` may carry, from references/requirement-style.md. Anything
+# else is a field nothing reads, and a field nothing reads is a field nothing
+# checks.
+MANAGED_KEYS = {
+    "statement", "rationale", "csf", "sources", "threat_refs", "responsibility",
+    "csp_part", "team_part", "evidence", "verification", "priority", "asvs",
+    "overlay_refs", "note",
+}
 NIST_RE = re.compile(r"^[A-Z]{2}-\d+(?:\(\d+\))?$")
 CSF_RE = re.compile(r"^[A-Z]{2}\.[A-Z]{2}-\d{2}$")
 ASVS_RE = re.compile(r"^ASVS-V\d+(?:\.\d+)*$")
@@ -233,12 +242,60 @@ def lint(doc: dict, locale: str, threats: dict | None) -> list[Finding]:
 
         if not ID_RE.match(req_id):
             findings.append(Finding("ERROR", req_id, "id-format",
-                                    "expected REQ-<DOMAIN>-<TOPIC>-NN, derived from content"))
+                                    f"expected REQ-<DOMAIN>-<TOPIC>-NN matching {ID_RE.pattern}, "
+                                    f"derived from content -- never a running number. "
+                                    f"DOMAIN and TOPIC are the author's words, not a fixed list."))
 
-        managed = req.get("managed") or {}
-        statement = managed.get("statement", "")
+        managed = req.get("managed")
+        if managed is None:
+            # An absent block and an empty statement are different mistakes, and
+            # the reader fixes them differently. Reported as "managed.statement
+            # is empty", a document written in the flat shape -- statement at
+            # the top level -- got five identical errors and no hint that the
+            # whole managed/human split had been missed.
+            stray = sorted(k for k in ("statement", "controls", "verification", "rationale")
+                           if k in req)
+            findings.append(Finding(
+                "ERROR", req_id, "no-managed-block",
+                "no `managed:` block" + (
+                    f"; {', '.join(stray)} " + ("is" if len(stray) == 1 else "are")
+                    + " at the top level. Requirements are split into `managed:`, which the"
+                      " tool owns and rewrites, and `human:`, which it never touches."
+                    if stray else ". See references/requirement-style.md.")))
+            continue
+        # Every guarantee this linter makes is keyed on the schema. A
+        # requirement carrying `controls:` where `sources:` belongs cited
+        # SC-28(4) -- the invented identifier this repository names in its own
+        # comments -- and passed with zero errors, because the source-integrity
+        # check reads `sources` and nothing was reading anything else. A key the
+        # schema does not define is not a stylistic matter; it is the difference
+        # between a document that was checked and one that was not.
+        unknown_keys = sorted(set(managed) - MANAGED_KEYS)
+        if unknown_keys:
+            findings.append(Finding(
+                "ERROR", req_id, "unknown-field",
+                f"managed.{', managed.'.join(unknown_keys)} is not part of the record shape. "
+                f"Nothing reads it, so anything it carries goes unchecked -- identifiers "
+                f"under the wrong key are never verified against the catalog. "
+                f"Expected: {', '.join(sorted(MANAGED_KEYS))}."))
+
+        # `sources` is deliberately not required. A requirement with no control
+        # identifiers is the threat-only case -- a risk no baseline control
+        # addresses -- which is this tool's central claim, and three of the
+        # eight golden requirements are exactly that. Requiring it would have
+        # forbidden the most important kind of requirement the tool produces.
+        for required, why in (("csf", "the requirements document is organised by CSF function, "
+                                      "and a requirement without one is filed as UNCLASSIFIED"),
+                              ("responsibility", "the document prints UNDETERMINED and nobody "
+                                                 "owns the requirement")):
+            if not managed.get(required):
+                findings.append(Finding("ERROR", req_id, f"no-{required}",
+                                        f"managed.{required} is missing -- {why}"))
+
+        statement = (managed or {}).get("statement", "")
         if not statement:
-            findings.append(Finding("ERROR", req_id, "no-statement", "managed.statement is empty"))
+            findings.append(Finding("ERROR", req_id, "no-statement",
+                                    "managed.statement is present but empty"))
             continue
 
         findings += check_statement(req_id, statement, locale)

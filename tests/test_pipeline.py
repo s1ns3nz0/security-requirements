@@ -1031,6 +1031,10 @@ def _doc(**managed):
         "sources": ["SC-28"],
         "threat_refs": ["T-01"],
         "responsibility": "team",
+        # csf is carried because the linter requires it: without one the
+        # requirement is filed as UNCLASSIFIED in the published document, and
+        # the document's whole organising principle is the CSF function.
+        "csf": ["PR.DS-01"],
         "verification": {"method": "iac_inspect", "expect": "encryption enabled"},
     }
     base.update(managed)
@@ -3427,3 +3431,119 @@ def test_the_threat_model_and_the_profile_are_held_against_each_other():
     rendered = merge.render_cross(crossed)
     assert "do not change which" in rendered
     assert "counted as threat-only" not in rendered
+
+
+# --- round nine: the back half of the pipeline, never run on real input -------
+
+def test_an_identifier_under_the_wrong_key_is_not_silently_unchecked():
+    """The worst thing found in this repository.
+
+    The linter exists so that a fabricated `SC-28(4)` -- which reads exactly
+    like the three enhancements that are real -- is caught before an auditor
+    finds it. It reads `managed.sources`. A document carrying the same
+    identifiers under `managed.controls` passed with zero errors: the
+    source-integrity check verified nothing and reported success.
+
+    A key the schema does not define is not a stylistic matter. It is the
+    difference between a document that was checked and one that was not.
+    """
+    doc = _doc()
+    doc["requirements"][0]["managed"].pop("sources")
+    doc["requirements"][0]["managed"]["controls"] = ["SC-28(4)", "ZZ-99"]
+
+    rules = _rules(lint_mod.lint(doc, "en", None))
+    assert "unknown-field" in rules
+    errors = [f for f in lint_mod.lint(doc, "en", None) if f.level == "ERROR"]
+    assert errors, "a document the linter cannot check must not pass"
+    assert any("controls" in str(f) for f in errors)
+
+    # Under the right key the same identifiers are caught for what they are.
+    doc["requirements"][0]["managed"].pop("controls")
+    doc["requirements"][0]["managed"]["sources"] = ["SC-28(4)", "ZZ-99"]
+    assert "source-unknown" in _rules(lint_mod.lint(doc, "en", None))
+
+
+def test_a_requirement_without_a_csf_function_cannot_be_filed():
+    """The published document is organised by CSF function, and a requirement
+    without one lands in UNCLASSIFIED at the foot of it. Five of five did, and
+    nothing said so -- the document's whole organising principle had collapsed
+    and it rendered without complaint."""
+    doc = _doc()
+    doc["requirements"][0]["managed"].pop("csf")
+    assert "no-csf" in _rules(lint_mod.lint(doc, "en", None))
+
+    doc = _doc()
+    doc["requirements"][0]["managed"].pop("responsibility")
+    assert "no-responsibility" in _rules(lint_mod.lint(doc, "en", None))
+
+
+def test_a_requirement_with_no_sources_is_the_point_not_an_error():
+    """Three of the eight golden requirements carry none. A requirement with no
+    control identifiers is the threat-only case -- a risk no baseline control
+    addresses -- which is this tool's central claim. Requiring `sources` would
+    have forbidden the most important kind of requirement it produces."""
+    doc = _doc()
+    doc["requirements"][0]["managed"].pop("sources")
+    assert "no-sources" not in _rules(lint_mod.lint(doc, "en", None))
+
+
+def test_an_absent_managed_block_is_not_an_empty_statement():
+    """A document written in the flat shape got one identical "managed.statement
+    is empty" per requirement and no hint that the whole managed/human split had
+    been missed."""
+    flat = {"requirements": [{"id": "REQ-DATA-ENC-REST-01",
+                              "statement": "Data must be encrypted.",
+                              "controls": ["SC-28"], "verification": "check it"}]}
+    findings = lint_mod.lint(flat, "en", None)
+    assert "no-managed-block" in _rules(findings)
+    named = [f for f in findings if f.rule == "no-managed-block"][0]
+    assert "controls" in str(named) and "statement" in str(named)
+
+
+def test_a_refresh_that_matches_nothing_is_refused_before_it_writes():
+    """The refresh path had never been run on real input either.
+
+    Given a draft whose slugs did not line up with the existing identifiers, it
+    retired all five requirements -- including one a human had marked
+    accepted_risk, carrying a note the tool is never supposed to touch -- and
+    issued five new ones. The CLI writes the file and prints the counts
+    afterwards, so by the time anyone could see it the note was gone.
+
+    Total churn is never a real change to a service. It is a changed slug
+    convention or an id scheme, every time.
+    """
+    existing = [
+        {"id": "REQ-PKI-SIGNING-KEY-01",
+         "managed": {"statement": "The signing key must be non-exportable.",
+                     "csf": ["PR.DS-01"], "sources": ["SC-12"], "responsibility": "team"},
+         "human": {}},
+        {"id": "REQ-PKI-CERT-LIFETIME-01",
+         "managed": {"statement": "Workload certificates must expire within 24 hours.",
+                     "csf": ["PR.AA-05"], "sources": ["SC-12"], "responsibility": "team"},
+         "human": {"status": "accepted_risk", "note": "not achievable this quarter"}},
+    ]
+
+    # Slugs that are whole identifiers rather than slugs: nothing matches.
+    mismatched = [{"slug": r["id"], "managed": r["managed"]} for r in existing]
+    churned = merge.apply_merge(mismatched, existing, {"issued": {}})
+    assert churned["total_churn"] is True
+    assert len(churned["retired"]) == len(existing)
+
+    # The human's note is still in the record the tool would have written, which
+    # is what makes the refusal worth having rather than a nicety.
+    retired_record = next(r for r in churned["requirements"]
+                          if r["id"] == "REQ-PKI-CERT-LIFETIME-01")
+    assert retired_record["human"]["note"] == "not achievable this quarter"
+    assert retired_record["human"].get("previous_status") == "accepted_risk"
+
+    # Slugs that line up match, and nothing is churned.
+    aligned = [{"slug": r["id"].replace("REQ-", "", 1).rsplit("-", 1)[0],
+                "managed": r["managed"]} for r in existing]
+    steady = merge.apply_merge(aligned, existing, {"issued": {}})
+    assert steady["total_churn"] is False
+    assert len(steady["unchanged"]) == len(existing)
+    assert not steady["retired"]
+
+    # An empty starting document is not churn -- it is a first run.
+    first = merge.apply_merge(aligned, [], {"issued": {}})
+    assert first["total_churn"] is False
