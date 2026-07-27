@@ -1,0 +1,78 @@
+# Golden case 5 -- expected coverage
+#
+# Scored on whether the derivation notices that this system's risk is about
+# records being right rather than about records being secret. Everything it
+# holds is Low on confidentiality; a document that spends itself on encryption
+# and access control has read the profile and missed the point.
+
+version: "0.1.0"
+profile: metering-ledger
+
+topics:
+
+  - id: write-durability
+    must_cover: true
+    critical: true
+    description: "A committed event survives the loss of any single node or zone"
+    match_any: [durab, replicat, commit, acknowledg, quorum, sync, fsync, persist]
+    why: >-
+      The whole reason this profile is not Low. rpo_zero is an answer about
+      data, and a derivation that files it under availability produces backup
+      and recovery requirements while leaving the write path unaddressed.
+
+  - id: event-immutability
+    must_cover: true
+    critical: true
+    description: "Stored events cannot be altered or deleted after acknowledgement"
+    match_any: [immutab, append-only, tamper, alter, modif, retention, integrity]
+    why: >-
+      An invoice is recomputed from the event stream. A silently edited event
+      is a wrong bill that reconciles perfectly, which is worse than a missing
+      one because nothing downstream can detect it.
+
+  - id: aggregation-correctness
+    must_cover: true
+    description: "Totals read by the billing platform are reconcilable against the raw events"
+    match_any: [reconcil, checksum, total, aggregat, consistency, verif]
+    why: >-
+      The integration sends aggregates, not events. If the aggregate is wrong
+      and the events are right, every control on the event store was beside
+      the point.
+
+  - id: pseudonymous-analytics-boundary
+    must_cover: true
+    description: "Pseudonymous event data is not joined back to an identified person"
+    match_any: [pseudonym, re-identif, linkab, join, correlat, anonym]
+    why: >-
+      analytics_pseudonymous is personal data under PIPA even though it is Low
+      on both axes. The requirement is about what may be done with it, not
+      about how well it is guarded.
+
+  - id: cluster-workload-isolation
+    must_cover: true
+    description: "Workloads are separated within the cluster rather than by the cluster boundary"
+    match_any: [namespace, networkpolicy, pod security, isolat, service account, workload identity]
+    why: >-
+      The only Kubernetes case. A cluster is a shared machine and its default
+      is a flat network with a permissive pod security context; treating the
+      cluster edge as the boundary is the mistake this case is here to catch.
+
+must_not_cover:
+
+  - id: no-cardholder-data-controls
+    match_any: [cardholder, PAN, primary account number, PCI]
+    why: >-
+      No payment data is declared. Producing PCI-shaped requirements here means
+      the overlay routing is firing on the word "billing" rather than on the
+      declared data types, and a team told to scope a cardholder data
+      environment they do not have will stop reading.
+
+  - id: no-high-baseline-inflation
+    match_any: [FIPS 140-3 Level 3, cross-domain solution, TEMPEST, air gap]
+    why: >-
+      Moderate is the answer. Requirements drawn from the High baseline on an
+      internal metering store are the inflation that makes a derived document
+      worth ignoring.
+
+scoring:
+  recall_threshold: 0.80

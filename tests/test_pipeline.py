@@ -7027,9 +7027,38 @@ def test_the_golden_cases_still_span_the_scale():
         profile = yaml.safe_load((GOLDEN_ROOT / case / "profile.yaml").read_text(encoding="utf-8"))
         levels[case] = sb.run(profile)["baseline"].replace("nist-800-53b-", "")
 
-    assert sorted(levels.values()) == ["high", "low", "moderate", "moderate"], levels
+    assert sorted(levels.values()) == ["high", "low", "moderate", "moderate", "moderate"], levels
     assert levels["internal-admin"] == "low"
     assert levels["commerce-payments"] == "high"
+
+
+def test_the_case_that_reaches_moderate_on_integrity_alone():
+    """metering-ledger declares nothing above Low on either axis and lands on
+    Moderate anyway, because a committed record may not be lost. It is the only
+    profile shape where the RPO integrity hint does any work -- both other
+    rpo_zero cases were already at Moderate or above from their data types,
+    which is why the hint could be dropped for as long as it was.
+
+    The baseline does not move. rpo_zero contributes Moderate availability too,
+    so the high water mark was Moderate before the fix and after it; what the
+    repair changes is the integrity axis, which a FIPS 199 categorisation
+    reports on its own."""
+    result = sb.run(yaml.safe_load((GOLDEN_ROOT / "metering-ledger" / "profile.yaml")
+                                   .read_text(encoding="utf-8")))
+    impact = result["impact"]
+    assert impact["confidentiality"]["level"] == "low", \
+        "nothing here is sensitive; that is the point of the case"
+    assert impact["integrity"]["level"] == "moderate"
+    assert impact["system"] == "moderate"
+    assert result["baseline"] == "nist-800-53b-moderate"
+
+    assert any("no committed record may be lost" in because
+               for because in impact["integrity"]["because"]), \
+        "the reason has to name what raised it, or the level is unexplainable"
+    # Every declared type is Low, so nothing else could have raised integrity.
+    type_reasons = [b for b in impact["integrity"]["because"]
+                    if "no committed record" not in b]
+    assert all(b.endswith(": low") for b in type_reasons), type_reasons
 
 
 def test_a_golden_case_that_can_be_scored_is_scored(tmp_path):

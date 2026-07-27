@@ -1,0 +1,96 @@
+# Golden case 5 -- usage metering event store, Kubernetes on GCP
+#
+# SYNTHETIC. No real organisation is described here.
+#
+# The case that exists because of a bug. `rpo_zero` declares
+# `integrity_hint: moderate` in availability.yaml, with a note explaining that
+# losing a committed record is a serious effect on the data being correct
+# rather than on the service being up. The derivation read that hint, popped it
+# off the availability block, and compared it against the string "high" -- which
+# no bucket declares -- so it was dropped on every profile that set it. The
+# catalogue documented an effect the tool did not have.
+#
+# Nothing caught it because both existing rpo_zero cases were already at
+# Moderate integrity or above from their data types, so raising the floor moved
+# nothing. This profile is the shape where the hint does any work at all: every
+# declared type is Low on both axes, so integrity has no other route upward.
+#
+# Read the derivation carefully, because it says something narrower than it
+# looks. Integrity moves Low -> Moderate here and the *baseline does not move*:
+# rpo_zero contributes Moderate availability as well, so the high water mark was
+# already Moderate before the fix and is Moderate after it. No profile changes
+# baseline from this repair, and saying otherwise would be claiming a
+# consequence the change does not have.
+#
+# The axis still matters. FIPS 199 categorises three axes and a compliance
+# document reports all three; an integrity level that reads Low on a system
+# whose whole point is that records are correct is wrong on the page even when
+# the control set that follows it is right.
+#
+# What it is meant to demonstrate, beyond the regression:
+#
+#   Impact is not a question about sensitivity. A system holding nothing
+#   personal that anyone would want to steal still leaves Low, because the
+#   events it stores are what invoices are computed from and a lost one is a
+#   wrong bill nobody can reconstruct.
+#
+# It is also the only case on Kubernetes, and the only one whose availability
+# and integrity answers point in opposite directions: a day of downtime is
+# tolerable and a single lost write is not.
+
+version: "0.1.0"
+locale: en
+generated_at: "2026-07-28"
+catalog_versions:
+  nist_800_53: r5
+  data_types: "0.2.0"
+
+repo:
+  visibility: private
+  root: "."
+
+inferred:
+  csp: gcp
+  deployment_model: kubernetes
+  managed_services:
+    - gcp-gke
+  stack: [go, postgresql, kafka]
+  auth_mechanism: service_account_mtls
+  entrypoints:
+    - "POST /v1/events"
+    - "GET /v1/usage/{account}/summary"
+    - "kafka consumer: billing.usage.raw"
+  external_integrations:
+    - name: billing-platform
+      purpose: "monthly invoice generation reads the aggregated totals"
+      data_sent: [internal_ops]
+  region_storage: gcp-asia-northeast3
+
+declared:
+  data_types:
+    - id: internal_ops
+    - id: app_logs
+    - id: audit_logs
+    - id: analytics_pseudonymous
+
+  availability:
+    # A day of downtime is survivable: events buffer in Kafka and the summary
+    # endpoint is read by a batch job, not by a customer waiting for a page.
+    rto: rto_day_plus
+    # A committed event may not be lost. There is no upstream to replay from
+    # once the retention window passes, and an invoice computed from an
+    # incomplete event stream is wrong in a way nobody downstream can detect.
+    rpo: rpo_zero
+    amplifiers: [internal_tool_only]
+
+  users:
+    - internal_staff
+
+  regulations_declared: []
+
+  existing_org_controls:
+    - sso
+    - central_logging
+    - security_policy
+
+  user_regions: [KR]

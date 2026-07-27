@@ -123,17 +123,26 @@ summarised in our own words with links, never reproduced.
 
 ```
 python3 scripts/rebuild_catalogs.py     # rebuild every catalog from upstream
-python3 -m pytest tests/                # deterministic layer, 636 tests
+python3 -m pytest tests/                # deterministic layer, 638 tests
 python3 scripts/eval_golden.py golden/b2b-saas-aws requirements.yaml
 ```
 
-Four golden cases keep the whole scale reachable — they derive to Low,
-Moderate, Moderate, and High. If they all collapse to one level, the tailoring
-has stopped discriminating, so a test asserts the spread rather than leaving it
-to whoever notices.
+Five golden cases keep the whole scale reachable — they derive to Low,
+Moderate, Moderate, Moderate, and High. If they all collapse to one level, the
+tailoring has stopped discriminating, so a test asserts the spread rather than
+leaving it to whoever notices.
+
+All five are synthetic. A profile describes where the data is and what it is
+worth, and this repository is public, so a real one plus its open requirements
+would be a reconnaissance document.
+
+`metering-ledger` is there because of a defect: it is the only shape where
+every declared type is Low on both axes, so it is the only one where the RPO
+integrity hint has anything to do. Both other `rpo_zero` cases were already at
+Moderate integrity from their data types, which is how the hint stayed broken.
 
 Only `b2b-saas-aws` carries a written requirements document, so it is the only
-case `eval_golden.py` can score. The other three exercise the derivation and
+case `eval_golden.py` can score. The other four exercise the derivation and
 their `expected-coverage.yaml` waits for a draft.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Curated service files are the most
