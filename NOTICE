@@ -29,3 +29,8 @@ Not bundled, by licence:
   CIS Benchmarks, PCI DSS, ISO/IEC 27001 Annex A, SOC 2 Trust Services Criteria.
   These may be referenced by identifier where relevant, but their text is not
   reproduced or redistributed.
+
+  overlays/pci-dss/ follows that rule: it carries PCI DSS requirement numbers
+  as identifiers, with descriptions written for this repository, and stops at
+  the twelve principal requirements because the sub-requirement numbering is
+  part of the standard. No PCI SSC wording appears in this repository.

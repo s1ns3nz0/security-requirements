@@ -235,12 +235,14 @@ types:
     label: "PSP tokens, last four digits"
     confidentiality: moderate
     integrity: moderate
+    regulatory_triggers: [pci_dss]
     rationale: "No original held. Still enables financial loss when combined with authority to charge."
 
   - id: bank_account
     label: "bank account numbers and holder names"
     confidentiality: high
     integrity: high
+    regulatory_triggers: [pci_dss]
     rationale: "A direct route to fraudulent transfer."
 
   - id: transaction_history
@@ -372,6 +374,7 @@ types:
 regulatory_triggers:
 
   pci_dss:
+    overlay: pci-dss
     label: "PCI DSS 4.x"
     covered: false
     message: "Raw cardholder data detected. PCI DSS appears to apply and is not supported by this tool."

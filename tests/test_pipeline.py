@@ -316,11 +316,17 @@ def test_gdpr_fires_for_eu_users(profile):
 
 
 def test_pci_always_fires_regardless_of_region(profile):
+    """Card scheme rules are contractual, not territorial. PCI now routes to its
+    overlay rather than being declared uncovered, but the trigger must fire
+    wherever the users are."""
     card = copy.deepcopy(profile)
     card["declared"]["data_types"].append({"id": "payment_card_raw"})
     card["declared"]["user_regions"] = ["BR"]
-    ids = {item["id"] for item in sb.run(card)["uncovered_regulations"]}
-    assert "pci_dss" in ids
+    result = sb.run(card)
+    triggered = ({t["id"] for t in result["uncovered_regulations"]}
+                 | {t["trigger"] for t in result["overlay_triggers"]})
+    assert "pci_dss" in triggered
+    assert "pci-dss" in result["applicable_overlays"]
 
 
 def test_cross_border_transfer_detected(derived):
@@ -1220,7 +1226,7 @@ def test_catalog_provenance_records_what_is_on_disk():
 import apply_overlay as overlay_mod  # noqa: E402
 
 
-ALL_OVERLAYS = ["pipa-isms-p", "hipaa-security-rule", "gdpr"]
+ALL_OVERLAYS = ["pipa-isms-p", "hipaa-security-rule", "gdpr", "pci-dss"]
 
 
 @pytest.mark.parametrize("overlay_id", ALL_OVERLAYS)
@@ -1319,14 +1325,14 @@ def test_a_regulation_with_an_overlay_is_no_longer_declared_uncovered(profile):
     declaring a gap the repository has closed. Regulations without one must
     still be declared."""
     p = copy.deepcopy(profile)
-    p["declared"]["user_regions"] = ["KR"]
-    p["declared"]["data_types"] = [{"id": "basic_contact"}, {"id": "payment_card_raw"}]
+    p["declared"]["user_regions"] = ["US"]
+    p["declared"]["data_types"] = [{"id": "basic_contact"}, {"id": "minors_data"}]
     result = sb.run(p)
 
-    assert "pipa-isms-p" in result["applicable_overlays"]
+    assert "hipaa-security-rule" not in result["applicable_overlays"]   # no health data
     uncovered = {t["id"] for t in result["uncovered_regulations"]}
-    assert "pipa_general" not in uncovered
-    assert "pci_dss" in uncovered      # no overlay exists, so still declared
+    # COPPA has no overlay, so it is still declared rather than silently dropped.
+    assert "coppa" in uncovered
 
 
 def test_hipaa_matches_the_published_rule_shape():
@@ -1430,3 +1436,67 @@ def test_gdpr_scope_excludes_the_non_operative_chapters():
     chapters = {c["chapter"] for c in loaded["criteria"].values()}
     assert chapters == {"II", "III", "IV", "V"}
     assert len(loaded["criteria"]) == 46
+
+
+def test_pci_reproduces_no_standard_text():
+    """PCI SSC licenses the standard under terms that forbid redistribution.
+    Requirement numbers are identifiers; the descriptions must be this
+    repository's own."""
+    loaded = overlay_mod.load("pci-dss")
+    meta = loaded["meta"]
+    assert meta["source"]["bundled"] is False
+    for c in loaded["criteria"].values():
+        assert "statement" not in c          # no clause text carried
+        assert c["scope_description"]
+        assert c["text_source"].startswith("https://www.pcisecuritystandards.org")
+
+
+def test_pci_declares_its_depth():
+    """Stopping above the clause a reader is assessed against is a limitation
+    that has to be stated, not a detail."""
+    depth = overlay_mod.load("pci-dss")["meta"]["depth"]
+    assert depth["sub_requirements_enumerated"] is False
+    assert depth["level"]
+
+
+def test_a_coarse_overlay_qualifies_its_coverage_count(profile):
+    """"11 of 12 covered" is the single most dangerous line this tool can print
+    for a regime assessed at the sub-requirement level."""
+    loaded = overlay_mod.load("pci-dss")
+    derived = sb.run(profile)
+    result = overlay_mod.evaluate(loaded, derived["controls"])
+    rendered = overlay_mod.render(result, "test")
+    assert "DEPTH" in rendered
+    assert "not whether any requirement is met" in rendered
+    assert "fully covered" not in rendered
+
+    deep = overlay_mod.evaluate(overlay_mod.load("gdpr"), derived["controls"])
+    assert "DEPTH" not in overlay_mod.render(deep, "test")
+
+
+def test_pci_scope_follows_whether_the_pan_is_stored(profile):
+    """Whether the primary account number enters the system is the first
+    question PCI asks and the one that changes everything."""
+    loaded = overlay_mod.load("pci-dss")
+
+    raw = copy.deepcopy(profile)
+    raw["declared"]["data_types"] = [{"id": "payment_card_raw"}]
+    ok, _, scope = overlay_mod.applies(loaded, raw)
+    assert ok and scope["scope"] == "cardholder data environment"
+
+    tokenised = copy.deepcopy(profile)
+    tokenised["declared"]["data_types"] = [{"id": "payment_token"}]
+    ok, _, scope = overlay_mod.applies(loaded, tokenised)
+    assert ok and scope["scope"] == "reduced (tokenised)"
+
+    none = copy.deepcopy(profile)
+    none["declared"]["data_types"] = [{"id": "internal_ops"}]
+    assert overlay_mod.applies(loaded, none)[0] is False
+
+
+def test_tokenised_payments_still_raise_pci(profile):
+    """Tokenisation reduces scope; it does not remove the standard. A profile
+    that touches payments at all should be told so."""
+    p = copy.deepcopy(profile)
+    p["declared"]["data_types"] = [{"id": "payment_token", "modifiers": ["tokenized_external"]}]
+    assert "pci-dss" in sb.run(p)["applicable_overlays"]

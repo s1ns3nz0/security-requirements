@@ -1,0 +1,76 @@
+id: pci-dss
+name: "PCI DSS — Payment Card Industry Data Security Standard"
+version: "v4.x, principal requirements only"
+criteria_count: 12
+
+source:
+  authority: "PCI Security Standards Council"
+  document_library: "https://www.pcisecuritystandards.org/document_library/"
+  bundled: false
+  note: >-
+    The standard is not bundled and none of its wording appears here. PCI SSC
+    licenses the document under terms that do not permit redistribution, and the
+    download is gated behind acceptance of those terms. Requirement numbers are
+    identifiers and are used as such; every description in this overlay was
+    written for this repository and is not a paraphrase close enough to stand in
+    for the original.
+
+depth:
+  level: "principal requirements (1-12)"
+  sub_requirements_enumerated: false
+  note: >-
+    The other overlays go to the clause a reader would be assessed against --
+    101 ISMS-P criteria, 68 HIPAA specifications, 46 GDPR articles. This one
+    stops at twelve, and the reason is the licence rather than effort. The
+    sub-requirement numbering is part of the standard; reproducing it from
+    memory or from a third-party listing would put fabricated identifiers into a
+    compliance document, which is the failure this repository is built to
+    prevent. A shallow overlay that says so is worth more than a deep one that
+    is invented.
+
+    What this can still do: say which of the twelve areas the derived controls
+    reach, which fall to the provider, and which nothing in the derivation
+    touches. What it cannot do: stand in for the standard, or support any
+    self-assessment.
+
+applies_when:
+  data_types_any: [payment_card_raw, payment_token, bank_account]
+
+# Scope is the first question PCI asks and the one that changes everything.
+# Whether the primary account number ever enters the system decides how much of
+# the standard applies, and it is a fact the profile already records.
+scope_selector:
+  data_types: [payment_card_raw]
+  when_present:
+    scope: "cardholder data environment"
+    areas: null
+    reason: >-
+      the primary account number is stored, processed, or transmitted, so the
+      full standard is in scope
+  when_absent:
+    scope: "reduced (tokenised)"
+    areas: null
+    reason: >-
+      no primary account number is declared, so much of the standard falls
+      outside scope -- but which assessment applies depends on how the payment
+      page is built, which this profile cannot see
+
+baseline_effect: {}
+
+mapping:
+  authored: true
+  published_crosswalk_exists: false
+  note: >-
+    The control lists are this repository's reading. At the principal
+    requirement level a mapping is necessarily coarse: Requirement 3 covers
+    storage, retention, and key management together, and citing SC-28 against it
+    says the derivation addresses part of it, not that it satisfies it. Read
+    "covered" here as "the derivation reaches this area", never as compliance.
+
+disclaimer: >-
+  This overlay does not establish PCI DSS compliance, does not constitute a
+  self-assessment questionnaire or a report on compliance, and does not
+  determine assessment scope or merchant level. Scope is decided by how the
+  cardholder data environment is built and segmented, which a profile cannot
+  establish. Obtain the standard from PCI SSC and engage a qualified security
+  assessor where one is required.

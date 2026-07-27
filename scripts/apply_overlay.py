@@ -95,21 +95,23 @@ def applies(overlay: dict, profile: dict) -> tuple[bool, str, dict]:
     if wanted_types and not (wanted_types & types):
         return False, "no declared data type this regime covers", {}
 
-    # Only regimes that certify at more than one scope declare a selector.
-    # Defaulting to one when none is declared put a Korean certification scope
-    # on a US health regulation, because the default carried the first
-    # overlay's vocabulary.
+    # Only regimes that assess at more than one scope declare a selector, and
+    # the axis differs by regime: ISMS-P splits on whether personal data is
+    # processed, PCI DSS on whether account data is stored. The first version
+    # named the ISMS-P axis in the machinery, which put a Korean certification
+    # scope on a US health regulation. It is now stated by the overlay.
     selector = meta.get("scope_selector")
     if not selector:
         return True, "region and declared data types match", {"scope": "full", "areas": None}
 
-    personal = set(selector.get("personal_data_types") or [])
-    if personal & types:
-        scope = selector.get("with_personal_data") or {"scope": "full", "areas": None}
-        reason = "region matches, and personal data is processed"
+    deciding = set(selector.get("data_types") or [])
+    default = {"scope": "full", "areas": None}
+    if deciding & types:
+        scope = selector.get("when_present") or default
+        reason = scope.get("reason", "the deciding data types are declared")
     else:
-        scope = selector.get("without_personal_data") or {"scope": "full", "areas": None}
-        reason = "region matches; no personal data declared, so that area is out of scope"
+        scope = selector.get("when_absent") or default
+        reason = scope.get("reason", "none of the deciding data types is declared")
     return True, reason, scope
 
 
@@ -145,7 +147,8 @@ def evaluate(overlay: dict, derived_controls: list[str], scope: dict | None = No
 
     return {
         "overlay": overlay["id"],
-        "scope": (scope or {}).get("scope", "ISMS-P"),
+        "depth": overlay["meta"].get("depth") or {},
+        "scope": (scope or {}).get("scope", "full"),
         "name": overlay["meta"]["name"],
         "version": overlay["meta"]["version"],
         "clause_count": len(covered) + len(partial) + len(uncovered) + len(standalone),
@@ -161,8 +164,20 @@ def render(result: dict, reason: str) -> str:
     scope = result["scope"]
     heading = f"  {reason}" if scope == "full" else f"  scope: {scope} -- {reason}"
     out = [f"{result['name']} ({result['version']})", heading, ""]
-    out.append(f"  {len(result['covered']):>4}  fully covered by the derived baseline")
-    out.append(f"  {len(result['partial']):>4}  partly covered -- some mapped controls are outside it")
+
+    # Where an overlay stops above the clause a reader is assessed against, a
+    # coverage count reads as near-compliance unless it is qualified here rather
+    # than in a disclaimer at the foot. "11 of 12 covered" is the single most
+    # dangerous line this tool can print.
+    coarse = result["depth"].get("sub_requirements_enumerated") is False
+    if coarse:
+        out += [f"  DEPTH: {result['depth'].get('level', 'summary level')} only. The counts below say",
+                "  which areas the derivation reaches, not whether any requirement is met.",
+                "  Assessment happens at the sub-requirement level, which is not enumerated here.",
+                ""]
+    reached = "reached by the derived baseline" if coarse else "fully covered by the derived baseline"
+    out.append(f"  {len(result['covered']):>4}  {reached}")
+    out.append(f"  {len(result['partial']):>4}  partly {'reached' if coarse else 'covered'} -- some mapped controls are outside it")
     out.append(f"  {len(result['uncovered']):>4}  mapped, but no mapped control is in the baseline")
     out.append(f"  {len(result['standalone']):>4}  no control expresses them at all")
     out.append(f"  {'-' * 4}")

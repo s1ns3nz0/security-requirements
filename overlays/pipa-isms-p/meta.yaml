@@ -36,7 +36,7 @@ applies_when:
   user_regions_any: [KR]
 
 scope_selector:
-  personal_data_types:
+  data_types:
     - basic_contact
     - government_id
     - sensitive_attributes
@@ -44,8 +44,14 @@ scope_selector:
     - minors_data
     - precise_location
     - health_records
-  without_personal_data: {scope: ISMS, areas: ["관리체계 수립 및 운영", "보호대책 요구사항"]}
-  with_personal_data: {scope: ISMS-P, areas: null}
+  when_present:
+    scope: ISMS-P
+    areas: null
+    reason: "Korean users, and personal data is processed"
+  when_absent:
+    scope: ISMS
+    areas: ["관리체계 수립 및 운영", "보호대책 요구사항"]
+    reason: "Korean users; no personal data declared, so the personal data area is out of scope"
 
 baseline_effect: {}   # ISMS-P does not raise the FIPS 199 categorisation
 

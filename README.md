@@ -8,8 +8,8 @@ before or independently of any code existing. That is the artefact a compliance
 or design stage actually needs, and it is the one nothing produces.
 
 > **Status: pre-release.** The pipeline runs end to end with the full SP 800-53
-> Rev 5 catalog, CSF 2.0, ASVS 5.0, eleven curated services, and three regulatory
-> overlays (ISMS-P, HIPAA, GDPR). Exercised against a dozen real repositories; see
+> Rev 5 catalog, CSF 2.0, ASVS 5.0, eleven curated services, and four regulatory
+> overlays (ISMS-P, HIPAA, GDPR, PCI DSS). Exercised against a dozen real repositories; see
 > [DESIGN.md](DESIGN.md) for what that turned up.
 
 ## What it produces
@@ -111,6 +111,7 @@ and better for being read.
 | ISMS-P overlay | 101 certification criteria with an authored control mapping | Korean notice, outside copyright (Article 7) |
 | HIPAA overlay | 22 standards and 46 implementation specifications, rebuildable from the eCFR API | US Government work, public domain |
 | GDPR overlay | 46 articles across Chapters II–V, titles only with links to the Official Journal | EUR-Lex reuse policy |
+| PCI DSS overlay | 12 principal requirements, identifiers and our own descriptions only | Standard **not** bundled — PCI SSC terms |
 
 CIS Benchmarks, PCI DSS, ISO/IEC 27001 Annex A, and SOC 2 criteria are **not**
 bundled — their terms do not permit redistribution. Provider guidance is
