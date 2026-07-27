@@ -6775,6 +6775,134 @@ def test_the_overlay_validator_runs_and_reports_a_clean_set(capsys, monkeypatch)
     assert "overlays:" in printed
 
 
+# --- a scalar where a list belongs ---------------------------------------------
+#
+# A string is iterable, so a profile writing one value where a list belongs is
+# read character by character and nothing complains. Every coercion here says it
+# happened, because reading the author's intent correctly and never mentioning
+# it is how a profile stays wrong.
+
+def test_a_single_value_where_a_list_belongs_is_read_and_reported():
+    raw = {"declared": {"data_types": "customer_pii",
+                        "availability": {"rto": " RTO_DAY_PLUS ", "rpo": "rpo_hours_plus",
+                                         "amplifiers": "internal_only"}},
+           "inferred": {"managed_services": "aws-s3", "stack": None}}
+    profile, warnings = profile_schema.normalise(raw)
+
+    assert profile["declared"]["data_types"] == [{"id": "customer_pii"}]
+    assert profile["declared"]["availability"]["amplifiers"] == ["internal_only"]
+    assert profile["inferred"]["managed_services"] == [{"id": "aws-s3"}]
+    assert profile["inferred"]["stack"] == [], "a null list is an empty one, not a missing key"
+    # Whitespace and case are the author's typing, not their answer.
+    assert profile["declared"]["availability"]["rto"] == "rto_day_plus"
+    assert any("amplifiers" in w for w in warnings)
+    assert warnings, "a coercion nobody is told about leaves the profile wrong"
+
+
+def test_a_modifier_written_as_one_value_is_read_as_one_item():
+    profile, warnings = profile_schema.normalise(
+        {"declared": {"data_types": [{"id": "customer_pii", "modifiers": "special_category"}]}})
+    assert profile["declared"]["data_types"][0]["modifiers"] == ["special_category"]
+    assert any("single modifier" in w for w in warnings)
+
+
+@pytest.mark.parametrize("raw,fragment", [
+    ({"declared": {"data_types": [42]}}, "declared.data_types contains 42"),
+    ({"declared": {"data_types": [["customer_pii"]]}}, "declared.data_types contains"),
+    ({"inferred": {"managed_services": [42]}}, "inferred.managed_services contains 42"),
+])
+def test_an_entry_that_is_neither_an_identifier_nor_a_mapping_is_refused(raw, fragment):
+    """Coercion has a limit. A number is not a shorthand for anything, and
+    guessing what it meant would put an invented answer into a categorisation."""
+    with pytest.raises(profile_schema.SchemaError) as excinfo:
+        profile_schema.normalise(raw)
+    assert fragment in str(excinfo.value)
+
+
+def test_a_rebuild_with_no_source_directory_fetches_from_upstream(monkeypatch):
+    """The offline path is what the tests use, so the network path is the one
+    nobody runs until the day someone rebuilds the catalogue. It has to at least
+    be the URL it claims to be."""
+    import io
+    import urllib.request as urlreq
+    requested = []
+
+    class _Response(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.close()
+            return False
+
+    def fake_urlopen(url, timeout=None):
+        requested.append((url, timeout))
+        return _Response(json.dumps({"catalog": {"marker": True}}).encode("utf-8"))
+
+    monkeypatch.setattr(urlreq, "urlopen", fake_urlopen)
+    result = rebuild_mod.load_json(rebuild_mod.CATALOG_FILE, None)
+    assert result == {"catalog": {"marker": True}}
+    url, timeout = requested[0]
+    assert url == f"{rebuild_mod.UPSTREAM}/{rebuild_mod.CATALOG_FILE}"
+    assert url.startswith("https://"), "the catalogue is not fetched over plaintext"
+    assert timeout, "a rebuild that hangs forever is a rebuild nobody can interrupt"
+
+
+def test_the_hipaa_rebuild_fetches_the_point_in_time_it_was_asked_for(tmp_path, monkeypatch):
+    """The eCFR API is versioned by date, and the date is what makes a rebuild
+    reproducible. A URL that ignored it would produce a clause list nobody could
+    reproduce and a source.json claiming they could."""
+    import io
+    import urllib.request as urlreq
+    requested = []
+
+    class _Response(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.close()
+            return False
+
+    source = _cfr_source(tmp_path / "title-45.xml", SYNTHETIC_CFR_COUNTS)
+
+    def fake_urlopen(url, timeout=None):
+        requested.append(url)
+        return _Response(source.read_bytes())
+
+    monkeypatch.setattr(urlreq, "urlopen", fake_urlopen)
+    monkeypatch.setattr(hipaa_mod, "OUT_DIR", tmp_path / "out")
+    monkeypatch.setattr(hipaa_mod, "EXPECTED_STANDARDS", SYNTHETIC_CFR_COUNTS)
+    monkeypatch.setattr(sys, "argv", ["rebuild_overlay_hipaa.py", "--date", "2025-06-30"])
+    assert hipaa_mod.main() == 0
+    assert "2025-06-30" in requested[0]
+    assert "part=164" in requested[0]
+    meta = json.loads((tmp_path / "out" / "source.json").read_text(encoding="utf-8"))
+    assert meta["point_in_time"] == "2025-06-30"
+
+
+def test_the_derivation_command_line_explains_the_level_it_produced(tmp_path, capsys, monkeypatch):
+    """A categorisation nobody can retrace is a number in a compliance document.
+    Every axis prints what raised it, and the driver names what to re-examine --
+    which differs by axis, because nobody answered a question about the
+    confidentiality level; they selected data types and the table did the rest."""
+    profile_path = GOLDEN_ROOT / "commerce-payments" / "profile.yaml"
+    out = tmp_path / "derived.json"
+    monkeypatch.setattr(sys, "argv", ["select_baseline.py", str(profile_path),
+                                      "--json", str(out)])
+    assert sb.main() == 0
+    printed = capsys.readouterr().out
+    assert "Impact derivation" in printed
+    for axis in ("Confidentiality", "Integrity", "Availability"):
+        assert axis in printed
+    assert "System impact: HIGH" in printed
+    assert "<-" in printed, "every level says what raised it"
+
+    derived = json.loads(out.read_text(encoding="utf-8"))
+    assert derived["baseline"] == "nist-800-53b-high"
+    assert derived["controls"], "the JSON is what apply_overlay reads"
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and
