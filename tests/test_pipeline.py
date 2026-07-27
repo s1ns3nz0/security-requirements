@@ -4773,9 +4773,11 @@ def test_nothing_from_the_human_record_reaches_the_published_file():
     assert "2027-01-31" not in published
     assert "exception" not in published.lower()
 
-    # The status alone is published, which says the requirement is not met
-    # without saying for how much longer.
-    assert "accepted_risk" in published
+    # Nor the status. The README says the internal side is a reconnaissance
+    # document because it records "which controls are not implemented, and
+    # which risks were accepted until when" -- publishing accepted_risk is the
+    # first half of that sentence and the expiry was the second.
+    assert "accepted_risk" not in published
 
 
 def test_no_free_text_from_the_human_block_appears_in_any_published_document():
@@ -4812,9 +4814,10 @@ def test_no_free_text_from_the_human_block_appears_in_any_published_document():
     # An absence test passes when the renderer stops rendering anything, so
     # each document has to be asserted to still say what it is for.
     published, trace, resp = documents
-    assert "accepted_risk" in published
-    assert "2027-01-31" not in published, "the exposure window is not published either"
-    assert "REQ-A-B-01" in published and "REQ-C-D-01" in published
+    assert "accepted_risk" not in published, "which controls are unmet is the internal side"
+    assert "2027-01-31" not in published, "and so is when the risk was accepted until"
+    assert "REQ-A-B-01" in published, "the requirement definition is what this file is for"
+    assert "REQ-C-D-01" in published, "and a retirement is still recorded"
 
     assert "| SC-28 |" in trace and "REQ-A-B-01" in trace
     assert "Protection of Information at Rest" in trace
@@ -5095,3 +5098,29 @@ def test_a_partial_catalog_says_so_in_every_document():
                                      "families_extracted": ["AC", "SC"]})
     assert "Partial catalog" in partial
     assert "AC, SC" in partial
+
+
+def test_the_published_file_does_not_say_which_requirements_are_unmet():
+    """The README draws the line: the internal side is a reconnaissance document
+    because it records "which controls are not implemented, and which risks were
+    accepted until when". Four leaks across one day went the other way -- the
+    retirement reason, the exception's approver and rationale, the expiry, and
+    the status itself -- each found separately, each after the last had been
+    called fixed.
+
+    This asserts the sentence rather than the four instances.
+    """
+    documents = _documents([
+        _req("REQ-A-B-01", human={"status": "accepted_risk",
+                                  "exception": {"approver": "Jane Park", "expires": "2027-01-31"}}),
+        _req("REQ-C-D-01", human={"status": "pending_review"}),
+        _req("REQ-E-F-01"),
+    ])
+    for document in documents:
+        for disclosure in ("accepted_risk", "pending_review", "2027-01-31", "Jane Park",
+                           "Status:", "exception"):
+            assert disclosure.lower() not in document.lower(), f"{disclosure} in a published file"
+
+    published = documents[0]
+    for req_id in ("REQ-A-B-01", "REQ-C-D-01", "REQ-E-F-01"):
+        assert req_id in published, "every active requirement is still defined here"

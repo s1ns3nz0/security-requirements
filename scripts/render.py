@@ -180,17 +180,17 @@ def render_requirements(doc: dict, titles: dict, meta: dict) -> str:
                 out.append(f"| {label} | {value} |")
             out.append("")
 
-            if human.get("status") and human["status"] != "active":
-                out.append(f"> Status: **{human['status']}**")
-                # The exception is not published at all -- not the approver, not
-                # the rationale, and not the expiry. "An exception is recorded,
-                # expiring 2027-01-31" is a control gap and the date it closes,
-                # which is the reconnaissance value the README names when it
-                # says accepted risks and their dates are why the internal file
-                # cannot be published. The status alone says the requirement is
-                # not met, without saying for how much longer.
-                out.append("")
-
+            # Neither the status nor the exception. The README draws the line
+            # where this file is concerned: the internal side is a
+            # reconnaissance document because it says "which controls are not
+            # implemented, and which risks were accepted until when". Publishing
+            # `Status: accepted_risk` is the first half of that sentence, and
+            # the expiry -- removed a commit earlier -- was the second. Half a
+            # disclosure is still a disclosure.
+            #
+            # This document holds the requirement definitions. Whether each one
+            # is met yet is what .security-requirements/ is for, and it is
+            # gitignored on a public repository for exactly this reason.
             if req.get("pending_review"):
                 out += ["> A re-run proposes a change to this requirement. "
                         "See `pending_review` in requirements.yaml.", ""]
