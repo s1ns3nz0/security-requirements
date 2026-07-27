@@ -6542,6 +6542,104 @@ def test_a_short_reason_is_still_a_reason(rationale):
         f"{rationale!r} is a basis; the warning says it traces only to itself"
 
 
+# --- what the derivation refuses to guess at -----------------------------------
+#
+# Every one of these is an answer the interview is supposed to produce. The
+# derivation could pick a default for each and would then be inventing the input
+# to a categorisation, which is the one thing it must never do.
+
+def _profile(**declared):
+    base = yaml.safe_load((GOLDEN_ROOT / "internal-admin" / "profile.yaml")
+                          .read_text(encoding="utf-8"))
+    base["declared"].update(declared)
+    return base
+
+
+@pytest.mark.parametrize("declared,fragment", [
+    ({"data_types": []}, "run the interview first (Q1)"),
+    ({"data_types": [{"id": "moon_rocks"}]}, "unknown data type"),
+    ({"availability": {}}, "run the interview first (Q2)"),
+    ({"availability": {"rpo": "rpo_hours_plus"}}, "declared.availability.rto is missing"),
+    ({"availability": {"rto": "rto_day_plus"}}, "declared.availability.rpo is missing"),
+    ({"availability": {"rto": "rto_days", "rpo": "rpo_hours_plus"}}, "unknown rto bucket"),
+    ({"availability": {"rto": "rto_day_plus", "rpo": "rpo_none"}}, "unknown rpo bucket"),
+    ({"availability": {"rto": "rto_day_plus", "rpo": "rpo_hours_plus",
+                       "amplifiers": ["moon_phase"]}}, "unknown amplifier"),
+])
+def test_an_answer_the_interview_did_not_give_is_not_guessed_at(declared, fragment):
+    """`rto_days` and `rpo_none` are both things a person writes -- days is a
+    real recovery objective and an append-only log genuinely has no recovery
+    point -- and neither is a bucket. The message carries the accepted values,
+    because sending the author to open a catalogue costs a round trip for a
+    one-word fix."""
+    with pytest.raises(sb.ProfileError) as excinfo:
+        sb.run(_profile(**declared))
+    assert fragment in str(excinfo.value)
+
+
+def test_the_accepted_values_are_named_where_the_answer_was_wrong():
+    """Not just that it failed -- what to write instead."""
+    with pytest.raises(sb.ProfileError) as excinfo:
+        sb.run(_profile(availability={"rto": "rto_days", "rpo": "rpo_hours_plus"}))
+    message = str(excinfo.value)
+    assert "accepted:" in message and "rto_day_plus" in message
+
+
+def test_an_impact_override_has_to_be_an_impact_level():
+    """The override is the escape hatch for a categorisation the tool got wrong.
+    An escape hatch that accepts anything is a way to write a level that means
+    nothing into a compliance document."""
+    profile = _profile()
+    profile.setdefault("derived", {})["impact"] = {"override": {"system": "extremely high"}}
+    with pytest.raises(sb.ProfileError) as excinfo:
+        sb.run(profile)
+    assert "invalid impact override" in str(excinfo.value)
+
+    profile["derived"]["impact"]["override"] = {"system": "high"}
+    result = sb.run(profile)
+    assert result["baseline"] == "nist-800-53b-high"
+    assert result["impact"]["overridden_by_user"] is True
+
+
+def test_no_tolerable_data_loss_raises_integrity_not_only_availability():
+    """RPO 0 says every write matters. That is a statement about the data being
+    correct as much as about the service being up, and reading it as
+    availability alone understated integrity on exactly the systems that care
+    most."""
+    low = sb.run(_profile(availability={"rto": "rto_day_plus", "rpo": "rpo_hours_plus"}))
+    zero = sb.run(_profile(availability={"rto": "rto_day_plus", "rpo": "rpo_zero"}))
+    assert sb.LEVELS.index(zero["impact"]["integrity"]["level"]) >= \
+        sb.LEVELS.index(low["impact"]["integrity"]["level"])
+    assert any("RPO 0" in because for because in zero["impact"]["integrity"]["because"])
+
+
+def test_every_integrity_hint_the_catalogue_declares_is_applied():
+    """The comparison was against the string "high" and the catalogue's only
+    hint is moderate, so the hint was read, popped, and dropped -- while
+    availability.yaml's note said integrity was raised to Moderate. A catalogue
+    documenting an effect the derivation does not have is worse than either
+    behaviour alone, because the note is what anyone reads to find out what the
+    tool does."""
+    catalogue = yaml.safe_load(
+        (REPO_ROOT / "catalogs" / "data-types" / "availability.yaml").read_text(encoding="utf-8"))
+    hinted = [entry for entry in catalogue.get("rpo_buckets", [])
+              if entry.get("integrity_hint")]
+    assert hinted, "this test needs the hints it is checking"
+
+    for entry in hinted:
+        plain = sb.run(_profile(availability={"rto": "rto_day_plus", "rpo": "rpo_hours_plus"}))
+        hint = sb.run(_profile(availability={"rto": "rto_day_plus", "rpo": entry["id"]}))
+        assert sb.LEVELS.index(hint["impact"]["integrity"]["level"]) >= \
+            sb.LEVELS.index(entry["integrity_hint"]), (
+                f"{entry['id']} declares integrity_hint {entry['integrity_hint']} and the "
+                f"derivation produced {hint['impact']['integrity']['level']}")
+        assert any(entry["integrity_hint"] in because
+                   for because in hint["impact"]["integrity"]["because"]), \
+            "the reason has to name the level it raised to"
+        assert sb.LEVELS.index(hint["impact"]["integrity"]["level"]) >= \
+            sb.LEVELS.index(plain["impact"]["integrity"]["level"])
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and

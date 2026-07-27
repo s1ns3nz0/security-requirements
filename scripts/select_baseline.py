@@ -825,9 +825,20 @@ def run(profile: dict) -> dict:
      inert_modifiers) = derive_confidentiality_integrity(profile, types_table)
     availability = derive_availability(profile, avail_table)
 
-    if availability.pop("integrity_hint", None) == "high":
-        integrity["level"] = highest([integrity["level"], "high"])
-        integrity["because"].append("no tolerable data loss (RPO 0): high")
+    # Whatever level the bucket declares, not only "high". The catalogue's one
+    # hint says moderate -- losing committed records is a serious effect, not the
+    # severe or catastrophic one FIPS 199 reserves for High -- and the comparison
+    # against "high" dropped it, silently, on the systems that care most. The
+    # note in availability.yaml said integrity was raised to Moderate and it was
+    # not, which is worse than either behaviour on its own: the catalogue
+    # documented an effect the derivation did not have.
+    hint = availability.pop("integrity_hint", None)
+    if hint in LEVELS:
+        raised = highest([integrity["level"], hint])
+        if raised != integrity["level"]:
+            integrity["level"] = raised
+            integrity["because"].append(
+                f"no tolerable data loss (RPO 0): {hint}")
 
     system = highest([confidentiality["level"], integrity["level"], availability["level"]])
 
