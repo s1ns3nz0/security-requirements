@@ -107,6 +107,16 @@ def cross(controls_doc: dict, responsibility_doc: dict, threats_doc: dict) -> di
     outside_baseline: list[dict] = []
     problems: list[str] = []
 
+    # A string is iterable. Read as a list it produced "threats[0] is 'n'; each
+    # threat must be a mapping" -- an error naming a character, which is the
+    # shape of mistake this repository has now corrected in four places.
+    if not isinstance(threats, list):
+        raise ValueError(
+            f"threats must be a list; {type(threats).__name__} was given"
+            + (". A single threat still goes in a list." if isinstance(threats, dict)
+               else f" ({threats!r})")
+        )
+
     for position, threat in enumerate(threats):
         if not isinstance(threat, dict):
             raise ValueError(

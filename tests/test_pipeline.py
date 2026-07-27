@@ -3799,3 +3799,53 @@ def test_the_golden_draft_scores_against_its_own_expectation():
     # A retired requirement is not evidence of coverage.
     doc["requirements"][0]["human"] = {"status": "retired"}
     assert eval_mod.score(expected, doc)["total_requirements"] == len(draft) - 1
+
+
+# --- getting the language wrong was silent ------------------------------------
+
+def test_a_statement_in_another_script_says_the_locale_is_wrong():
+    """The vague-term check decides whether a requirement can be verified at
+    all, and it is the check a wrong locale switches off. A Korean document
+    linted as English passed clean while containing '적절히'."""
+    korean = _doc(statement="데이터는 적절히 보호되어야 한다.")
+    as_english = _rules(lint_mod.lint(korean, "en", None))
+    assert "locale-mismatch" in as_english
+
+    as_korean = lint_mod.lint(korean, "ko", None)
+    assert "locale-mismatch" not in _rules(as_korean)
+    assert "vague" in _rules(as_korean), "and the ko rules find what en could not"
+
+    # Latin script is not claimed for any locale.
+    english = _doc(statement="Data at rest must be encrypted with a customer-managed key.")
+    assert "locale-mismatch" not in _rules(lint_mod.lint(english, "en", None))
+    assert lint_mod.script_of("Data at rest must be encrypted.") is None
+
+
+def test_an_unsupported_locale_is_refused_rather_than_quietly_english():
+    """`VAGUE.get(locale, [])` returns nothing and `MODAL.get` falls back, so a
+    Japanese document run with --locale ja got the English rules and no word
+    about it."""
+    r = _run_cli("lint.py", str(REPO_ROOT / "tests" / "does-not-matter.yaml"), "--locale", "ja")
+    assert r.returncode == 2
+    assert "not supported" in r.stderr
+    assert "en, ko" in r.stderr
+
+    assert lint_mod.script_of("データは保護されなければならない") == "ja"
+    assert lint_mod.script_of("数据必须加密") == "zh"
+
+
+def test_a_threat_list_that_is_a_string_says_so():
+    """A string is iterable. Read as a list it produced "threats[0] is 'n'; each
+    threat must be a mapping" -- an error naming a character, which is the shape
+    of mistake this repository has corrected in four other places."""
+    controls = {"controls": ["AC-3"], "forced_requirements": []}
+    resp = {"controls": [{"control": "AC-3", "responsibility": "team", "services": []}]}
+
+    with pytest.raises(ValueError) as exc:
+        merge.cross(controls, resp, {"threats": "not a list"})
+    assert "must be a list" in str(exc.value)
+    assert "'n'" not in str(exc.value)
+
+    with pytest.raises(ValueError) as exc:
+        merge.cross(controls, resp, {"threats": {"id": "T1"}})
+    assert "still goes in a list" in str(exc.value)

@@ -209,9 +209,44 @@ def check_sources(
     return findings
 
 
+# Scripts a statement may be written in, and the locale whose rules cover them.
+# Checked because getting the locale wrong is silent in the direction that
+# matters: a Korean document linted as English passes clean while containing
+# '적절히', and the vague-term check is the one that decides whether a
+# requirement can be verified at all.
+SCRIPT_RANGES = {
+    "ko": (("\uac00", "\ud7a3"), ("\u1100", "\u11ff")),
+    "ja": (("\u3040", "\u309f"), ("\u30a0", "\u30ff")),
+    "zh": (("\u4e00", "\u9fff"),),
+}
+
+
+def script_of(text: str) -> str | None:
+    """Which script the statement is mostly written in, or None for Latin."""
+    for locale, ranges in SCRIPT_RANGES.items():
+        if any(low <= ch <= high for ch in text for low, high in ranges):
+            # Japanese kana before Han, because Japanese text carries both.
+            if locale == "zh" and any(
+                    low <= ch <= high for ch in text
+                    for low, high in SCRIPT_RANGES["ja"]):
+                return "ja"
+            return locale
+    return None
+
+
 def check_statement(req_id: str, statement: str, locale: str) -> list[Finding]:
     findings = []
     lowered = statement.lower()
+
+    written_in = script_of(statement)
+    if written_in and written_in != locale:
+        supported = ", ".join(sorted(VAGUE))
+        findings.append(Finding(
+            "ERROR", req_id, "locale-mismatch",
+            f"the statement is written in {written_in} and the linter was run with "
+            f"--locale {locale}, so only the {locale} rules were applied"
+            + (f". Re-run with --locale {written_in}." if written_in in VAGUE
+               else f". {written_in} is not supported; the rules cover {supported}.")))
 
     for term in VAGUE.get(locale, []) + VAGUE["en"]:
         if term in lowered:
@@ -387,6 +422,16 @@ def main() -> int:
     ap.add_argument("--strict", action="store_true", help="treat warnings as failures")
     args = ap.parse_args()
 
+    # Before the file is opened. An unsupported locale is a usage error, and
+    # checking it after the read reported a missing file when the argument was
+    # what was wrong.
+    if args.locale not in VAGUE:
+        print(f"--locale {args.locale} is not supported; the rules cover "
+              f"{', '.join(sorted(VAGUE))}. Falling back to English would check a "
+              f"document nobody wrote in English, so nothing is checked instead.",
+              file=sys.stderr)
+        return 2
+
     doc = yaml.safe_load(args.requirements.read_text(encoding="utf-8")) or {}
     threats = None
     if args.threats and args.threats.exists():
@@ -404,6 +449,10 @@ def main() -> int:
     print(f"{len(errors)} error(s), {len(warnings)} warning(s)")
 
     if errors:
+        # Flushed first. stdout carries the findings and stderr the verdict, and
+        # unflushed the terminal showed "Blocked." above the list of what
+        # blocked it.
+        sys.stdout.flush()
         print("\nBlocked. A cited identifier that does not exist, or a requirement with no way\n"
               "to check it, discredits the whole document.", file=sys.stderr)
         return 1
