@@ -70,14 +70,31 @@ def catalog_meta() -> dict:
 
 
 def function_of(req: dict) -> str:
+    """Which CSF function a requirement is filed under.
+
+    A scalar `csf: "PR.DS-01"` indexed to the character "P", so the requirement
+    dropped out of PROTECT into the unclassified bin at the foot of the
+    document -- a silent misfiling, invisible unless someone counts.
+    """
     csf = (req.get("managed") or {}).get("csf") or []
-    if not csf:
-        return "??"
-    return csf[0].split(".")[0].upper()
+    if isinstance(csf, str):
+        csf = [csf]
+    for entry in csf:
+        if isinstance(entry, str) and entry.strip():
+            return entry.strip().split(".")[0].upper()
+    return "??"
 
 
 def active(req: dict) -> bool:
-    return (req.get("human") or {}).get("status") not in ("retired", "superseded")
+    """Whether a requirement belongs in the published document.
+
+    The status comparison was case-sensitive, so `RETIRED` read as active and a
+    requirement someone had deliberately retired reappeared as live work.
+    """
+    status = (req.get("human") or {}).get("status")
+    if isinstance(status, str):
+        status = status.strip().lower()
+    return status not in ("retired", "superseded")
 
 
 def provenance(meta: dict) -> str:

@@ -43,19 +43,84 @@ CATALOG_DIR = REPO_ROOT / "catalogs" / "nist-800-53r5"
 # cross
 # --------------------------------------------------------------------------
 
+CONTROL_RE = re.compile(r"^[A-Z]{2}-\d+(?:\(\d+\))?$")
+
+
+def canonical_control(value: str) -> str:
+    """Put a control identifier in the form the catalog uses.
+
+    ``ac-3.1`` is the OSCAL identifier and appears in the bundled records, so it
+    is what someone reading them copies. ``AC-3(1)`` is the form NIST prints and
+    the form the catalog is keyed on. Accepting both costs nothing; accepting
+    only one costs a false finding, see below.
+    """
+    text = value.strip().upper()
+    if "." in text and "(" not in text:
+        base, _, enh = text.partition(".")
+        return f"{base}({enh})"
+    return text
+
+
+def load_catalog_ids() -> set[str]:
+    ids = set()
+    if CATALOG_DIR.exists():
+        for path in CATALOG_DIR.glob("*.jsonl"):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    ids.add(json.loads(line)["id"])
+    return ids
+
+
 def cross(controls_doc: dict, responsibility_doc: dict, threats_doc: dict) -> dict:
     baseline = set(controls_doc["controls"])
     resp = {entry["control"]: entry for entry in responsibility_doc["controls"]}
     threats = threats_doc.get("threats", []) or []
+    catalog = load_catalog_ids()
 
     # control -> threats that name it
     by_control: dict[str, list[str]] = {}
     threat_only = []
-    for threat in threats:
-        related = [c for c in (threat.get("related_controls") or [])]
-        in_baseline = [c for c in related if c in baseline]
+    problems: list[str] = []
+
+    for position, threat in enumerate(threats):
+        if not isinstance(threat, dict):
+            raise ValueError(
+                f"threats[{position}] is {threat!r}; each threat must be a mapping"
+            )
+        threat_id = threat.get("id")
+        if not threat_id:
+            raise ValueError(f"threats[{position}] has no `id`")
+
+        # `threat_only` is the tool's central claim: a risk no control in the
+        # baseline addresses. A mistyped identifier produces exactly the same
+        # outcome as a genuine gap, so a spelling slip manufactures a finding
+        # while also losing the priority raise on the control that was meant.
+        # The two must be distinguishable, so unmatched identifiers are
+        # reported rather than quietly promoted.
+        related = threat.get("related_controls")
+        if related is None:
+            related = []
+        elif not isinstance(related, list):
+            problems.append(f"{threat_id}: related_controls must be a list; read as one item")
+            related = [related]
+
+        resolved = []
+        for raw in related:
+            if not isinstance(raw, str):
+                problems.append(f"{threat_id}: related control {raw!r} is not an identifier")
+                continue
+            control = canonical_control(raw)
+            if not CONTROL_RE.match(control):
+                problems.append(f"{threat_id}: {raw!r} is not a control identifier")
+                continue
+            if catalog and control not in catalog:
+                problems.append(f"{threat_id}: {control} does not exist in the catalog")
+                continue
+            resolved.append(control)
+
+        in_baseline = [c for c in resolved if c in baseline]
         for control in in_baseline:
-            by_control.setdefault(control, []).append(threat["id"])
+            by_control.setdefault(control, []).append(threat_id)
         if not in_baseline:
             threat_only.append(threat)
 
@@ -126,12 +191,18 @@ def cross(controls_doc: dict, responsibility_doc: dict, threats_doc: dict) -> di
     for item in items:
         counts[item["origin"]] = counts.get(item["origin"], 0) + 1
 
-    return {"counts": counts, "items": items}
+    return {"counts": counts, "items": items, "problems": problems}
 
 
 def render_cross(result: dict) -> str:
     counts = result["counts"]
     out = ["Baseline x threat model", ""]
+    if result.get("problems"):
+        out += ["  UNRESOLVED references in the threat model -- these did NOT match a",
+                "  control, so the threats naming them were counted as threat-only.",
+                "  A mistyped identifier and a genuine gap produce the same bucket:"]
+        out += [f"    ! {p}" for p in result["problems"]]
+        out.append("")
     for key, label in (
         ("threat_and_baseline", "threat and baseline (raised priority)"),
         ("threat_only", "threat only (ADDITIONAL requirements)"),

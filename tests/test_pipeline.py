@@ -755,6 +755,54 @@ def test_generic_threat_does_not_raise_to_high(crossed):
     assert item["priority"] == "medium"
 
 
+@pytest.mark.parametrize("written", ["AC-3", "ac-3", " AC-3 ", "Ac-3"])
+def test_related_control_spelling_does_not_fabricate_a_finding(written):
+    """`threat_only` is the tool's central claim: a risk no baseline control
+    addresses. A mistyped identifier produced exactly that outcome, so a
+    spelling slip manufactured a finding while losing the priority raise on the
+    control that was meant. The two were indistinguishable."""
+    controls = {"controls": ["AC-3"], "forced_requirements": []}
+    resp = {"controls": [{"control": "AC-3", "responsibility": "team", "services": []}]}
+    threats = {"threats": [{"id": "T-1", "novelty": "service_specific",
+                            "related_controls": [written]}]}
+    result = merge.cross(controls, resp, threats)
+    assert result["counts"].get("threat_and_baseline") == 1
+    assert not result["counts"].get("threat_only")
+    assert result["problems"] == []
+
+
+def test_oscal_dotted_identifier_resolves():
+    """`ac-3.1` is the identifier in the bundled records, so it is what someone
+    reading them copies; `AC-3(1)` is what the catalog is keyed on."""
+    controls = {"controls": ["AC-3(1)"], "forced_requirements": []}
+    resp = {"controls": [{"control": "AC-3(1)", "responsibility": "team", "services": []}]}
+    threats = {"threats": [{"id": "T-1", "related_controls": ["ac-3.1"]}]}
+    assert merge.cross(controls, resp, threats)["counts"].get("threat_and_baseline") == 1
+
+
+def test_an_unresolvable_reference_is_reported_not_promoted():
+    """A control that does not exist must not silently become a threat-only
+    finding -- the crossing runs before lint, so the false finding is already in
+    the work list by the time anything checks identifiers."""
+    controls = {"controls": ["AC-3"], "forced_requirements": []}
+    resp = {"controls": [{"control": "AC-3", "responsibility": "team", "services": []}]}
+    threats = {"threats": [{"id": "T-1", "related_controls": ["ZZ-9"]}]}
+    result = merge.cross(controls, resp, threats)
+    assert result["counts"].get("threat_only") == 1
+    assert any("ZZ-9" in p for p in result["problems"])
+
+
+@pytest.mark.parametrize("threats,message", [
+    ({"threats": [{"related_controls": []}]}, "id"),
+    ({"threats": ["T-1"]}, "mapping"),
+])
+def test_malformed_threat_records_say_what_is_wrong(threats, message):
+    controls = {"controls": ["AC-3"], "forced_requirements": []}
+    resp = {"controls": [{"control": "AC-3", "responsibility": "team", "services": []}]}
+    with pytest.raises(ValueError, match=message):
+        merge.cross(controls, resp, threats)
+
+
 def test_unmatched_baseline_controls_are_retained(crossed):
     """Coverage is the baseline's contribution. Dropping these loses the ability
     to answer "why is this family absent?"."""
@@ -1042,3 +1090,54 @@ def test_golden_fixture_passes_lint():
     findings = lint_mod.lint(doc, "en", yaml.safe_load((GOLDEN / "threats.yaml").read_text(encoding="utf-8")))
     errors = [f for f in findings if f.level == "ERROR"]
     assert not errors, [str(f) for f in errors]
+
+
+# ---------------------------------------------------------------------------
+# rendering and scoring
+# ---------------------------------------------------------------------------
+
+import render as render_mod  # noqa: E402
+import eval_golden as eval_mod  # noqa: E402
+
+
+def _rendered_req(**managed):
+    base = {"statement": "X must be Y.", "csf": ["PR.DS-01"], "sources": ["SC-28"],
+            "responsibility": "team", "priority": "high",
+            "verification": {"method": "manual", "expect": "ok"}}
+    base.update(managed)
+    return {"id": "REQ-A-B-01", "managed": base, "human": {}}
+
+
+@pytest.mark.parametrize("csf", ["PR.DS-01", ["PR.DS-01"], ["pr.ds-01"], [" PR.DS-01 "]])
+def test_csf_spelling_files_under_the_right_function(csf):
+    """A scalar indexed to the character "P", so the requirement dropped out of
+    PROTECT into the unclassified bin at the foot of the document -- a silent
+    misfiling, invisible unless someone counts."""
+    assert render_mod.function_of(_rendered_req(csf=csf)) == "PR"
+
+
+@pytest.mark.parametrize("status", ["retired", "RETIRED", " Retired ", "superseded"])
+def test_retired_requirements_stay_out_of_the_document(status):
+    """The status comparison was case-sensitive, so `RETIRED` read as active and
+    a requirement someone had deliberately retired reappeared as live work."""
+    req = _rendered_req()
+    req["human"] = {"status": status}
+    assert render_mod.active(req) is False
+
+
+def test_scalar_match_any_is_refused():
+    """It iterated to characters, so a topic matched whenever the statement
+    contained the letter "t". A suite reporting coverage it does not have is
+    worse than no suite."""
+    doc = {"requirements": [
+        {"id": "R", "managed": {"statement": "Audit logs must be immutable."}, "human": {}}]}
+    topic = {"id": "tenant", "must_cover": True, "match_any": "tenant", "description": "d"}
+    with pytest.raises(ValueError, match="list of hints"):
+        eval_mod.score({"topics": [topic], "scoring": {}}, doc)
+
+
+def test_topic_without_hints_is_refused():
+    doc = {"requirements": []}
+    topic = {"id": "t", "must_cover": True, "description": "d"}
+    with pytest.raises(ValueError, match="match_any"):
+        eval_mod.score({"topics": [topic], "scoring": {}}, doc)

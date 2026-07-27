@@ -40,8 +40,19 @@ def haystack(req: dict) -> str:
     return " ".join(parts).lower()
 
 
-def matches(text: str, hints: list[str]) -> bool:
-    return any(hint.lower() in text for hint in hints)
+def matches(text: str, hints) -> bool:
+    """Whether any hint appears in the requirement text.
+
+    A scalar `match_any: "tenant"` iterated to characters, so a topic matched
+    whenever the statement contained the letter "t". A scoring suite that
+    reports coverage it does not have is worse than none.
+    """
+    if isinstance(hints, str):
+        raise ValueError(
+            f"match_any must be a list of hints; {hints!r} was given as a single "
+            f"string, which would be matched character by character"
+        )
+    return any(str(hint).strip().lower() in text for hint in hints or [])
 
 
 def score(expected: dict, doc: dict) -> dict:
@@ -53,6 +64,8 @@ def score(expected: dict, doc: dict) -> dict:
 
     covered, missed = [], []
     for topic in expected.get("topics", []):
+        if "match_any" not in topic:
+            raise ValueError(f"topic {topic.get('id', '<unnamed>')!r} has no `match_any` hints")
         hits = [rid for rid, text in texts.items() if matches(text, topic["match_any"])]
         record = {**topic, "hits": hits}
         (covered if hits else missed).append(record)
