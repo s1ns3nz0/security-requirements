@@ -158,6 +158,23 @@ class ProfileError(Exception):
     pass
 
 
+def reads_as_personal(spec: dict, entry: dict, modifiers: dict) -> bool:
+    """Whether this declared type counts as personal data here.
+
+    The table's flag is a default and the profile can say it is wrong, the same
+    way service_content says the exclusion is wrong. GDPR protects natural
+    persons and says nothing about legal ones, so a purchase ledger holding only
+    supplier company accounts is not processing personal data -- and the flag,
+    set unconditionally, routed exactly that service into the Regulation.
+    """
+    if not spec.get("personal_data"):
+        return False
+    for mod_id in (entry.get("modifiers") or []) if isinstance(entry, dict) else []:
+        if (modifiers.get(mod_id) or {}).get("not_personal"):
+            return False
+    return True
+
+
 def excluded_from_water_mark(spec: dict, entry: dict, modifiers: dict) -> bool:
     """Whether this declared type stays out of the categorisation pools.
 
@@ -199,6 +216,14 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
     evidence_c = evidence_i = 0
     conf_why, integ_why, flags, triggers = [], [], [], []
     modifier_forced = []
+
+    trigger_specs_local = table.get("regulatory_triggers", {}) or {}
+
+    def personhood_ok(trigger_id: str, entry: dict) -> bool:
+        """A regime that protects people is not reached by an organisation's data."""
+        if not trigger_specs_local.get(trigger_id, {}).get("requires_natural_person"):
+            return True
+        return reads_as_personal(types[entry["id"]], entry, modifiers)
 
     def evaluate(entry, allow_inherit):
         spec = types[entry["id"]]
@@ -294,7 +319,8 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
             reason += " [" + "; ".join(applied) + "]"
         conf_why.append(f"{reason}: {c}")
         integ_why.append(f"{label}{f' ({i_note})' if i_note else ''}: {i}")
-        triggers.extend(spec.get("regulatory_triggers", []) or [])
+        triggers.extend(t for t in spec.get("regulatory_triggers", []) or []
+                        if personhood_ok(t, entry))
         flags.extend(spec.get("flags", []) or [])
         return c, i
 
@@ -430,7 +456,8 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
                 line += (f" -- it is {spec[axis]} here, and without it this axis "
                          f"came out {level}")
             why.append(line)
-        triggers.extend(spec.get("regulatory_triggers", []) or [])
+        triggers.extend(t for t in spec.get("regulatory_triggers", []) or []
+                        if personhood_ok(t, entry))
         flags.extend(spec.get("flags", []) or [])
 
     # Requirements a data type demands regardless of what the threat model
@@ -730,8 +757,13 @@ def run(profile: dict) -> dict:
     # merged: it does not change the FIPS 199 categorisation, and folding it in
     # would inflate the security baseline count it is not part of.
     types_table_types = {t["id"]: t for t in types_table["types"]}
-    personal = [e["id"] for e in (profile.get("declared") or {}).get("data_types", [])
-                if types_table_types.get(e["id"] if isinstance(e, dict) else e, {}).get("personal_data")]
+    personal = [
+        (e["id"] if isinstance(e, dict) else e)
+        for e in (profile.get("declared") or {}).get("data_types", [])
+        if reads_as_personal(types_table_types.get(e["id"] if isinstance(e, dict) else e, {}),
+                             e if isinstance(e, dict) else {},
+                             types_table.get("modifiers", {}))
+    ]
     # A trigger marked all_personal_data follows the classification table's
     # personal_data flag rather than waiting to be named by each type. Written
     # the other way round, the GDPR trigger reached three of the nine types the
@@ -884,16 +916,24 @@ def run(profile: dict) -> dict:
                 overlays.append({"id": meta["id"], "trigger": "declared",
                                  "label": meta.get("name", meta["id"])})
 
-    if not confidentiality["from_types"] and not integrity["from_types"]:
+    # Per axis, not only when both are empty. A profile of nothing but model
+    # training data has genuine integrity evidence and none at all for
+    # confidentiality, and requiring both to be empty let that confidentiality
+    # LOW go on presenting itself as an answer.
+    unanswered = [name for name, axis in (("confidentiality", confidentiality),
+                                          ("integrity", integrity))
+                  if not axis["from_types"]]
+    if unanswered:
         declared_ids = ", ".join(
             sorted(e["id"] if isinstance(e, dict) else str(e)
                    for e in (profile.get("declared") or {}).get("data_types", []))) or "nothing"
+        axes = " and ".join(unanswered)
         consistency.append(
-            f"nothing declared here has a categorisation level of its own. {declared_ids} "
+            f"nothing declared here carries a {axes} level of its own. {declared_ids} "
             f"either inherit theirs from content, or are system information kept out of "
-            f"the water mark, so LOW below is the absence of an answer rather than an "
-            f"answer. A backup of a High system is a High system. Declare what is being "
-            f"held or copied and re-run.")
+            f"the water mark, so LOW on {'those axes' if len(unanswered) > 1 else 'that axis'} "
+            f"is the absence of an answer rather than an answer. A backup of a High system "
+            f"is a High system. Declare what is being held or copied and re-run.")
 
     # `auth_mechanism` was gathered by the interview, given a rule of its own in
     # the schema so that `none` would survive normalisation -- "the service has

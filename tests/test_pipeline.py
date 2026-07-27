@@ -2870,3 +2870,73 @@ def test_the_snapshot_an_inheriting_type_writes_is_not_evidence():
 
     mixed = _onprem(data_types=[{"id": "backups"}, {"id": "internal_ops"}])
     assert sb.run(mixed)["impact"]["confidentiality"]["from_types"] == 1
+
+
+def test_the_overlay_itself_refuses_a_bank_account_only_profile():
+    """The first test for this exercised derivation routing from the
+    classification table and never called the overlay matcher, so reverting the
+    overlay's own applies_when left it passing."""
+    accounts = _onprem(data_types=[{"id": "bank_account"}], user_regions=["US"])
+    ok, reason, _ = overlay_mod.applies(overlay_mod.load("pci-dss"), accounts)
+    assert ok is False
+    assert "data type" in reason
+
+    cards = _onprem(data_types=[{"id": "payment_card_raw"}], user_regions=["US"])
+    assert overlay_mod.applies(overlay_mod.load("pci-dss"), cards)[0] is True
+
+
+def test_an_organisations_data_does_not_reach_a_regime_that_protects_people():
+    """GDPR protects natural persons and says nothing about legal ones, so a
+    purchase ledger of supplier company accounts is not processing personal
+    data. Flagging bank_account unconditionally routed exactly that service into
+    the Regulation, the privacy baseline, and PIPA."""
+    corporate = _onprem(data_types=[{"id": "bank_account", "modifiers": ["legal_entity_only"]}],
+                        user_regions=["DE"])
+    result = sb.run(corporate)
+    assert result["personal_data_types"] == []
+    assert result["applicable_overlays"] == []
+    assert result["privacy_baseline_applies"] is False
+
+    # The default is still a person's account, because payroll, refunds, and
+    # sole traders are the common case.
+    personal = _onprem(data_types=[{"id": "bank_account"}], user_regions=["DE"])
+    assert "gdpr" in sb.run(personal)["applicable_overlays"]
+
+
+def test_the_flag_and_the_per_type_trigger_list_agree():
+    """Two routes to the same question, and they were free to disagree: a
+    profile came out with no personal data and GDPR applying anyway, because the
+    type's own regulatory_triggers never consulted the modifier."""
+    corporate = _onprem(data_types=[{"id": "basic_contact", "modifiers": ["legal_entity_only"]}],
+                        user_regions=["DE"])
+    result = sb.run(corporate)
+    assert result["personal_data_types"] == []
+    assert not result["applicable_overlays"]
+
+    # A regime that is not about personhood is untouched -- a corporate card is
+    # still a card.
+    cards = _onprem(data_types=[{"id": "payment_card_raw", "modifiers": ["legal_entity_only"]}],
+                    user_regions=["US"])
+    assert sb.run(cards)["applicable_overlays"] == ["pci-dss"]
+
+    # And the marking is declared on the triggers rather than guessed from names.
+    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+                            "classification.yaml").read_text(encoding="utf-8"))
+    marked = {k for k, v in table["regulatory_triggers"].items()
+              if v.get("requires_natural_person")}
+    assert "gdpr_personal_data" in marked and "pipa_general" in marked
+    assert "pci_dss" not in marked
+
+
+def test_an_unanswered_axis_is_named_even_when_the_other_is_answered():
+    """The check required both axes to be empty. A profile of nothing but model
+    training data has genuine integrity evidence and none at all for
+    confidentiality, and its confidentiality LOW went on presenting itself as an
+    answer."""
+    lopsided = _onprem(data_types=[{"id": "ml_training_data"}])
+    result = sb.run(lopsided)
+    assert result["impact"]["integrity"]["from_types"] == 1
+    assert result["impact"]["confidentiality"]["from_types"] == 0
+    warned = [w for w in result["consistency_warnings"] if "absence of an answer" in w]
+    assert warned and "confidentiality level" in warned[0]
+    assert "integrity" not in warned[0].split("is the absence")[0]

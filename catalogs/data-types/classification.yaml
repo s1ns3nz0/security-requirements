@@ -85,6 +85,20 @@ modifiers:
       Apply only where there is evidence it does not reach logs, APM traces, or
       error reports.
 
+  legal_entity_only:
+    label: "held for organisations, not for people"
+    # The mirror of service_content: the table gives a default reading of the
+    # type and the profile says it is wrong here. GDPR protects natural
+    # persons and says nothing about legal ones, so a purchase ledger holding
+    # nothing but supplier company accounts is not processing personal data --
+    # and flagging bank_account unconditionally routed exactly that service
+    # into the Regulation, the privacy baseline, and PIPA.
+    not_personal: true
+    note: >-
+      Set this only where every holder is an organisation. A payroll file, a
+      customer refund account, or a sole trader's account is a natural person's,
+      whatever the ledger calls it.
+
   service_content:
     label: "what this service exists to hold"
     # Not an effect. The other modifiers move a level; this one says the table's
@@ -260,17 +274,26 @@ types:
 
   - id: bank_account
     label: "bank account numbers and holder names"
-    # An account number travels with the name of the person it belongs to, which
-    # the label has said all along. Unflagged, a European service holding only
-    # bank details was told GDPR did not reach it.
+    # An account number travels with the name of the holder, which the label has
+    # said all along. Unflagged, a European service holding only bank details was
+    # told GDPR did not reach it.
+    #
+    # The default is a natural person because that is the common case -- payroll,
+    # refunds, sole traders -- and because the cost of the two errors is not
+    # symmetric here. A service whose holders are all organisations says so with
+    # the legal_entity_only modifier.
     personal_data: true
     confidentiality: high
     integrity: high
-    # Not PCI. The standard is scoped to cardholder data -- the primary account
-    # number and what travels with it -- and a bank account number is not that.
-    # A business that takes only transfers is outside the standard entirely, and
-    # telling it otherwise is the false claim this repository exists to avoid.
-    # It fired on every ERP, invoicing, and payroll shape.
+    # Not PCI, with one exception worth knowing. The standard is scoped to
+    # cardholder data -- the primary account number and what travels with it --
+    # and an ordinary bank account number is not that, so a business taking only
+    # transfers is out of scope. The exception is where the account identifier
+    # is itself a primary account number, or carries more of one than truncation
+    # permits, which happens with some card-linked account schemes; there the
+    # standard does reach it. Routing every bank account to PCI fired on every
+    # ERP, invoicing, and payroll shape, so the default is out of scope and the
+    # exception is a thing to check rather than a thing to assume.
     rationale: "A direct route to fraudulent transfer."
 
   - id: transaction_history
@@ -400,6 +423,14 @@ types:
 # fires when its data type is present.
 # ---------------------------------------------------------------------------
 regulatory_triggers:
+  # requires_natural_person marks the regimes that exist to protect people. A
+  # type carrying the legal_entity_only modifier does not reach them: GDPR
+  # protects natural persons and says nothing about legal ones, and a purchase
+  # ledger of supplier company accounts is not processing personal data.
+  # Declared rather than inferred from the trigger's name, because the flag on
+  # the type and the per-type trigger list are two routes to the same question
+  # and they were free to disagree -- a profile came out with no personal data
+  # and GDPR applying anyway.
 
   pci_dss:
     overlay: pci-dss
@@ -414,11 +445,13 @@ regulatory_triggers:
     applies_when: {user_regions_any: [US]}
 
   coppa:
+    requires_natural_person: true
     label: "COPPA"
     covered: false
     applies_when: {user_regions_any: [US]}
 
   pipa_general:
+    requires_natural_person: true
     overlay: pipa-isms-p
     # The counterpart of gdpr_personal_data, left behind when that one was made
     # to follow the personal_data flag. It reached the three types that happened
@@ -431,6 +464,7 @@ regulatory_triggers:
     applies_when: {user_regions_any: [KR]}
 
   pipa_unique_identifier:
+    requires_natural_person: true
     overlay: pipa-isms-p
     label: "PIPA (Korea), unique identifying information"
     covered: false
@@ -438,24 +472,28 @@ regulatory_triggers:
     message: "Unique identifying information detected. Confirm the separate legal basis and encryption duty under PIPA."
 
   pipa_sensitive:
+    requires_natural_person: true
     overlay: pipa-isms-p
     label: "PIPA (Korea), sensitive information"
     covered: false
     applies_when: {user_regions_any: [KR]}
 
   pipa_minor:
+    requires_natural_person: true
     overlay: pipa-isms-p
     label: "PIPA (Korea), children's data"
     covered: false
     applies_when: {user_regions_any: [KR]}
 
   pipa_location:
+    requires_natural_person: true
     overlay: pipa-isms-p
     label: "Location Information Act (Korea)"
     covered: false
     applies_when: {user_regions_any: [KR]}
 
   gdpr_personal_data:
+    requires_natural_person: true
     overlay: gdpr
     label: "GDPR"
     covered: false
@@ -468,12 +506,14 @@ regulatory_triggers:
     applies_when: {user_regions_any: [EU, EEA, UK, DE, FR, IE, NL, ES, IT, SE, PL]}
 
   gdpr_special_category:
+    requires_natural_person: true
     overlay: gdpr
     label: "GDPR Article 9 special category data"
     covered: false
     applies_when: {user_regions_any: [EU, EEA, UK, DE, FR, IE, NL, ES, IT, SE, PL]}
 
   gdpr_child:
+    requires_natural_person: true
     overlay: gdpr
     label: "GDPR Article 8"
     covered: false
