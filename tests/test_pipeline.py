@@ -3849,3 +3849,86 @@ def test_a_threat_list_that_is_a_string_says_so():
     with pytest.raises(ValueError) as exc:
         merge.cross(controls, resp, {"threats": {"id": "T1"}})
     assert "still goes in a list" in str(exc.value)
+
+
+def test_a_missing_input_gets_a_sentence(tmp_path):
+    """Every other input error in this repository names the file and the flag.
+    Pointing --controls at the wrong path produced a stack trace ending in
+    FileNotFoundError."""
+    r = _run_cli("merge.py", "--cross", "--controls", str(tmp_path / "nope.json"),
+                 "--responsibility", str(tmp_path / "r.json"),
+                 "--threats", str(tmp_path / "t.yaml"), "--out", str(tmp_path / "o.json"))
+    assert r.returncode == 2
+    assert "Traceback" not in r.stderr
+    assert "does not exist" in r.stderr and "select_baseline.py --json" in r.stderr
+
+
+def test_no_threat_model_is_not_a_threat_model_that_found_nothing(tmp_path, profile):
+    """The difference that hid the largest gap in this repository: sixty-nine
+    public repositories were crossed against a threats file that did not exist,
+    and the output was indistinguishable from a model that found nothing."""
+    derived = sb.run(profile)
+    controls = tmp_path / "controls.json"
+    controls.write_text(json.dumps(derived), encoding="utf-8")
+    resp = tmp_path / "resp.json"
+    resp.write_text(json.dumps(classify_resp.classify(profile, derived["controls"])),
+                    encoding="utf-8")
+    out = tmp_path / "cross.json"
+
+    absent = _run_cli("merge.py", "--cross", "--controls", str(controls),
+                      "--responsibility", str(resp),
+                      "--threats", str(tmp_path / "missing.yaml"), "--out", str(out))
+    assert absent.returncode == 2
+    assert "filtered baseline" in absent.stderr
+    assert not out.exists(), "nothing is written when there is no model to cross against"
+
+    # Saying the modelling was done and found nothing is a different statement,
+    # and it is allowed.
+    empty = tmp_path / "threats.yaml"
+    empty.write_text("version: '0.1.0'\nthreats: []\n", encoding="utf-8")
+    said_so = _run_cli("merge.py", "--cross", "--controls", str(controls),
+                       "--responsibility", str(resp),
+                       "--threats", str(empty), "--out", str(out))
+    assert said_so.returncode == 0
+    assert out.exists()
+    assert "threat-only bucket is empty" in said_so.stdout
+
+
+def test_a_mixed_language_statement_is_not_claimed_for_one_of_them():
+    """`script_of` returned the first non-Latin script it saw anywhere, so an
+    English requirement naming a Korean product was reported as written in
+    Korean and blocked -- a claim about a whole statement made from one
+    character."""
+    for incidental in (
+            "The 카카오톡 integration must not receive personal data.",
+            "Audit records from 로그 must be retained for one year at minimum.",
+            "The 認証 flow must reject an expired token before any handler runs."):
+        assert lint_mod.script_of(incidental) is None, incidental
+        assert "locale-mismatch" not in _rules(lint_mod.lint(_doc(statement=incidental), "en", None))
+
+    # A statement genuinely in another script is still caught.
+    for text, script in (("저장된 개인정보는 고객이 관리하는 키로 암호화되어야 한다.", "ko"),
+                         ("データは保護されなければならない", "ja"),
+                         ("数据必须使用客户管理的密钥加密", "zh")):
+        assert lint_mod.script_of(text) == script, text
+
+
+def test_a_malformed_threat_list_reaches_the_command_line_as_a_sentence(tmp_path, profile):
+    """The ValueError text was improved and then let out of --cross as a
+    traceback, so it arrived wrapped in a stack. The --apply path had converted
+    validation failures to exit 2 all along."""
+    derived = sb.run(profile)
+    controls = tmp_path / "controls.json"
+    controls.write_text(json.dumps(derived), encoding="utf-8")
+    resp = tmp_path / "resp.json"
+    resp.write_text(json.dumps(classify_resp.classify(profile, derived["controls"])),
+                    encoding="utf-8")
+    threats = tmp_path / "threats.yaml"
+    threats.write_text('threats: "not a list"\n', encoding="utf-8")
+
+    r = _run_cli("merge.py", "--cross", "--controls", str(controls),
+                 "--responsibility", str(resp), "--threats", str(threats),
+                 "--out", str(tmp_path / "out.json"))
+    assert r.returncode == 2
+    assert "Traceback" not in r.stderr
+    assert "must be a list" in r.stderr

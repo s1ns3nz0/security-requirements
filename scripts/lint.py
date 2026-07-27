@@ -222,16 +222,33 @@ SCRIPT_RANGES = {
 
 
 def script_of(text: str) -> str | None:
-    """Which script the statement is mostly written in, or None for Latin."""
-    for locale, ranges in SCRIPT_RANGES.items():
-        if any(low <= ch <= high for ch in text for low, high in ranges):
-            # Japanese kana before Han, because Japanese text carries both.
-            if locale == "zh" and any(
-                    low <= ch <= high for ch in text
-                    for low, high in SCRIPT_RANGES["ja"]):
-                return "ja"
-            return locale
-    return None
+    """Which script the statement is largely written in, or None.
+
+    Counted, not sniffed. The first version returned the first non-Latin script
+    it saw anywhere, so an English requirement naming a Korean product was
+    reported as written in Korean and blocked -- a claim about the whole
+    statement made from one character. A quotation or a product name is not the
+    language of the sentence.
+
+    Below the threshold nothing is claimed at all. Script alone cannot settle
+    Japanese written without kana, and a rule that guesses in the direction of
+    blocking is worse than one that stays quiet.
+    """
+    letters = [ch for ch in text if not ch.isspace() and not ch.isdigit()
+               and not (ch.isascii() and not ch.isalpha())]
+    if not letters:
+        return None
+    counts = {locale: sum(1 for ch in letters
+                          for low, high in ranges if low <= ch <= high)
+              for locale, ranges in SCRIPT_RANGES.items()}
+    # Japanese carries Han as well as kana, so any kana at all settles it.
+    if counts["ja"]:
+        counts["zh"] = 0
+    dominant = max(counts, key=lambda k: counts[k])
+    if not counts[dominant]:
+        return None
+    share = counts[dominant] / len(letters)
+    return dominant if share >= 0.5 else None
 
 
 def check_statement(req_id: str, statement: str, locale: str) -> list[Finding]:
@@ -243,7 +260,7 @@ def check_statement(req_id: str, statement: str, locale: str) -> list[Finding]:
         supported = ", ".join(sorted(VAGUE))
         findings.append(Finding(
             "ERROR", req_id, "locale-mismatch",
-            f"the statement is written in {written_in} and the linter was run with "
+            f"the statement is largely {written_in} and the linter was run with "
             f"--locale {locale}, so only the {locale} rules were applied"
             + (f". Re-run with --locale {written_in}." if written_in in VAGUE
                else f". {written_in} is not supported; the rules cover {supported}.")))

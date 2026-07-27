@@ -487,11 +487,42 @@ def main() -> int:
         for name in ("controls", "responsibility", "threats", "out"):
             if getattr(args, name) is None:
                 ap.error(f"--cross requires --{name}")
-        result = cross(
-            json.loads(args.controls.read_text(encoding="utf-8")),
-            json.loads(args.responsibility.read_text(encoding="utf-8")),
-            load_yaml(args.threats, {"threats": []}),
-        )
+
+        # A sentence, not a traceback. Every other input error in this
+        # repository names the file and the flag; pointing --controls at the
+        # wrong path produced a stack trace ending in FileNotFoundError.
+        for name in ("controls", "responsibility"):
+            path = getattr(args, name)
+            if not path.exists():
+                print(f"error: --{name} {path} does not exist. It is written by "
+                      f"{'select_baseline.py --json' if name == 'controls' else 'classify_resp.py --json'}.",
+                      file=sys.stderr)
+                return 2
+
+        # Absent and empty are different facts, and the difference is the one
+        # that hid for a long time here: sixty-nine public repositories were
+        # crossed against a threats file that did not exist, and the output was
+        # indistinguishable from a threat model that found nothing.
+        threats_doc = load_yaml(args.threats, None)
+        if threats_doc is None:
+            print(f"error: --threats {args.threats} does not exist. A crossing with no "
+                  f"threat model is a filtered baseline, which is not what this tool is "
+                  f"for -- write the model first, or pass a file with an empty `threats:` "
+                  f"list to say the modelling was done and found nothing.", file=sys.stderr)
+            return 2
+
+        try:
+            result = cross(
+                json.loads(args.controls.read_text(encoding="utf-8")),
+                json.loads(args.responsibility.read_text(encoding="utf-8")),
+                threats_doc,
+            )
+        except ValueError as exc:
+            # The --apply path already turns a validation failure into a
+            # sentence and exit 2. This one let it out as a traceback, so the
+            # improved message arrived wrapped in a stack.
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
         args.out.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(render_cross(result))
         return 0
