@@ -88,6 +88,21 @@ def applies(overlay: dict, profile: dict, derived: dict | None = None) -> tuple[
     regions = {str(r).strip().upper() for r in declared.get("user_regions") or []}
     types = {e["id"] if isinstance(e, dict) else e for e in declared.get("data_types") or []}
 
+    # Some regimes are elective: nothing in the data triggers them, an
+    # organisation chooses to be certified. Applying those to every profile
+    # makes them noise, so they are matched against what the interview recorded
+    # rather than against what the service holds.
+    elective = meta.get("elective")
+    if elective:
+        aliases = [a.lower() for a in elective.get("aliases") or [meta["id"]]]
+        stated = " ".join(str(x).lower() for x in declared.get("regulations_declared") or [])
+        if not any(a in stated for a in aliases):
+            return False, (f"{meta['name']} is elective and was not named in the profile "
+                           f"(declared.regulations_declared)"), {}
+        elective_reason = "named in the profile as a certification the organisation is pursuing"
+    else:
+        elective_reason = None
+
     wanted_regions = {r.upper() for r in condition.get("user_regions_any") or []}
     if wanted_regions and regions and not (wanted_regions & regions):
         return False, f"no user region in {sorted(wanted_regions)}", {}
@@ -103,7 +118,7 @@ def applies(overlay: dict, profile: dict, derived: dict | None = None) -> tuple[
     # scope on a US health regulation. It is now stated by the overlay.
     selector = meta.get("scope_selector")
     if not selector:
-        return True, "region and declared data types match", {"scope": "full", "areas": None}
+        return True, elective_reason or "region and declared data types match", {"scope": "full", "areas": None}
 
     default = {"scope": "full", "areas": None}
 
@@ -196,6 +211,7 @@ def evaluate(overlay: dict, derived_controls: list[str], scope: dict | None = No
     return {
         "overlay": overlay["id"],
         "depth": overlay["meta"].get("depth") or {},
+        "framing": overlay["meta"].get("framing"),
         "scope": (scope or {}).get("scope", "full"),
         "name": overlay["meta"]["name"],
         "version": overlay["meta"]["version"],
@@ -208,6 +224,19 @@ def evaluate(overlay: dict, derived_controls: list[str], scope: dict | None = No
     }
 
 
+def _wrap(text: str, width: int = 74) -> list[str]:
+    words, lines, current = " ".join(text.split()).split(), [], ""
+    for word in words:
+        if len(current) + len(word) + 1 > width:
+            lines.append(current)
+            current = word
+        else:
+            current = f"{current} {word}".strip()
+    if current:
+        lines.append(current)
+    return lines
+
+
 def render(result: dict, reason: str) -> str:
     scope = result["scope"]
     heading = f"  {reason}" if scope == "full" else f"  scope: {scope} -- {reason}"
@@ -217,6 +246,12 @@ def render(result: dict, reason: str) -> str:
     # coverage count reads as near-compliance unless it is qualified here rather
     # than in a disclaimer at the foot. "11 of 12 covered" is the single most
     # dangerous line this tool can print.
+    # Some regimes are routinely misread about what is actually assessed. Where
+    # an overlay says so, that belongs above the numbers -- it changes how every
+    # count below should be taken.
+    if result.get("framing"):
+        out += ["  " + line for line in _wrap(result["framing"])] + [""]
+
     coarse = result["depth"].get("sub_requirements_enumerated") is False
     if coarse:
         out += [f"  DEPTH: {result['depth'].get('level', 'summary level')} only. The counts below say",

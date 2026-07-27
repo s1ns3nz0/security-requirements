@@ -1,0 +1,58 @@
+id: iso-27001
+name: "ISO/IEC 27001 — Information security management systems"
+version: "2022, clause and Annex A theme level"
+criteria_count: 11
+
+source:
+  authority: "ISO/IEC 27001:2022"
+  reference: "https://www.iso.org/standard/27001"
+  bundled: false
+  note: >-
+    ISO sells the standard and does not permit redistribution. Clause numbers
+    and the four Annex A theme identifiers are used as identifiers; every
+    description here was written for this repository. No ISO wording appears in
+    it.
+
+depth:
+  level: "clauses 4-10 and the four Annex A themes"
+  sub_requirements_enumerated: false
+  note: >-
+    The 93 Annex A controls of the 2022 revision are the licensed content, and
+    their titles are ISO's text. Reproducing them from memory would put
+    fabricated identifiers into a document someone might show a certification
+    body. A.8 alone stands for thirty-four controls here, so treat a line in
+    this overlay as a direction rather than a finding.
+
+# The most misread fact about this standard, and the one an overlay is best
+# placed to state.
+framing: >-
+  Certification is against clauses 4 to 10 -- the management system. Annex A is
+  a reference set, and which of its controls apply is decided by the risk
+  assessment and recorded in the Statement of Applicability, with exclusions
+  justified. A tool that derives technical requirements works almost entirely in
+  Annex A territory and barely touches what is actually certified. Expect the
+  clauses to read as unreached; that is the correct result, not a gap in the
+  derivation.
+
+# Nothing in the data triggers certification -- an organisation chooses it.
+elective:
+  aliases: ["iso 27001", "iso27001", "iso/iec 27001", "isms", "27001"]
+
+applies_when: {}
+
+baseline_effect: {}
+
+mapping:
+  authored: true
+  published_crosswalk_exists: false
+  note: >-
+    The control lists are this repository's reading. The management system
+    clauses map mostly to the PM family, which SP 800-53B allocates to no
+    security baseline at all, so they will report as outside the derived set
+    unless the privacy baseline is in play. That is informative rather than
+    wrong: a derivation does not build a management system and is not meant to.
+
+disclaimer: >-
+  This overlay does not establish conformity with ISO/IEC 27001, is not a
+  Statement of Applicability, and does not substitute for the standard or for a
+  certification body. Obtain the standard from ISO or a national member body.

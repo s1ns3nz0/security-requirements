@@ -33,5 +33,5 @@ Not bundled, by licence:
   overlays/pci-dss/ and overlays/soc2/ follow that rule: they carry requirement
   and criteria-series identifiers, with descriptions written for this
   repository, and stop above the clause a reader is assessed against because
-  the finer numbering is part of the licensed document. No PCI SSC or AICPA
-  wording appears in this repository.
+  the finer numbering is part of the licensed document. No PCI SSC, AICPA, or ISO
+  wording appears in this repository. overlays/iso-27001/ follows the same rule.

@@ -42,6 +42,12 @@ scope_selector:
 
 applies_when: {}
 
+# Nothing in the data triggers a SOC 2 examination -- an organisation chooses to
+# be examined. Applying it to every profile would make it noise, so it is
+# matched against what the interview recorded instead.
+elective:
+  aliases: ["soc 2", "soc2", "soc-2", "trust services", "aicpa"]
+
 baseline_effect: {}
 
 mapping:

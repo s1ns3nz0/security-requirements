@@ -1,0 +1,11 @@
+{"clause": "Clause 4", "area": "management system", "scope_description": "Context of the organisation: the boundary of the management system and what it must satisfy", "text_source": "https://www.iso.org/standard/27001"}
+{"clause": "Clause 5", "area": "management system", "scope_description": "Leadership: policy, accountability, and assigned roles at the top of the organisation", "text_source": "https://www.iso.org/standard/27001"}
+{"clause": "Clause 6", "area": "management system", "scope_description": "Planning: risk assessment and treatment, the Statement of Applicability, and objectives", "text_source": "https://www.iso.org/standard/27001"}
+{"clause": "Clause 7", "area": "management system", "scope_description": "Support: resources, competence, awareness, communication, and documented information", "text_source": "https://www.iso.org/standard/27001"}
+{"clause": "Clause 8", "area": "management system", "scope_description": "Operation: carrying out the planned processes and keeping evidence that they ran", "text_source": "https://www.iso.org/standard/27001"}
+{"clause": "Clause 9", "area": "management system", "scope_description": "Performance evaluation: measurement, internal audit, and management review", "text_source": "https://www.iso.org/standard/27001"}
+{"clause": "Clause 10", "area": "management system", "scope_description": "Improvement: handling nonconformity and taking corrective action", "text_source": "https://www.iso.org/standard/27001"}
+{"clause": "A.5", "area": "Annex A", "scope_description": "Organizational controls: policy, roles, supplier relationships, incident management, continuity", "text_source": "https://www.iso.org/standard/27001"}
+{"clause": "A.6", "area": "Annex A", "scope_description": "People controls: screening, terms of employment, awareness, disciplinary process, and departure", "text_source": "https://www.iso.org/standard/27001"}
+{"clause": "A.7", "area": "Annex A", "scope_description": "Physical controls: perimeters, entry, equipment siting, and secure disposal", "text_source": "https://www.iso.org/standard/27001"}
+{"clause": "A.8", "area": "Annex A", "scope_description": "Technological controls: access, cryptography, logging, configuration, development, and resilience", "text_source": "https://www.iso.org/standard/27001"}
