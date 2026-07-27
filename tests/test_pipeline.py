@@ -4489,3 +4489,59 @@ def test_an_overlay_that_will_not_load_is_reported_rather_than_crashing(tmp_path
                                 meta_change=lambda m: m.update({"criteria_count": 999}))
     assert code == 1
     assert any("gdpr" in line and "criteria_count" in line for line in out)
+
+
+# --- the golden evaluator's failure paths, at the command line ----------------
+
+def _golden_document():
+    draft = json.loads((GOLDEN / "draft.json").read_text(encoding="utf-8"))["requirements"]
+    return {"requirements": [
+        {"id": merge.issue_id(item["slug"], {"issued": {}}), "managed": item["managed"],
+         "human": {}} for item in draft]}
+
+
+def test_the_golden_case_passes_at_the_command_line(tmp_path):
+    """It had never been run. The shipped draft scores at full recall with no
+    excluded subject appearing -- the property a regression in the model stage
+    would break."""
+    doc = tmp_path / "requirements.yaml"
+    doc.write_text(yaml.safe_dump(_golden_document(), sort_keys=False, allow_unicode=True),
+                   encoding="utf-8")
+    r = _run_cli("eval_golden.py", str(GOLDEN), str(doc))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "recall 100%" in r.stdout
+
+
+def test_an_excluded_subject_appearing_fails_the_case(tmp_path):
+    """must_not_cover is how the suite catches the tool prescribing something
+    the profile said the organisation already has -- telling a team that runs
+    company-wide SSO to introduce it."""
+    expected = yaml.safe_load((GOLDEN / "expected-coverage.yaml").read_text(encoding="utf-8"))
+    forbidden = expected["must_not_cover"][0]["match_any"][0]
+
+    document = _golden_document()
+    document["requirements"][0]["managed"]["statement"] = \
+        f"The service must {forbidden} for every tenant."
+    doc = tmp_path / "requirements.yaml"
+    doc.write_text(yaml.safe_dump(document, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    r = _run_cli("eval_golden.py", str(GOLDEN), str(doc))
+    assert r.returncode == 1
+    assert "Excluded subjects appeared" in r.stdout
+    assert expected["must_not_cover"][0]["id"] in r.stdout
+    assert "already in place" in r.stdout, "and the reason it is excluded"
+
+
+def test_a_thin_document_fails_on_the_topics_a_baseline_cannot_reach(tmp_path):
+    """The critical topics are the ones a baseline-only run cannot produce.
+    Missing them means the threat model returned generic material, which is the
+    failure the whole tool is arranged against."""
+    doc = tmp_path / "requirements.yaml"
+    doc.write_text(yaml.safe_dump({"requirements": [
+        {"id": "REQ-A-B-01", "managed": {"statement": "nothing much"}, "human": {}}]}),
+        encoding="utf-8")
+    r = _run_cli("eval_golden.py", str(GOLDEN), str(doc))
+    assert r.returncode == 1
+    assert "Critical topics missing" in r.stdout
+    assert "Recall below threshold" in r.stdout
+    assert "baseline-only run cannot reach" in r.stdout
