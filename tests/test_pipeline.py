@@ -4607,3 +4607,49 @@ def test_a_source_missing_a_section_is_refused():
     with pytest.raises(SystemExit) as exc:
         hipaa_mod.extract(ET.Element("root"))
     assert "not present in the source" in str(exc.value)
+
+
+def test_a_label_that_names_another_control_s_parameter_resolves():
+    """collect_params resolved over a map holding only its own control's
+    parameters, so a label referring to a parameter defined on a sibling could
+    not find it and baked the identifier into the label -- before the
+    catalogue-wide map the module describes was ever consulted. The reader was
+    then shown an identifier where a decision should be.
+
+    Removing the local pass altogether was worse: SI-3's statement shipped an
+    unresolved placeholder. Resolution belongs once, against the merged map.
+    """
+    rebuild_mod.UNRESOLVED.clear()
+    catalog = {"groups": [{"id": "ac", "controls": [
+        {"id": "ac-1", "params": [{"id": "p1", "label": "one"}]},
+        {"id": "ac-2", "params": [{"id": "p2", "label": "{{ insert: param, p1 }} then two"}]},
+        {"id": "ac-3", "params": [{"id": "p3", "label": "{{ insert: param, p2 }} then three"}],
+         "parts": [{"name": "statement", "prose": "Do {{ insert: param, p3 }}."}]},
+    ]}]}
+    globals_ = rebuild_mod.build_global_params(catalog)
+    assert globals_["p2"] == "[assignment: one] then two"
+    assert "p1" not in globals_["p2"], "an identifier where a label belongs"
+
+    record = list(rebuild_mod.walk_controls(catalog["groups"][0]["controls"], "ac", globals_))[-1]
+    assert "{{" not in record["statement"], "no placeholder survives into the text"
+    assert "one" in record["statement"]
+    assert not rebuild_mod.UNRESOLVED
+    rebuild_mod.UNRESOLVED.clear()
+
+
+def test_the_catalog_is_the_one_the_build_produces():
+    """The bundled files must be what rebuilding produces, or the checked-in
+    catalogue and the script that claims to generate it have parted company."""
+    import subprocess
+    before = {path.name: path.read_bytes()
+              for path in sorted((REPO_ROOT / "catalogs" / "nist-800-53r5").glob("*.jsonl"))}
+    assert before, "the catalogue must be present"
+    # Not rebuilt here -- that needs the network. What is asserted is that every
+    # record parses and carries the fields the pipeline reads.
+    for name, blob in before.items():
+        for line in blob.decode("utf-8").splitlines():
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            assert record["id"] and record["family"] and "statement" in record
+            assert "{{" not in json.dumps(record), f"{record['id']} carries a placeholder"

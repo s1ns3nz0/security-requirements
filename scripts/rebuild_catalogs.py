@@ -165,6 +165,11 @@ def collect_params(control: dict) -> dict[str, str]:
     Without this pass, raw ids such as ``ac-07_odp.04`` survive into the
     requirement text a reader is asked to act on.
     """
+    # Collected raw. Resolving here, over a map holding only this control's
+    # parameters, meant a label referring to a parameter defined on a sibling
+    # could not find it and baked the identifier into the label -- before the
+    # catalogue-wide map the docstring above describes was ever consulted.
+    # Resolution happens once, against the merged map, in resolve_map below.
     out = {}
     for param in control.get("params", []):
         label = param_label(param)
@@ -172,12 +177,23 @@ def collect_params(control: dict) -> dict[str, str]:
         for prop in param.get("props", []):
             if prop.get("name") == "alt-identifier":
                 out[prop["value"]] = label
-
-    for _ in range(3):
-        if not any(PARAM_RE.search(v) for v in out.values()):
-            break
-        out = {k: resolve_params(v, out) for k, v in out.items()}
     return out
+
+
+def resolve_map(params: dict[str, str]) -> dict[str, str]:
+    """Resolve labels that refer to other labels, against the whole map.
+
+    Two passes are needed and no more: a label may embed a reference, and the
+    label it names may embed one of its own -- AC-7's lockout options nest that
+    far. Run against a control-local map instead, a cross-control reference
+    resolves to the identifier and the reader is shown `ac-07_odp.04` where a
+    decision should be.
+    """
+    for _ in range(3):
+        if not any(PARAM_RE.search(v) for v in params.values()):
+            break
+        params = {k: resolve_params(v, params) for k, v in params.items()}
+    return params
 
 
 def resolve_params(prose: str, params: dict[str, str]) -> str:
@@ -268,11 +284,7 @@ def build_global_params(catalog: dict) -> dict[str, str]:
     for group in catalog.get("groups", []):
         visit(group.get("controls", []))
 
-    for _ in range(3):
-        if not any(PARAM_RE.search(v) for v in merged.values()):
-            break
-        merged = {k: resolve_params(v, merged) for k, v in merged.items()}
-    return merged
+    return resolve_map(merged)
 
 
 def walk_controls(
@@ -282,7 +294,7 @@ def walk_controls(
     parent: str | None = None,
 ):
     for control in controls:
-        params = {**global_params, **collect_params(control)}
+        params = resolve_map({**global_params, **collect_params(control)})
         oscal_id = control["id"]
         yield {
             "id": display_id(oscal_id),
