@@ -97,7 +97,12 @@ VAGUE = {
 # obligation with three parts, while "X must ... and Y must ..." is two. Testing
 # for `and` alone flags every enumeration and trains the reader to skip the
 # warning.
-QUOTED_SPAN = re.compile(r"\"[^\"]*\"|\u201c[^\u201d]*\u201d|\u300c[^\u300d]*\u300d|'[^']*'")
+# Double quotes only. `'[^']*'` was here for one commit and the apostrophe took
+# it out: "the organisation's data must be encrypted and the team's key must be
+# rotated" has two possessives, so the span between them was stripped as a quote
+# and a genuine second obligation disappeared. The curly apostrophe is the same
+# character English typesets a possessive with, so it is out for the same reason.
+QUOTED_SPAN = re.compile("\"[^\"]*\"|\u201c[^\u201d]*\u201d|\u300c[^\u300d]*\u300d")
 
 MODAL = {
     "en": r"\b(?:must|shall|is required to|are required to)\b",

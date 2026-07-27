@@ -5671,6 +5671,45 @@ def test_a_requirement_that_traces_to_nothing_does_not_publish():
     assert not [f for f in lint_mod.lint(cited, "en", None) if f.rule == "no-basis"]
 
 
+@pytest.mark.parametrize("statement,expected", [
+    # Two possessives are not a quoted span, and treating them as one hid a
+    # genuine second obligation for exactly as long as the rule existed.
+    ("the organisation's data must be encrypted and the team's key must be rotated", True),
+    ("the organisation's data must be encrypted", False),
+    ('the statement "systems must be hardened" must be met', False),
+])
+def test_an_apostrophe_is_not_a_quotation_mark(statement, expected):
+    """Stripping quoted spans stops a statement that quotes its own control from
+    reading as two obligations. Including the straight single quote made the
+    apostrophe a delimiter, and English uses it as a possessive twice a
+    sentence."""
+    warned = any(f.rule == "not-atomic"
+                 for f in lint_mod.check_statement("REQ-X-01", statement, "en"))
+    assert warned == expected, statement
+
+
+@pytest.mark.parametrize("url", [
+    "https://csrc.nist.gov@evil.com/",       # allowlisted host as userinfo
+    "https://evil.com\\@csrc.nist.gov/",
+    "https://csrc.nist.gov\\.evil.com/",
+    "https://csrc.nist.gov%2f@evil.com/",
+    "https://csrc.nist.g\u043ev/",              # Cyrillic o
+    "https://csrc.nist.gov.evil.com/",       # allowlisted host as a prefix
+    "https://evil.com/?u=https://csrc.nist.gov",
+])
+def test_the_allowlist_cannot_be_reached_by_dressing_a_host_up(url):
+    """This parser grants permission, so every way it can be confused is a way
+    to publish. Each of these puts a recognised citation host somewhere in the
+    string without the request going there."""
+    assert lint_mod.url_problem(url) is not None, f"{url} was granted publication"
+
+
+def test_a_trailing_dot_is_the_same_host():
+    """The one shape that looks like an attack and is not: a fully-qualified
+    name with the root label written out is the host it appears to be."""
+    assert lint_mod.url_problem("https://CSRC.NIST.GOV./x") is None
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and
