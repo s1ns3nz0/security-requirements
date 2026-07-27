@@ -1,0 +1,121 @@
+# Azure Blob Storage -- control responsibility
+#
+# The first non-AWS curation. Added after an Azure target swept clean through
+# the pipeline with every one of its services unverified, which was honest but
+# meant the responsibility split carried no service-level resolution at all.
+#
+# See aws-s3.yaml for the meaning of reviewed / csp_part / team_part.
+
+service: azure-blob
+provider: azure
+display_name: "Azure Blob Storage"
+reviewed: true
+reviewed_on: "2026-07-27"
+
+controls:
+
+  SC-28:
+    responsibility: shared
+    csp_part: >-
+      Encrypts all blob content at rest with service-managed keys; encryption
+      cannot be turned off.
+    team_part: >-
+      Choose the key. The default is a Microsoft-managed key, which leaves the
+      organisation without key custody and without the ability to revoke access
+      by disabling the key.
+    evidence:
+      - "Microsoft SOC 2 Type II report (Azure Storage)"
+      - "storage account encryption.keySource"
+    verification:
+      method: config_api
+      target: "storage account encryption settings"
+      expect: "keySource is Microsoft.Keyvault with a customer-managed key where key custody is required"
+
+  SC-8:
+    responsibility: shared
+    csp_part: "Terminates TLS on the storage endpoint."
+    team_part: >-
+      Require secure transfer and set a minimum TLS version. A storage account
+      created before the current default, or from an older template, may still
+      accept plain HTTP.
+    verification:
+      method: config_api
+      target: "storage account supportsHttpsTrafficOnly, minimumTlsVersion"
+      expect: "supportsHttpsTrafficOnly true, minimumTlsVersion TLS1_2 or higher"
+
+  AC-3:
+    responsibility: team
+    team_part: >-
+      Disable anonymous blob access at the account level, not only per
+      container. Public access set on the account permits any container to be
+      made public later, and that change does not surface as a new resource.
+    verification:
+      method: config_api
+      target: "storage account allowBlobPublicAccess"
+      expect: "false unless public serving is an explicit requirement"
+
+  AC-21:
+    responsibility: team
+    team_part: >-
+      Where blobs are shared externally, prefer user delegation SAS over account
+      SAS and bound the expiry. An account SAS is signed with the account key,
+      so it cannot be revoked individually and outlives any single share.
+    note: >-
+      The account key is the equivalent of a permanent root credential for the
+      storage account. A SAS derived from it inherits that lifetime.
+    verification:
+      method: code_grep
+      target: "SAS generation call sites"
+      expect: "user delegation SAS with a bounded expiry, not account key signing"
+
+  IA-5:
+    responsibility: team
+    team_part: >-
+      Disable shared key authorisation and use Entra ID identities. While shared
+      key access is permitted, possession of the account key bypasses every
+      role assignment on the account.
+    verification:
+      method: config_api
+      target: "storage account allowSharedKeyAccess"
+      expect: "false, with data plane access through Entra ID role assignments"
+
+  AU-2:
+    responsibility: shared
+    csp_part: "Records control plane operations in the Azure Activity Log."
+    team_part: >-
+      Data plane reads and writes are not recorded unless a diagnostic setting
+      for the blob service is created. The Activity Log shows that a container
+      was created, never what was read from it.
+    verification:
+      method: config_api
+      target: "diagnostic settings on the blob service"
+      expect: "StorageRead and StorageWrite categories routed to a retained destination"
+
+  SI-12:
+    responsibility: team
+    team_part: >-
+      Set a lifecycle management policy for content subject to a retention
+      limit. Without one, blobs persist until deleted by hand.
+    note: >-
+      Where soft delete or versioning is enabled, deletion retains prior
+      versions for the configured window. Confirm that the retention period is
+      the intended one rather than the default.
+    verification:
+      method: config_api
+      target: "lifecycle management policy; blob soft delete retention"
+      expect: "a stated retention period consistent with the requirement"
+
+  CP-9:
+    responsibility: shared
+    csp_part: "Replicates within the region according to the chosen redundancy tier."
+    team_part: >-
+      Redundancy is not backup. Locally redundant storage protects against
+      hardware failure, not against deletion or corruption, which replicate
+      faithfully. Enable point-in-time restore or a separate backup where the
+      requirement is recovery from an erroneous write.
+    evidence:
+      - "Microsoft SOC 2 Type II report"
+    verification:
+      method: config_api
+      target: "storage account sku, point-in-time restore policy"
+      expect: "a restore capability separate from replication redundancy"

@@ -106,6 +106,22 @@ def cross(controls_doc: dict, responsibility_doc: dict, threats_doc: dict) -> di
             "threat": threat,
         })
 
+    # Data types that demand a requirement whatever the threat model found.
+    # System-information types reach the output only through this path, having
+    # been excluded from the high water mark; dropping it silently loses the
+    # secret-handling requirements for every service that has secrets.
+    for forced in controls_doc.get("forced_requirements", []) or []:
+        items.append({
+            "origin": "forced_by_data_type",
+            "control": None,
+            "responsibility": "team",
+            "threat_refs": [],
+            "priority": "high",
+            "unverified": False,
+            "services": [],
+            "forced": forced,
+        })
+
     counts = {}
     for item in items:
         counts[item["origin"]] = counts.get(item["origin"], 0) + 1
@@ -119,6 +135,7 @@ def render_cross(result: dict) -> str:
     for key, label in (
         ("threat_and_baseline", "threat and baseline (raised priority)"),
         ("threat_only", "threat only (ADDITIONAL requirements)"),
+        ("forced_by_data_type", "forced by a declared data type"),
         ("baseline_only", "baseline only (retained, lower priority)"),
     ):
         out.append(f"  {counts.get(key, 0):>4}  {label}")

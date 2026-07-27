@@ -187,9 +187,25 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
         triggers.extend(spec.get("regulatory_triggers", []) or [])
         flags.extend(spec.get("flags", []) or [])
 
+    # Requirements a data type demands regardless of what the threat model
+    # found. These address failures that are common and easy to miss, and they
+    # are the only path by which system-information types reach the output at
+    # all -- having been excluded from the water mark, they would otherwise
+    # vanish entirely.
+    forced = []
+    for entry in selected:
+        spec = types[entry["id"]]
+        for req_id in spec.get("forces_requirements", []) or []:
+            forced.append({
+                "id": req_id,
+                "from_data_type": entry["id"],
+                "label": spec["label"],
+                "note": (spec.get("note") or spec.get("rationale") or "").strip(),
+            })
+
     confidentiality = {"level": highest(concrete_c), "because": conf_why}
     integrity = {"level": highest(concrete_i), "because": integ_why}
-    return confidentiality, integrity, sorted(set(flags)), sorted(set(triggers))
+    return confidentiality, integrity, sorted(set(flags)), sorted(set(triggers)), forced
 
 
 def derive_availability(profile: dict, table: dict) -> dict:
@@ -371,7 +387,7 @@ def run(profile: dict) -> dict:
     types_table = yaml.safe_load(DATA_TYPES.read_text(encoding="utf-8"))
     avail_table = yaml.safe_load(AVAILABILITY.read_text(encoding="utf-8"))
 
-    confidentiality, integrity, flags, triggers = derive_confidentiality_integrity(profile, types_table)
+    confidentiality, integrity, flags, triggers, forced = derive_confidentiality_integrity(profile, types_table)
     availability = derive_availability(profile, avail_table)
 
     if availability.pop("integrity_hint", None) == "high":
@@ -432,6 +448,7 @@ def run(profile: dict) -> dict:
         "shape": shape,
         "asvs_level": ASVS_FOR_IMPACT[system] if shape["app_surface"] else None,
         "threat_flags": flags,
+        "forced_requirements": forced,
         "regulatory_flags": triggers,
         "uncovered_regulations": uncovered,
         "cross_border": cross_border,
@@ -501,6 +518,12 @@ def render_gate(result: dict) -> str:
             )
     if result["threat_flags"]:
         out += ["", f"Threat model flags: {', '.join(result['threat_flags'])}"]
+
+    if result.get("forced_requirements"):
+        out += ["", "Requirements forced by the declared data types",
+                "  (generated regardless of what the threat model finds)"]
+        for item in result["forced_requirements"]:
+            out.append(f"  * {item['id']}  <- {item['label']}")
     return "\n".join(out)
 
 

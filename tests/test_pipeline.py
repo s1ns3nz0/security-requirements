@@ -420,6 +420,48 @@ def test_service_entry_can_be_conditional_on_deployment_model(profile):
     assert ec2["source"] == "layers.yaml:iaas"
 
 
+def test_forced_requirements_are_produced(profile):
+    """Found by sweeping an Azure SOC platform.
+
+    `forces_requirements` was declared on four data types and documented in
+    requirement-style.md and the build command, and no script read it. The tool
+    documented a behaviour it did not have -- the implied-coverage failure it
+    exists to prevent. It also meant system-information types produced nothing
+    at all: excluded from the water mark, and with their forced requirements
+    dropped, a service full of secrets got no secret-handling requirement.
+    """
+    with_secrets = copy.deepcopy(profile)
+    with_secrets["declared"]["data_types"] = [
+        {"id": "internal_ops"}, {"id": "config_secrets"}, {"id": "app_logs"},
+    ]
+    forced = sb.run(with_secrets)["forced_requirements"]
+    ids = {f["id"] for f in forced}
+    assert "secret_management" in ids
+    assert "log_sanitization" in ids
+    assert all(f["from_data_type"] and f["label"] for f in forced)
+
+
+def test_forced_requirements_reach_the_work_list(profile):
+    """They must survive the crossing, or the derivation drops them again one
+    step later."""
+    with_secrets = copy.deepcopy(profile)
+    with_secrets["declared"]["data_types"] = [{"id": "internal_ops"}, {"id": "config_secrets"}]
+    derived = sb.run(with_secrets)
+    resp = classify_resp.classify(with_secrets, derived["controls"])
+    crossed = merge.cross(derived, resp, {"threats": []})
+    assert crossed["counts"].get("forced_by_data_type", 0) >= 1
+
+
+def test_availability_hint_is_gone(profile):
+    """config_secrets once carried availability_hint: high. Nothing read it, and
+    wiring it would have driven availability to High for every service that
+    holds secrets -- which is every service."""
+    table = yaml.safe_load(
+        (REPO_ROOT / "catalogs" / "data-types" / "classification.yaml").read_text(encoding="utf-8")
+    )
+    assert not any("availability_hint" in t for t in table["types"])
+
+
 def test_no_provider_means_no_provider_claims(profile):
     """Found by sweeping an on-premise profile with csp: none.
 
@@ -459,13 +501,24 @@ def test_asvs_not_issued_without_an_app_surface(profile):
 def test_unknown_deployment_model_is_flagged(profile):
     """Found by sweeping a profile that said "kubernetes". An unrecognised
     model silently disabled every model override and applies_when condition --
-    a typo would degrade the whole layer with no visible symptom."""
-    k8s = copy.deepcopy(profile)
-    k8s["inferred"]["deployment_model"] = "kubernetes"
-    result = classify_resp.classify(k8s, ["SC-39"])
-    assert result["deployment_model_recognised"] is False
+    a typo would degrade the whole layer with no visible symptom.
+
+    Kubernetes was subsequently added as a model, so the check uses a value that
+    is genuinely unknown.
+    """
+    typo = copy.deepcopy(profile)
+    typo["inferred"]["deployment_model"] = "serverles"
+    assert classify_resp.classify(typo, ["SC-39"])["deployment_model_recognised"] is False
 
     assert classify_resp.classify(profile, ["SC-39"])["deployment_model_recognised"] is True
+
+    k8s = copy.deepcopy(profile)
+    k8s["inferred"]["deployment_model"] = "kubernetes"
+    result = classify_resp.classify(k8s, ["SC-7", "SC-39"])
+    assert result["deployment_model_recognised"] is True
+    # Without a NetworkPolicy every pod reaches every other pod, so the boundary
+    # is the team's to draw rather than the provider's to supply.
+    assert result["controls"][0]["responsibility"] == "team"
 
 
 def test_family_default_covers_unlisted_controls(profile):

@@ -85,6 +85,16 @@ modifiers:
       Apply only where there is evidence it does not reach logs, APM traces, or
       error reports.
 
+# Removed: `availability_hint`
+#
+# config_secrets once carried `availability_hint: high`, on the reasoning that
+# losing the secret store also halts the service. Nothing ever read the field,
+# and wiring it would have been wrong: nearly every service holds secrets, so it
+# would have driven availability to High everywhere and returned the tool to
+# issuing 370-control baselines by default. Dependency availability is a threat
+# model concern and an SC-12 requirement, not an input to categorisation.
+# Do not reintroduce it.
+
 # Rejected as reduction grounds -- these are circular
 rejected_modifiers:
   - id: encrypted_at_rest
@@ -170,7 +180,6 @@ types:
     system_information: true
     confidentiality: high
     integrity: high
-    availability_hint: high
     forces_requirements: [secret_management]
     rationale: >-
       A path to whole-system compromise, and the one data type whose loss also

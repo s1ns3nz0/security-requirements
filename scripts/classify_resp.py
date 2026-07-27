@@ -249,8 +249,10 @@ def render(result: dict) -> str:
 
     if result["services_uncurated"]:
         out += ["", "Unverified services (no curated responsibility file)"]
+        fallback = ("the deployment model layer" if result.get("deployment_model_recognised", True)
+                    else "family defaults only -- the deployment model was not recognised either")
         for sid in result["services_uncurated"]:
-            out.append(f"  ? {sid} -- classification falls back to the deployment model layer")
+            out.append(f"  ? {sid} -- classification falls back to {fallback}")
 
     undetermined = [e["control"] for e in result["controls"] if e["responsibility"] == "undetermined"]
     if undetermined:

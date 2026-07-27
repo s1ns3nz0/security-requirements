@@ -278,6 +278,38 @@ deployment_models:
       MA-2: shared         # controlled maintenance of the instances
       CM-6: team
 
+  kubernetes:
+    description: >-
+      Workloads on a Kubernetes cluster, managed control plane or self-hosted.
+      Added after two of seven swept repositories declared this model and got a
+      silently degraded classification, because it was not in the enumeration.
+    overrides:
+      # The provider isolates nodes on a managed cluster; the pod security
+      # context that isolates containers from each other is the team's, and it
+      # is permissive by default.
+      SC-39: shared
+      SI-16: shared
+      # Node images are the provider's on a managed cluster, workload images
+      # are always the team's.
+      SI-2: shared
+      SI-2(2): shared
+      SI-3: shared
+      # Manifests are the configuration. Nothing about them is inherited.
+      CM-2: team
+      CM-2(2): team
+      CM-6: team
+      CM-7: team
+      # Without a NetworkPolicy every pod reaches every other pod. The default
+      # is a flat network, so the boundary is entirely the team's to draw.
+      SC-7: team
+      SC-7(3): team
+      SC-7(4): shared
+      SC-7(5): team
+      AU-4: shared
+      SC-5: shared        # horizontal scaling and resource limits are the team's
+      CP-10: shared
+      IA-5: team          # secret objects are base64, not encrypted, by default
+
   saas:
     description: "The organisation consumes a third-party application."
     overrides:
