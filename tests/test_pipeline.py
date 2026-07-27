@@ -6640,6 +6640,141 @@ def test_every_integrity_hint_the_catalogue_declares_is_applied():
             sb.LEVELS.index(plain["impact"]["integrity"]["level"])
 
 
+# --- the command lines, end to end --------------------------------------------
+#
+# A parameter was once removed from a function while its caller kept passing it,
+# and 253 tests stayed green because none of them ran a command line. These do.
+
+def _requirements_file(path, **managed):
+    base = {"statement": "Data at rest is encrypted with a customer-managed key.",
+            "csf": ["PR.DS-01"], "sources": ["SC-28"], "responsibility": "team",
+            "evidence": ["control test 2026-Q1"],
+            "verification": {"method": "iac_inspect", "target": "the bucket encryption "
+                             "configuration", "expect": "a customer-managed key is set"}}
+    base.update(managed)
+    path.write_text(yaml.safe_dump(
+        {"requirements": [{"id": "REQ-DATA-REST-01", "managed": base, "human": {}}]},
+        sort_keys=False, allow_unicode=True), encoding="utf-8")
+    return path
+
+
+def test_the_linter_blocks_on_stderr_after_printing_what_blocked_it(tmp_path, capsys, monkeypatch):
+    """stdout carries the findings and stderr the verdict. Unflushed, the
+    terminal showed "Blocked." above the list of what blocked it."""
+    doc = _requirements_file(tmp_path / "requirements.yaml", sources=["ZZ-99"])
+    monkeypatch.setattr(sys, "argv", ["lint.py", str(doc)])
+    assert lint_mod.main() == 1
+    captured = capsys.readouterr()
+    assert "ZZ-99" in captured.out
+    assert "Blocked." in captured.err
+    assert "1 error(s)" in captured.out
+
+
+def test_the_linter_passes_a_clean_document_and_counts_nothing(tmp_path, capsys, monkeypatch):
+    doc = _requirements_file(tmp_path / "requirements.yaml")
+    monkeypatch.setattr(sys, "argv", ["lint.py", str(doc)])
+    assert lint_mod.main() == 0
+    assert "0 error(s), 0 warning(s)" in capsys.readouterr().out
+
+
+def test_strict_is_the_difference_between_a_warning_and_a_failure(tmp_path, capsys, monkeypatch):
+    """The publishing step runs without it, so a style note cannot block a
+    document that is safe to publish. Editing a draft is where it earns its
+    keep."""
+    doc = _requirements_file(tmp_path / "requirements.yaml", statement="Encrypt backups.")
+    monkeypatch.setattr(sys, "argv", ["lint.py", str(doc)])
+    assert lint_mod.main() == 0
+    assert "warning(s)" in capsys.readouterr().out
+
+    monkeypatch.setattr(sys, "argv", ["lint.py", str(doc), "--strict"])
+    assert lint_mod.main() == 1
+
+
+def test_the_linter_reads_a_threat_file_when_given_one(tmp_path, capsys, monkeypatch):
+    """A threat reference that names nothing is a citation to a document the
+    reader cannot find."""
+    doc = _requirements_file(tmp_path / "requirements.yaml", threat_refs=["T-99"])
+    threats = tmp_path / "threats.yaml"
+    threats.write_text(yaml.safe_dump({"threats": [{"id": "T-01", "title": "A threat"}]}),
+                       encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["lint.py", str(doc), "--threats", str(threats)])
+    assert lint_mod.main() == 1
+    assert "T-99" in capsys.readouterr().out
+
+
+def test_an_unsupported_locale_is_refused_before_the_file_is_read(tmp_path, monkeypatch):
+    """Exit 2, and before the read, because otherwise a document is linted with
+    the wrong rule set and reported as clean."""
+    missing = tmp_path / "does-not-exist.yaml"
+    monkeypatch.setattr(sys, "argv", ["lint.py", str(missing), "--locale", "fr"])
+    assert lint_mod.main() == 2, "the return code says refused, not merely noisy"
+    assert not missing.exists(), "and it never got as far as opening the file"
+
+
+def _derived_controls(case="b2b-saas-aws"):
+    profile = yaml.safe_load((GOLDEN_ROOT / case / "profile.yaml").read_text(encoding="utf-8"))
+    return sb.run(profile)
+
+
+def test_the_overlay_command_line_runs_end_to_end(tmp_path, capsys, monkeypatch):
+    """A parameter was once removed from evaluate() while main() kept passing
+    it, and the whole suite stayed green because nothing ran this."""
+    profile_path = GOLDEN_ROOT / "commerce-payments" / "profile.yaml"
+    controls_path = tmp_path / "controls.json"
+    controls_path.write_text(json.dumps(_derived_controls("commerce-payments")),
+                             encoding="utf-8")
+    out = tmp_path / "result.json"
+    monkeypatch.setattr(sys, "argv", ["apply_overlay.py", "pci-dss", str(profile_path),
+                                      str(controls_path), "--json", str(out)])
+    assert overlay_mod.main() == 0
+    printed = capsys.readouterr().out
+    assert "PCI DSS" in printed
+    assert "does not constitute" in printed, "the disclaimer travels with the result"
+    assert json.loads(out.read_text(encoding="utf-8"))["disclaimer"]
+
+
+def test_an_overlay_that_does_not_apply_says_so_and_stops(tmp_path, capsys, monkeypatch):
+    """A regime that does not apply is not a coverage of zero -- it is not a
+    reading at all, and printing one would put a compliance number against a
+    standard nobody is subject to."""
+    profile_path = GOLDEN_ROOT / "internal-admin" / "profile.yaml"
+    controls_path = tmp_path / "controls.json"
+    controls_path.write_text(json.dumps(_derived_controls("internal-admin")), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["apply_overlay.py", "pci-dss", str(profile_path),
+                                      str(controls_path)])
+    assert overlay_mod.main() == 0
+    printed = capsys.readouterr().out
+    assert "does not apply to this profile" in printed
+    assert "--force to evaluate anyway" in printed
+
+    monkeypatch.setattr(sys, "argv", ["apply_overlay.py", "pci-dss", str(profile_path),
+                                      str(controls_path), "--force"])
+    assert overlay_mod.main() == 0
+    assert "does not apply to this profile" not in capsys.readouterr().out
+
+
+def test_an_unknown_overlay_on_the_command_line_exits_two(tmp_path, capsys, monkeypatch):
+    controls_path = tmp_path / "controls.json"
+    controls_path.write_text(json.dumps(_derived_controls()), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", [
+        "apply_overlay.py", "sarbanes-oxley",
+        str(GOLDEN_ROOT / "b2b-saas-aws" / "profile.yaml"), str(controls_path)])
+    assert overlay_mod.main() == 2
+    assert "no overlay" in capsys.readouterr().err
+
+
+def test_the_overlay_validator_runs_and_reports_a_clean_set(capsys, monkeypatch):
+    """Six overlays, and the checks that need a view across them rather than
+    within one. Zero errors is the state this repository ships in, and the run
+    that says so has to be the run anyone can repeat."""
+    import validate_overlays
+    monkeypatch.setattr(sys, "argv", ["validate_overlays.py"])
+    assert validate_overlays.main([]) == 0
+    printed = capsys.readouterr().out
+    assert "0 error(s)" in printed
+    assert "overlays:" in printed
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and
