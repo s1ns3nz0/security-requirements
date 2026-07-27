@@ -6354,6 +6354,144 @@ def test_unresolved_references_are_printed_apart_from_the_other_problems():
     assert "SC-99 does not exist in the catalog" in report
 
 
+@pytest.mark.parametrize("expected,fragment", [
+    ({"topics": [{"description": "d", "match_any": ["x"], "must_cover": True}]},
+     "a topic has no id"),
+    ({"topics": [{"id": "t", "match_any": ["x"], "must_cover": True}]},
+     "no description"),
+    ({"topics": [{"id": "t", "description": "d", "must_cover": True}]},
+     "no match_any hints"),
+    ({"topics": [{"id": "t", "description": "d", "match_any": "x", "must_cover": True}]},
+     "matched character by character"),
+    ({"topics": [{"id": "t", "description": "d", "match_any": [], "must_cover": True}]},
+     "can never be covered"),
+    # Recall is computed over the must_cover topics, so a file with none scores
+    # 1.0 whatever the document says.
+    ({"topics": [{"id": "t", "description": "d", "match_any": ["x"]}]},
+     "this case cannot fail"),
+    ({"topics": [{"id": "t", "description": "d", "match_any": ["x"], "must_cover": True}],
+      "must_not_cover": [{"id": "n", "why": "w"}]},
+     "must_not_cover n: no match_any hints"),
+    ({"topics": [{"id": "t", "description": "d", "match_any": ["x"], "must_cover": True}],
+      "must_not_cover": [{"id": "n", "match_any": ["y"]}]},
+     "no `why`"),
+])
+def test_an_expectation_file_that_cannot_be_scored_against_says_why(expected, fragment):
+    """Two of these only bite on the failing path, which is the worst place for a
+    crash: a topic with no description scores fine and raises KeyError the moment
+    it is reported as missed. The suite worked while it passed and broke while it
+    failed."""
+    problems = eval_mod.check_expectation(expected)
+    assert any(fragment in p for p in problems), problems
+
+
+def test_the_scorer_refuses_an_unscoreable_expectation_rather_than_scoring_it(
+        tmp_path, monkeypatch, capsys):
+    """Exit 2, not a score. A number produced from a file that cannot fail is
+    worse than no number, because it is reported the same way."""
+    golden = tmp_path / "case"
+    golden.mkdir()
+    (golden / "expected-coverage.yaml").write_text(yaml.safe_dump({
+        "profile": "synthetic",
+        "topics": [{"id": "t", "description": "d", "match_any": ["encryption"]}],
+    }), encoding="utf-8")
+    requirements = tmp_path / "requirements.yaml"
+    requirements.write_text(yaml.safe_dump({"requirements": []}), encoding="utf-8")
+
+    monkeypatch.setattr(sys, "argv", ["eval_golden.py", str(golden), str(requirements)])
+    assert eval_mod.main() == 2
+    err = capsys.readouterr().err
+    assert "cannot be scored against" in err
+    assert "this case cannot fail" in err
+
+
+# --- what an overlay is refused for --------------------------------------------
+#
+# Five load-time guards, each written after a way an overlay could be wrong and
+# still load. They are the reason an overlay cannot be a way round the checks the
+# rest of the pipeline enforces.
+
+def _write_overlay(root, overlay_id, *, criteria=None, mappings=None, meta=None):
+    directory = root / overlay_id
+    directory.mkdir(parents=True)
+    criteria = criteria if criteria is not None else [
+        {"clause": "A1", "scope_description": "A criterion"}]
+    mappings = mappings if mappings is not None else [
+        {"clause": "A1", "title": "A criterion", "controls": ["AC-3"],
+         "standalone": False, "responsibility_hint": "team"}]
+    base_meta = {"id": overlay_id, "name": "Synthetic", "version": "1",
+                 "criteria_count": len(criteria), "baseline_effect": {},
+                 "mapping": {"authored": True}, "disclaimer": "Not compliance.",
+                 "applies_when": {}}
+    base_meta.update(meta or {})
+    (directory / "meta.yaml").write_text(yaml.safe_dump(base_meta), encoding="utf-8")
+    for name, rows in (("criteria.jsonl", criteria), ("mappings.jsonl", mappings)):
+        (directory / name).write_text(
+            "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    return directory
+
+
+def test_an_overlay_that_does_not_exist_says_which_ones_do(tmp_path, monkeypatch):
+    monkeypatch.setattr(overlay_mod, "OVERLAYS", tmp_path)
+    _write_overlay(tmp_path, "real-one")
+    with pytest.raises(overlay_mod.OverlayError) as excinfo:
+        overlay_mod.load("imaginary")
+    assert "real-one" in str(excinfo.value)
+
+
+def test_an_overlay_may_not_cite_a_control_that_does_not_exist(tmp_path, monkeypatch):
+    """An overlay is not a way round the catalog check. Without this, the
+    surest route to a fabricated identifier in a compliance document is to put
+    it in a mapping rather than in a requirement."""
+    monkeypatch.setattr(overlay_mod, "OVERLAYS", tmp_path)
+    _write_overlay(tmp_path, "invented", mappings=[
+        {"clause": "A1", "title": "t", "controls": ["AC-3", "ZZ-99"],
+         "standalone": False, "responsibility_hint": "team"}])
+    with pytest.raises(overlay_mod.OverlayError) as excinfo:
+        overlay_mod.load("invented")
+    assert "ZZ-99" in str(excinfo.value)
+    assert "not a way round the catalog check" in str(excinfo.value)
+
+
+def test_an_overlay_may_not_leave_a_clause_unmapped(tmp_path, monkeypatch):
+    """A clause with no mapping is invisible in the coverage report, which reads
+    as a regime fully accounted for."""
+    monkeypatch.setattr(overlay_mod, "OVERLAYS", tmp_path)
+    _write_overlay(tmp_path, "gappy",
+                   criteria=[{"clause": "A1"}, {"clause": "A2"}],
+                   mappings=[{"clause": "A1", "title": "t", "controls": ["AC-3"],
+                              "standalone": False, "responsibility_hint": "team"}])
+    with pytest.raises(overlay_mod.OverlayError) as excinfo:
+        overlay_mod.load("gappy")
+    assert "A2" in str(excinfo.value)
+
+
+def test_a_declared_criteria_count_that_disagrees_with_the_files_is_refused(tmp_path, monkeypatch):
+    """criteria_count is the published shape of the regime -- 46 GDPR articles,
+    68 HIPAA specifications, 101 ISMS-P criteria. Declared and never checked, it
+    was a number that could drift from the files beside it and still be printed
+    in a compliance document."""
+    monkeypatch.setattr(overlay_mod, "OVERLAYS", tmp_path)
+    _write_overlay(tmp_path, "miscounted", meta={"criteria_count": 46})
+    with pytest.raises(overlay_mod.OverlayError) as excinfo:
+        overlay_mod.load("miscounted")
+    assert "declares criteria_count 46" in str(excinfo.value)
+    assert "the declared number is the one that reaches the reader" in str(excinfo.value)
+
+
+def test_an_overlay_claiming_a_power_the_machinery_does_not_have_is_refused(tmp_path, monkeypatch):
+    """Every overlay declares baseline_effect empty and one explains why -- the
+    Regulation does not itself raise the FIPS 199 categorisation. What is not
+    acceptable is a future overlay writing {raise_to: high} and having it
+    silently ignored, so a value that means something is refused rather than
+    dropped."""
+    monkeypatch.setattr(overlay_mod, "OVERLAYS", tmp_path)
+    _write_overlay(tmp_path, "ambitious", meta={"baseline_effect": {"raise_to": "high"}})
+    with pytest.raises(overlay_mod.OverlayError) as excinfo:
+        overlay_mod.load("ambitious")
+    assert "nothing applies it" in str(excinfo.value)
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and
