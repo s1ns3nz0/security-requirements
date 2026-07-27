@@ -296,7 +296,7 @@ def test_gdpr_does_not_fire_for_korean_and_japanese_users(derived):
     A false trigger costs the reader's trust in every other finding.
     """
     uncovered = {item["id"] for item in derived["uncovered_regulations"]}
-    triggered = uncovered | {item["trigger"] for item in derived["overlay_triggers"]}
+    triggered = uncovered | {t["id"] for item in derived["overlay_triggers"] for t in item["triggers"]}
     assert "gdpr_personal_data" not in triggered
     # PIPA now routes to its overlay rather than being declared uncovered, but
     # the trigger must still fire.
@@ -310,7 +310,7 @@ def test_gdpr_fires_for_eu_users(profile):
     eu["declared"]["user_regions"] = ["DE"]
     result = sb.run(eu)
     triggered = ({t["id"] for t in result["uncovered_regulations"]}
-                 | {t["trigger"] for t in result["overlay_triggers"]})
+                 | {x["id"] for t in result["overlay_triggers"] for x in t["triggers"]})
     assert "gdpr_personal_data" in triggered
     assert "gdpr" in result["applicable_overlays"]
 
@@ -324,7 +324,7 @@ def test_pci_always_fires_regardless_of_region(profile):
     card["declared"]["user_regions"] = ["BR"]
     result = sb.run(card)
     triggered = ({t["id"] for t in result["uncovered_regulations"]}
-                 | {t["trigger"] for t in result["overlay_triggers"]})
+                 | {x["id"] for t in result["overlay_triggers"] for x in t["triggers"]})
     assert "pci_dss" in triggered
     assert "pci-dss" in result["applicable_overlays"]
 
@@ -478,7 +478,7 @@ def test_scalar_user_regions_do_not_suppress_triggers(profile):
     p["declared"]["user_regions"] = "KR"
     result = sb.run(p)
     triggered = ({t["id"] for t in result["uncovered_regulations"]}
-                 | {t["trigger"] for t in result["overlay_triggers"]})
+                 | {x["id"] for t in result["overlay_triggers"] for x in t["triggers"]})
     assert "pipa_general" in triggered
 
 
@@ -528,7 +528,8 @@ def test_forced_requirements_are_produced(profile):
     ids = {f["id"] for f in forced}
     assert "secret_management" in ids
     assert "log_sanitization" in ids
-    assert all(f["from_data_type"] and f["label"] for f in forced)
+    assert all(f["sources"] and f["label"] for f in forced)
+    assert all(src["data_type"] and src["label"] for f in forced for src in f["sources"])
 
 
 def test_forced_requirements_reach_the_work_list(profile):
@@ -2973,7 +2974,8 @@ def test_one_line_per_overlay_not_per_trigger():
     assert len(entries) == len({e["id"] for e in entries}), entries
 
     gdpr = next(e for e in entries if e["id"] == "gdpr")
-    assert set(gdpr["triggers"]) == {"gdpr_personal_data", "gdpr_special_category"}
+
+    assert {t["id"] for t in gdpr["triggers"]} == {"gdpr_personal_data", "gdpr_special_category"}
 
     rendered = sb.render_gate(result)
     assert rendered.count("scripts/apply_overlay.py gdpr") == 1
@@ -2993,3 +2995,84 @@ def test_the_flags_do_not_name_regimes_the_jurisdiction_gate_refused():
     korean_flags = sb.run(korean)["regulatory_flags"]
     assert "pipa_general" in korean_flags
     assert "gdpr_personal_data" not in korean_flags
+
+
+def test_a_requirement_forced_twice_from_one_type_keeps_both_reasons():
+    """A modifier and the type it sits on can force the same requirement. Both
+    arrive with the same data type and different labels and notes, so grouping
+    on the data type alone threw the second of each away."""
+    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+                            "classification.yaml").read_text(encoding="utf-8"))
+    modifier_forcing = {m for m, spec in table["modifiers"].items()
+                        if spec.get("forces_requirements")}
+    assert modifier_forcing, "this test needs a modifier that forces a requirement"
+
+    owned = _onprem(data_types=[{"id": "user_generated_content", "modifiers": ["customer_owned"]}])
+    forced = {f["id"]: f for f in sb.run(owned)["forced_requirements"]}
+
+    # The type's own requirement and the modifier's are separate requirements,
+    # both present, each naming its own reason.
+    assert "upload_validation" in forced and "data_processor_obligations" in forced
+    for requirement in forced.values():
+        assert requirement["sources"], requirement["id"]
+        assert all(s["label"] for s in requirement["sources"])
+
+    # And nothing is stored twice: the summary fields are derived from sources.
+    for requirement in forced.values():
+        assert requirement["label"] == "; ".join(
+            dict.fromkeys(s["label"] for s in requirement["sources"]))
+        assert requirement["from_data_types"] == list(
+            dict.fromkeys(s["data_type"] for s in requirement["sources"]))
+
+
+def test_overlay_provenance_has_exactly_one_representation():
+    """The first version kept a singular `trigger`/`label` beside the list "for
+    compatibility", which made them a second writable copy that answered "which
+    regimes reached this overlay" with only part of the truth."""
+    special = _onprem(data_types=[{"id": "sensitive_attributes"}, {"id": "basic_contact"}],
+                      user_regions=["DE"])
+    for entry in sb.run(special)["overlay_triggers"]:
+        assert "trigger" not in entry and "label" not in entry
+        assert entry["triggers"] and all(t["id"] and t["label"] for t in entry["triggers"])
+
+
+def test_a_declared_certification_appears_in_the_flags_as_well():
+    """A profile declaring SOC 2 had it in applicable_overlays and nowhere in
+    regulatory_flags, which claims to hold what is in scope."""
+    declared = _onprem(regulations_declared=["SOC 2 Type II"])
+    result = sb.run(declared)
+    assert "soc2" in result["applicable_overlays"]
+    assert "declared:soc2" in result["regulatory_flags"]
+
+
+def test_a_covered_regulation_is_still_in_scope():
+    """`covered` says this repository already addresses the regime, not that the
+    regime stopped applying. Skipping before the jurisdiction gate kept it out
+    of the flag list the gate is supposed to define. Nothing in the catalogue
+    sets it today, so the path is exercised directly."""
+    import copy as _copy
+    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+                            "classification.yaml").read_text(encoding="utf-8"))
+    assert not [t for t in table["regulatory_triggers"].values() if t.get("covered")], \
+        "if a trigger starts declaring covered, this test should read it instead"
+
+    patched = _copy.deepcopy(table)
+    patched["regulatory_triggers"]["gdpr_personal_data"]["covered"] = True
+    patched["regulatory_triggers"]["gdpr_personal_data"].pop("overlay", None)
+
+    european = _onprem(data_types=[{"id": "basic_contact"}], user_regions=["DE"])
+    original = sb.DATA_TYPES
+    try:
+        import tempfile, os
+        handle = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, encoding="utf-8")
+        yaml.safe_dump(patched, handle, allow_unicode=True)
+        handle.close()
+        sb.DATA_TYPES = Path(handle.name)
+        result = sb.run(european)
+    finally:
+        sb.DATA_TYPES = original
+        os.unlink(handle.name)
+
+    assert "gdpr_personal_data" in result["regulatory_flags"], \
+        "a covered regulation still applies to the service"
+    assert not any(u["id"] == "gdpr_personal_data" for u in result["uncovered_regulations"])

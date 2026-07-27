@@ -491,25 +491,37 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
     # identical obligation into the document twice, differing only in a field
     # the reader never sees. The team owes one set of processor obligations,
     # over both sets of data.
+    #
+    # Grouped on the whole source, not on the data type. A requirement can be
+    # forced by a modifier *and* by the type the modifier sits on -- the two
+    # arrive with the same from_data_type and different labels and notes -- and
+    # keying on the type alone threw the second of each away.
     grouped: dict[str, dict] = {}
     for item in forced:
+        source = {"data_type": item["from_data_type"], "label": item["label"],
+                  "note": item.get("note") or ""}
         existing = grouped.get(item["id"])
         if existing is None:
-            grouped[item["id"]] = {**item,
-                                   "from_data_types": [item["from_data_type"]],
-                                   "labels": [item["label"]]}
-            continue
-        if item["from_data_type"] not in existing["from_data_types"]:
-            existing["from_data_types"].append(item["from_data_type"])
-            existing["labels"].append(item["label"])
-        if item.get("note") and not existing.get("note"):
-            existing["note"] = item["note"]
-    for item in grouped.values():
-        item["label"] = "; ".join(item["labels"])
-        item["from_data_type"] = item["from_data_types"][0]
+            grouped[item["id"]] = {"id": item["id"], "sources": [source]}
+        elif source not in existing["sources"]:
+            existing["sources"].append(source)
 
-    return (confidentiality, integrity, sorted(set(flags)), sorted(set(triggers)),
-            list(grouped.values()))
+    ordered = []
+    for item in grouped.values():
+        sources = item["sources"]
+        ordered.append({
+            "id": item["id"],
+            "sources": sources,
+            # Derived from `sources` every time rather than stored beside it.
+            # Two writable copies of one fact is the defect this repository
+            # keeps finding, and it was introduced here while fixing a
+            # duplication problem.
+            "from_data_types": list(dict.fromkeys(s["data_type"] for s in sources)),
+            "label": "; ".join(dict.fromkeys(s["label"] for s in sources)),
+            "note": "\n\n".join(n for n in dict.fromkeys(s["note"] for s in sources) if n),
+        })
+
+    return (confidentiality, integrity, sorted(set(flags)), sorted(set(triggers)), ordered)
 
 
 def derive_availability(profile: dict, table: dict) -> dict:
@@ -819,11 +831,14 @@ def run(profile: dict) -> dict:
     uncovered, overlays, in_scope_triggers = [], [], []
     for trigger in triggers:
         spec = trigger_specs.get(trigger, {})
-        if spec.get("covered", False):
-            continue
+        # Jurisdiction first. `covered` says this repository already addresses
+        # the regime, not that the regime stopped applying, and skipping before
+        # the gate kept it out of the flag list the gate is supposed to define.
         if not applies_in_jurisdiction(spec, user_regions):
             continue
         in_scope_triggers.append(trigger)
+        if spec.get("covered", False):
+            continue
         label = spec.get("label", trigger)
         # A trigger with an overlay is no longer an admission of no coverage.
         # Leaving it in the uncovered list after the overlay exists would keep
@@ -834,14 +849,18 @@ def run(profile: dict) -> dict:
             # "GDPR Article 9 special category data" -- each pointing at the same
             # command. What the reader needs is one overlay and the reasons it
             # applies, not the same overlay twice.
+            #
+            # One list, not a list plus a singular first element beside it. The
+            # first version kept `trigger`/`label` "for compatibility", which
+            # made them a second writable copy that silently answered a question
+            # -- which regimes reached this overlay -- with only part of the
+            # truth.
             existing = next((o for o in overlays if o["id"] == spec["overlay"]), None)
             if existing is None:
-                overlays.append({"id": spec["overlay"], "trigger": trigger,
-                                 "label": label, "triggers": [trigger],
-                                 "labels": [label]})
-            elif trigger not in existing["triggers"]:
-                existing["triggers"].append(trigger)
-                existing["labels"].append(label)
+                overlays.append({"id": spec["overlay"],
+                                 "triggers": [{"id": trigger, "label": label}]})
+            elif trigger not in [t["id"] for t in existing["triggers"]]:
+                existing["triggers"].append({"id": trigger, "label": label})
             continue
         uncovered.append({
             "id": trigger,
@@ -950,10 +969,14 @@ def run(profile: dict) -> dict:
             meta = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
             if apply_overlay.elective_declared(meta, stated) and \
                     meta["id"] not in {o["id"] for o in overlays}:
-                overlays.append({"id": meta["id"], "trigger": "declared",
-                                 "label": meta.get("name", meta["id"]),
-                                 "triggers": ["declared"],
-                                 "labels": [meta.get("name", meta["id"])]})
+                declared_trigger = f"declared:{meta['id']}"
+                overlays.append({"id": meta["id"],
+                                 "triggers": [{"id": declared_trigger,
+                                               "label": meta.get("name", meta["id"])}]})
+                # An elective regime is in scope once it is named, and the flag
+                # list said otherwise: a profile declaring SOC 2 had it in
+                # applicable_overlays and nowhere in regulatory_flags.
+                in_scope_triggers.append(declared_trigger)
 
     # Per axis, not only when both are empty. A profile of nothing but model
     # training data has genuine integrity evidence and none at all for
@@ -1162,9 +1185,10 @@ def render_gate(result: dict) -> str:
     if result.get("applicable_overlays"):
         out += ["", "Regulatory overlays that apply"]
         for item in result["overlay_triggers"]:
-            out.append(f"  + {item['labels'][0]}  ->  scripts/apply_overlay.py {item['id']}")
-            for extra in item["labels"][1:]:
-                out.append(f"      also reached by: {extra}")
+            reasons = item["triggers"]
+            out.append(f"  + {reasons[0]['label']}  ->  scripts/apply_overlay.py {item['id']}")
+            for extra in reasons[1:]:
+                out.append(f"      also reached by: {extra['label']}")
     if result["uncovered_regulations"]:
         out += ["", "Uncovered regulations detected"]
         for item in result["uncovered_regulations"]:
