@@ -1,0 +1,164 @@
+{
+  "_comment": "SYNTHETIC fixture. In a real run the model authors this from the crossed work list; it is fixed here so the deterministic chain can be regression tested. A representative subset, not the full set.",
+  "requirements": [
+    {
+      "slug": "TENANT-ISOLATION",
+      "change_reason": "initial derivation",
+      "managed": {
+        "statement": "Every read of an order record must verify that the record belongs to the tenant of the authenticated caller before the record is returned.",
+        "rationale": "Authentication establishes who is calling, not what they may reach. Ownership is checked separately, in the data access path rather than the route handler, so that new endpoints inherit it.",
+        "csf": ["PR.AA-05"],
+        "sources": ["AC-3", "AC-4"],
+        "threat_refs": ["T-01"],
+        "responsibility": "team",
+        "team_part": "Enforce tenant scoping in the database through row-level security or per-tenant schemas.",
+        "verification": {
+          "method": "code_grep",
+          "target": "order repository query construction",
+          "expect": "tenant predicate present on every order query, or row-level security enabled on the table",
+          "fallback_manual": "Request an order belonging to another tenant with a valid session; expect 404."
+        },
+        "priority": "high"
+      }
+    },
+    {
+      "slug": "EXPORT-LINK-LIFETIME",
+      "managed": {
+        "statement": "Presigned export URLs must expire within 15 minutes of issue.",
+        "rationale": "A presigned URL is an unauthenticated access path that no bucket policy will reveal. Bounding its lifetime bounds the exposure once the link leaves the tenant.",
+        "csf": ["PR.AA-05"],
+        "sources": ["AC-21"],
+        "threat_refs": ["T-02"],
+        "responsibility": "team",
+        "team_part": "Bound the expiry argument at the signing call site.",
+        "verification": {
+          "method": "code_grep",
+          "target": "getSignedUrl|generate_presigned_url",
+          "expect": "expiry argument bounded at 900 seconds or less",
+          "fallback_manual": "Issue an export, then retry the URL after the stated window; expect denial."
+        },
+        "priority": "high"
+      }
+    },
+    {
+      "slug": "ERRORREPORT-SCRUBBING",
+      "managed": {
+        "statement": "Personal data must be removed from exception payloads before they are transmitted to the error reporting service.",
+        "rationale": "Derived from a threat with no matching baseline control. The error reporter is a third-party boundary crossing introduced by a library call, so it does not appear in the network topology an infrastructure review would examine.",
+        "csf": ["PR.DS-01"],
+        "sources": [],
+        "threat_refs": ["T-03"],
+        "responsibility": "team",
+        "team_part": "Register a scrubbing hook on the error client covering request body, headers, and user context.",
+        "verification": {
+          "method": "code_grep",
+          "target": "Sentry.init beforeSend",
+          "expect": "a beforeSend hook that strips user context fields",
+          "fallback_manual": "Trigger a handled exception carrying a member email; inspect the delivered event."
+        },
+        "priority": "high"
+      }
+    },
+    {
+      "slug": "REFUND-IDEMPOTENCY",
+      "managed": {
+        "statement": "Refund webhook processing must be idempotent on an identifier supplied by the payment provider rather than by the caller.",
+        "rationale": "Derived from a threat with no matching baseline control. Business logic abuse of this kind is invisible to both control catalogues and code scanners, because the replayed request is well formed.",
+        "csf": ["PR.DS-02"],
+        "sources": [],
+        "threat_refs": ["T-04"],
+        "responsibility": "team",
+        "team_part": "Persist the provider event identifier with a uniqueness constraint; reject duplicates before applying any ledger effect.",
+        "verification": {
+          "method": "code_grep",
+          "target": "refund webhook handler",
+          "expect": "uniqueness constraint on the provider event id, checked before the ledger write",
+          "fallback_manual": "Replay a captured refund webhook; expect exactly one ledger entry."
+        },
+        "priority": "high"
+      }
+    },
+    {
+      "slug": "ANALYTICS-RELINKAGE",
+      "managed": {
+        "statement": "Analytics identifiers held as anonymous must not be joinable to account records.",
+        "rationale": "Derived from a LINDDUN linkability threat. STRIDE does not model this class, so it does not surface from a standard threat model, nor from any control in the baseline.",
+        "csf": ["PR.DS-01"],
+        "sources": [],
+        "threat_refs": ["T-05"],
+        "responsibility": "team",
+        "team_part": "Rotate the device identifier on each session, or hold the mapping in a store that account services cannot reach.",
+        "verification": {
+          "method": "code_grep",
+          "target": "analytics event emission",
+          "expect": "no session identifier or account identifier emitted alongside device_id",
+          "fallback_manual": "Attempt to join the analytics table to the account table on any shared column."
+        },
+        "priority": "high"
+      }
+    },
+    {
+      "slug": "AUDITLOG-WRITE-SEPARATION",
+      "managed": {
+        "statement": "The audit log destination must not be writable by any identity whose actions it records.",
+        "rationale": "An audit log an actor can alter is not audit evidence. The separation has to hold at the destination, because application-level restraint fails once code execution is obtained.",
+        "csf": ["PR.PS-04"],
+        "sources": ["AU-9", "AU-9(4)"],
+        "threat_refs": ["T-06"],
+        "responsibility": "shared",
+        "csp_part": "Durability of the log store.",
+        "team_part": "Deliver audit records to a destination in a separate trust domain from the application execution role.",
+        "evidence": "AWS SOC 2 Type II report, plus the IAM policy attached to the runtime role",
+        "verification": {
+          "method": "iac_inspect",
+          "target": "IAM policy for the application execution role",
+          "expect": "no write or delete permission on the audit log destination",
+          "fallback_manual": "Attempt a delete against the log destination using the runtime role."
+        },
+        "priority": "high"
+      }
+    },
+    {
+      "slug": "DB-TRANSPORT-TLS",
+      "managed": {
+        "statement": "Database connections carrying personal data must use TLS 1.2 or higher with server certificate verification.",
+        "rationale": "The engine accepts unencrypted connections unless the parameter group refuses them, most drivers do not verify the certificate by default, so neither end enforces this without explicit configuration.",
+        "csf": ["PR.DS-02"],
+        "sources": ["SC-8", "SC-8(1)"],
+        "threat_refs": ["T-07"],
+        "responsibility": "shared",
+        "csp_part": "Provides the server certificate on the managed endpoint.",
+        "team_part": "Force TLS in the parameter group; enable certificate verification in the client driver.",
+        "evidence": "AWS SOC 2 Type II report, plus the parameter group configuration",
+        "verification": {
+          "method": "iac_inspect",
+          "target": "aws_db_parameter_group",
+          "expect": "rds.force_ssl = 1 for PostgreSQL, require_secure_transport = ON for MySQL",
+          "fallback_manual": "Attempt a plaintext connection from a permitted network location; expect refusal."
+        },
+        "priority": "medium"
+      }
+    },
+    {
+      "slug": "DATA-ENC-REST",
+      "managed": {
+        "statement": "Personal data at rest must be encrypted with a customer-managed key.",
+        "rationale": "Provider-managed keys leave the organisation without key custody. For RDS the choice is irreversible in place, which is why it is settled at design time rather than found in review.",
+        "csf": ["PR.DS-01"],
+        "sources": ["SC-28", "SC-28(1)", "SC-13"],
+        "threat_refs": [],
+        "responsibility": "shared",
+        "csp_part": "Operates the key management infrastructure and the encryption mechanism.",
+        "team_part": "Enable default encryption on each store; supply a customer-managed key.",
+        "evidence": "AWS SOC 2 Type II report, plus terraform state",
+        "verification": {
+          "method": "iac_inspect",
+          "target": "aws_s3_bucket_server_side_encryption_configuration, aws_db_instance.storage_encrypted",
+          "expect": "sse_algorithm = aws:kms with a customer-managed key arn; storage_encrypted = true",
+          "fallback_manual": "Console > S3 > bucket > Properties > Default encryption."
+        },
+        "priority": "medium"
+      }
+    }
+  ]
+}

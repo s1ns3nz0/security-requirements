@@ -1,0 +1,116 @@
+# Amazon RDS -- control responsibility
+#
+# See aws-s3.yaml for the meaning of reviewed / csp_part / team_part.
+
+service: aws-rds
+provider: aws
+display_name: "Amazon RDS"
+reviewed: true
+reviewed_on: "2026-07-27"
+families_covered: [AC, AU, SC]
+
+controls:
+
+  SC-28:
+    responsibility: shared
+    csp_part: "Provides storage-level encryption for instances and snapshots."
+    team_part: >-
+      Encryption must be enabled at instance creation. It cannot be turned on
+      later in place -- the instance must be recreated from an encrypted
+      snapshot, which is why this is caught at design time and not in review.
+    evidence:
+      - "AWS SOC 2 Type II report"
+      - "terraform: aws_db_instance.storage_encrypted"
+    verification:
+      method: iac_inspect
+      target: "aws_db_instance"
+      expect: "storage_encrypted = true and kms_key_id set"
+
+  SC-28(1):
+    responsibility: shared
+    csp_part: "AES-256 storage encryption backed by KMS."
+    team_part: "Supply a customer-managed KMS key where key custody is required."
+
+  SC-8:
+    responsibility: shared
+    csp_part: "Server certificate and TLS endpoint for the database engine."
+    team_part: >-
+      Require TLS on the client side and verify the server certificate. RDS
+      accepts unencrypted connections unless the parameter group forces
+      otherwise, and most drivers do not verify by default.
+    verification:
+      method: iac_inspect
+      target: "aws_db_parameter_group"
+      expect: "rds.force_ssl = 1 (PostgreSQL) or require_secure_transport = ON (MySQL)"
+
+  SC-7:
+    responsibility: shared
+    csp_part: "Security group enforcement at the instance boundary."
+    team_part: >-
+      Place the instance in private subnets and set publicly_accessible to
+      false. A publicly reachable database is a configuration choice, and the
+      default for a default-VPC deployment is not the safe one.
+    verification:
+      method: iac_inspect
+      target: "aws_db_instance"
+      expect: "publicly_accessible = false and subnet group is private"
+
+  AC-2:
+    responsibility: team
+    team_part: >-
+      Database-level accounts are outside the identity provider. Either bind
+      them to IAM database authentication or account for their lifecycle
+      separately -- they are the accounts most often missed in access reviews.
+    verification:
+      method: iac_inspect
+      target: "aws_db_instance"
+      expect: "iam_database_authentication_enabled = true, or a documented alternative"
+
+  AC-3:
+    responsibility: team
+    team_part: >-
+      Grant per-schema and per-table privileges rather than a single
+      application superuser. The master user created with the instance should
+      not be the runtime credential.
+
+  AC-6:
+    responsibility: team
+    team_part: >-
+      Separate migration credentials (DDL) from runtime credentials (DML).
+      A runtime role able to DROP is a privilege escalation path from any
+      application-level injection flaw.
+
+  AU-2:
+    responsibility: shared
+    csp_part: "CloudTrail records RDS control-plane actions."
+    team_part: >-
+      Engine-level audit logging (pgaudit, MariaDB audit plugin) is off by
+      default. Control-plane logs show that an instance was modified, not what
+      was read from it.
+    verification:
+      method: iac_inspect
+      target: "aws_db_instance.enabled_cloudwatch_logs_exports"
+      expect: "audit or postgresql log export enabled"
+
+  AU-11:
+    responsibility: team
+    team_part: "Retention period on the CloudWatch log group receiving engine logs."
+
+  SC-5:
+    responsibility: shared
+    csp_part: "Instance-level resource isolation."
+    team_part: >-
+      Connection limits and statement timeouts. An unbounded connection pool
+      turns an application-level surge into a database outage.
+
+  SC-4:
+    responsibility: team
+    team_part: >-
+      For multi-tenant schemas, enforce tenant scoping in the database rather
+      than only in application code -- row-level security or per-tenant schemas.
+      Application-side filtering fails open when a query is written without the
+      tenant predicate.
+    note: >-
+      This is the control that catches the tenant-isolation threat class. It is
+      not visible to a code scanner, because the missing WHERE clause is
+      syntactically valid.

@@ -1,0 +1,31 @@
+security-design
+Copyright 2026 the security-design authors
+
+This product includes software developed by the security-design authors.
+
+---
+
+catalogs/nist-800-53r5/
+  Derived from NIST OSCAL content (https://github.com/usnistgov/oscal-content),
+  NIST SP 800-53 Rev 5 and SP 800-53B. Works of the United States Government,
+  not subject to copyright protection under 17 U.S.C. 105. See the LICENSE file
+  in that directory.
+
+  NIST does not endorse this project. Do not represent derived output as
+  NIST-validated.
+
+catalogs/asvs-5/  (planned)
+  Derived from the OWASP Application Security Verification Standard, licensed
+  under CC BY-SA 4.0. That directory carries its own LICENSE and NOTICE, and
+  its contents remain under CC BY-SA 4.0. It is included as a separate work in
+  a collection; the share-alike condition does not extend to the rest of this
+  repository.
+
+catalogs/csp-rules/
+  Written by the authors. Cloud provider documentation is summarised in our own
+  words with links to the original, never reproduced.
+
+Not bundled, by licence:
+  CIS Benchmarks, PCI DSS, ISO/IEC 27001 Annex A, SOC 2 Trust Services Criteria.
+  These may be referenced by identifier where relevant, but their text is not
+  reproduced or redistributed.

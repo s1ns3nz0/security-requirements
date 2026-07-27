@@ -1,0 +1,414 @@
+"""Regression tests for the deterministic half of the pipeline.
+
+Everything covered here is a lookup or an arithmetic step. The model-dependent
+half -- threat modeling and requirement authoring -- is scored separately by
+scripts/eval_golden.py, because there is no fixed answer to assert against.
+
+Several tests exist because the week-1 tracer bullet found the bug they now
+guard. Those are marked.
+"""
+
+from __future__ import annotations
+
+import copy
+import json
+import sys
+from pathlib import Path
+
+import pytest
+import yaml
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+
+import classify_resp  # noqa: E402
+import lint as lint_mod  # noqa: E402
+import merge  # noqa: E402
+import select_baseline as sb  # noqa: E402
+
+GOLDEN = REPO_ROOT / "golden" / "b2b-saas-aws"
+
+
+@pytest.fixture(scope="module")
+def profile():
+    return yaml.safe_load((GOLDEN / "profile.yaml").read_text(encoding="utf-8"))
+
+
+@pytest.fixture(scope="module")
+def derived(profile):
+    return sb.run(profile)
+
+
+@pytest.fixture(scope="module")
+def threats():
+    return yaml.safe_load((GOLDEN / "threats.yaml").read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# catalog integrity
+# ---------------------------------------------------------------------------
+
+def test_catalog_is_built():
+    assert (REPO_ROOT / "catalogs" / "nist-800-53r5" / "baselines.json").exists(), \
+        "run scripts/rebuild_catalogs.py first"
+
+
+def test_baseline_sizes_match_publication():
+    path = REPO_ROOT / "catalogs" / "nist-800-53r5" / "baselines.json"
+    baselines = json.loads(path.read_text(encoding="utf-8"))
+    # SP 800-53B. A change here means the upstream release moved and the
+    # curation needs revisiting, not that the test is wrong.
+    assert len(baselines["low"]) == 149
+    assert len(baselines["moderate"]) == 287
+    assert len(baselines["high"]) == 370
+
+
+def test_no_unresolved_parameter_placeholders():
+    """Regression: select choices nest parameter references two levels deep.
+
+    AC-7's lockout options embed further placeholders, and sibling enhancements
+    reference each other's parameters (SC-42(2) uses one declared on SC-42(1)).
+    Both leaked raw internal ids such as `ac-07_odp.04` into control statements.
+    """
+    for path in (REPO_ROOT / "catalogs" / "nist-800-53r5").glob("*.jsonl"):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            record = json.loads(line)
+            assert "_odp" not in record["statement"], record["id"]
+            assert "_prm_" not in record["statement"], record["id"]
+
+
+def test_enhancement_identifiers_use_audit_notation():
+    ids = lint_mod.load_catalog_ids()
+    assert "SC-28(1)" in ids
+    assert "sc-28.1" not in ids
+
+
+# ---------------------------------------------------------------------------
+# impact derivation
+# ---------------------------------------------------------------------------
+
+def test_ordinary_b2b_saas_lands_on_moderate(derived):
+    """Regression: a commercial SaaS was landing on the High baseline.
+
+    FIPS 199 reserves High for severe or catastrophic effect. Tampered
+    settlement records are serious and recoverable. Inflating any single axis
+    drags the whole system to High through the high water mark and produces a
+    370-control document the team discards.
+    """
+    assert derived["impact"]["system"] == "moderate"
+    assert derived["baseline"] == "nist-800-53b-moderate"
+
+
+def test_rpo_zero_does_not_imply_high_availability(profile):
+    """Regression: RPO and RTO answer different questions.
+
+    Zero tolerable data loss is a durability property. A service may accept
+    hours of downtime and no data loss at the same time.
+    """
+    result = sb.run(profile)
+    assert result["impact"]["availability"]["level"] == "moderate"
+
+
+def test_tokenisation_reduces_confidentiality(profile):
+    without = copy.deepcopy(profile)
+    for entry in without["declared"]["data_types"]:
+        if entry.get("id") == "payment_token":
+            entry.pop("modifiers", None)
+    reasons = sb.run(without)["impact"]["confidentiality"]["because"]
+    assert any("PSP tokens" in r and r.endswith("moderate") for r in reasons)
+
+    reasons = sb.run(profile)["impact"]["confidentiality"]["because"]
+    assert any("PSP tokens" in r and r.endswith("low") for r in reasons)
+
+
+def test_encryption_is_not_an_accepted_modifier(profile):
+    """Encryption is the outcome of a requirement, not a property of the data.
+
+    Accepting it as grounds for reduction lets a requirement delete itself.
+    """
+    table = yaml.safe_load(
+        (REPO_ROOT / "catalogs" / "data-types" / "classification.yaml").read_text(encoding="utf-8")
+    )
+    rejected = {m["id"] for m in table["rejected_modifiers"]}
+    assert "encrypted_at_rest" in rejected
+    assert "encrypted_at_rest" not in table["modifiers"]
+
+    broken = copy.deepcopy(profile)
+    broken["declared"]["data_types"][0] = {"id": "basic_contact", "modifiers": ["encrypted_at_rest"]}
+    with pytest.raises(sb.ProfileError):
+        sb.run(broken)
+
+
+def test_backups_inherit_the_highest_level(profile):
+    reasons = sb.run(profile)["impact"]["confidentiality"]["because"]
+    assert any("backups" in r.lower() and "inherits" in r for r in reasons)
+
+
+def test_safety_critical_forces_high_availability(profile):
+    critical = copy.deepcopy(profile)
+    critical["declared"]["availability"]["amplifiers"] = ["safety_critical"]
+    assert sb.run(critical)["impact"]["availability"]["level"] == "high"
+
+
+def test_user_override_is_recorded(profile):
+    overridden = copy.deepcopy(profile)
+    overridden["derived"] = {"impact": {"override": {"system": "low", "reason": "pilot only"}}}
+    result = sb.run(overridden)
+    assert result["impact"]["system"] == "low"
+    assert result["impact"]["overridden_by_user"] is True
+    assert result["impact"]["override_reason"] == "pilot only"
+
+
+# ---------------------------------------------------------------------------
+# jurisdiction
+# ---------------------------------------------------------------------------
+
+def test_gdpr_does_not_fire_for_korean_and_japanese_users(derived):
+    """Regression: GDPR fired on data type alone, ignoring jurisdiction.
+
+    A false trigger costs the reader's trust in every other finding.
+    """
+    ids = {item["id"] for item in derived["uncovered_regulations"]}
+    assert "gdpr_personal_data" not in ids
+    assert "pipa_general" in ids
+
+
+def test_gdpr_fires_for_eu_users(profile):
+    eu = copy.deepcopy(profile)
+    eu["declared"]["user_regions"] = ["DE"]
+    ids = {item["id"] for item in sb.run(eu)["uncovered_regulations"]}
+    assert "gdpr_personal_data" in ids
+
+
+def test_pci_always_fires_regardless_of_region(profile):
+    card = copy.deepcopy(profile)
+    card["declared"]["data_types"].append({"id": "payment_card_raw"})
+    card["declared"]["user_regions"] = ["BR"]
+    ids = {item["id"] for item in sb.run(card)["uncovered_regulations"]}
+    assert "pci_dss" in ids
+
+
+def test_cross_border_transfer_detected(derived):
+    cb = derived["cross_border"]
+    assert cb is not None
+    assert cb["storage_country"] == "KR"
+    assert "JP" in cb["offshore_for"]
+
+
+def test_unknown_region_is_undetermined_not_guessed(profile):
+    unknown = copy.deepcopy(profile)
+    unknown["inferred"]["region_storage"] = "moon-central-1"
+    assert sb.run(unknown)["cross_border"]["undetermined"] is True
+
+
+# ---------------------------------------------------------------------------
+# responsibility
+# ---------------------------------------------------------------------------
+
+def test_uncurated_services_are_reported(profile, derived):
+    result = classify_resp.classify(profile, derived["controls"])
+    assert "aws-lambda" in result["services_uncurated"]
+    assert "aws-s3" in result["services_curated"]
+
+
+def test_service_curation_overrides_the_layer(profile, derived):
+    result = classify_resp.classify(profile, derived["controls"])
+    entry = next(e for e in result["controls"] if e["control"] == "AC-3")
+    assert entry["source"].startswith("services/")
+    assert entry["responsibility"] == "team"
+
+
+def test_shared_entries_state_both_halves(profile, derived):
+    """Collapsing shared into provider-claimed is how gaps go unowned."""
+    result = classify_resp.classify(profile, derived["controls"])
+    entry = next(e for e in result["controls"] if e["control"] == "SC-28")
+    service = next(s for s in entry["services"] if s["service"] == "aws-s3")
+    assert service["responsibility"] == "shared"
+    assert service["csp_part"] and service["team_part"]
+    assert service["evidence"]
+
+
+def test_the_split_actually_filters(profile, derived):
+    result = classify_resp.classify(profile, derived["controls"])
+    reaching_team = result["counts"]["team"] + result["counts"]["shared"]
+    assert reaching_team < len(derived["controls"])
+    assert result["counts"]["org"] > 0
+
+
+def test_deployment_model_override_applies(profile, derived):
+    serverless = classify_resp.classify(profile, ["SC-39"])
+    assert serverless["controls"][0]["responsibility"] == "csp_claimed"
+
+    onprem = copy.deepcopy(profile)
+    onprem["inferred"]["deployment_model"] = "onprem"
+    onprem["inferred"]["managed_services"] = []
+    assert classify_resp.classify(onprem, ["SC-39"])["controls"][0]["responsibility"] == "team"
+
+
+# ---------------------------------------------------------------------------
+# crossing
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def crossed(profile, derived, threats):
+    controls_doc = {"controls": derived["controls"]}
+    resp_doc = classify_resp.classify(profile, derived["controls"])
+    return merge.cross(controls_doc, resp_doc, threats)
+
+
+def test_threat_only_bucket_is_populated(crossed):
+    """The whole premise. An empty bucket means a generic threat model, and the
+    tool has degraded into a baseline filter."""
+    assert crossed["counts"]["threat_only"] >= 3
+
+
+def test_service_specific_threats_raise_priority(crossed):
+    item = next(i for i in crossed["items"] if i["control"] == "AC-3")
+    assert item["origin"] == "threat_and_baseline"
+    assert item["priority"] == "high"
+
+
+def test_generic_threat_does_not_raise_to_high(crossed):
+    item = next(i for i in crossed["items"] if i["control"] == "AC-7")
+    assert item["priority"] == "medium"
+
+
+def test_unmatched_baseline_controls_are_retained(crossed):
+    """Coverage is the baseline's contribution. Dropping these loses the ability
+    to answer "why is this family absent?"."""
+    assert crossed["counts"]["baseline_only"] > 0
+
+
+# ---------------------------------------------------------------------------
+# merge
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def draft():
+    return json.loads((GOLDEN / "draft.json").read_text(encoding="utf-8"))["requirements"]
+
+
+def test_identifiers_are_stable_across_reruns(draft):
+    state = {"issued": {}}
+    first = merge.apply_merge(draft, [], state)
+    ids_first = {r["id"] for r in first["requirements"]}
+
+    # A requirement is inserted ahead of the others on the next run.
+    inserted = [{"slug": "NEW-TOPIC", "managed": {"statement": "x"}}] + draft
+    second = merge.apply_merge(inserted, first["requirements"], state)
+    ids_second = {r["id"] for r in second["requirements"]}
+
+    assert ids_first <= ids_second, "existing identifiers must survive an insertion"
+
+
+def test_human_edits_are_never_overwritten(draft):
+    state = {"issued": {}}
+    result = merge.apply_merge(draft, [], state)
+    existing = result["requirements"]
+
+    target = next(r for r in existing if r["id"] == "REQ-TENANT-ISOLATION-01")
+    target["human"] = {
+        "status": "exception",
+        "exception": {"approver": "CISO", "expires": "2026-12-31", "reason": "cost"},
+    }
+
+    changed = copy.deepcopy(draft)
+    for item in changed:
+        if item["slug"] == "TENANT-ISOLATION":
+            item["managed"]["statement"] = "A completely rewritten statement."
+
+    second = merge.apply_merge(changed, existing, state)
+    updated = next(r for r in second["requirements"] if r["id"] == "REQ-TENANT-ISOLATION-01")
+
+    assert updated["human"]["exception"]["approver"] == "CISO"
+    assert "A completely rewritten" not in updated["managed"]["statement"]
+    assert updated["pending_review"]["managed"]["statement"].startswith("A completely rewritten")
+
+
+def test_requirements_are_retired_not_deleted(draft):
+    state = {"issued": {}}
+    first = merge.apply_merge(draft, [], state)
+    reduced = [item for item in draft if item["slug"] != "DB-TRANSPORT-TLS"]
+    second = merge.apply_merge(reduced, first["requirements"], state)
+
+    survivor = next(r for r in second["requirements"] if r["id"] == "REQ-DB-TRANSPORT-TLS-01")
+    assert survivor["human"]["status"] == "retired"
+    assert survivor["human"]["retired_reason"]
+
+
+# ---------------------------------------------------------------------------
+# lint
+# ---------------------------------------------------------------------------
+
+def _doc(**managed):
+    base = {
+        "statement": "Personal data at rest must be encrypted with a customer-managed key.",
+        "sources": ["SC-28"],
+        "threat_refs": ["T-01"],
+        "responsibility": "team",
+        "verification": {"method": "iac_inspect", "expect": "encryption enabled"},
+    }
+    base.update(managed)
+    return {"requirements": [{"id": "REQ-DATA-ENC-REST-01", "managed": base, "human": {}}]}
+
+
+def _rules(findings):
+    return {f.rule for f in findings}
+
+
+def test_invented_identifier_is_blocked():
+    findings = lint_mod.lint(_doc(sources=["SC-28(4)"]), "en", None)
+    assert any(f.level == "ERROR" and f.rule == "source-unknown" for f in findings)
+
+
+def test_invented_family_is_blocked_not_merely_warned():
+    """Regression: an unknown family degraded to "not bundled yet" and survived."""
+    findings = lint_mod.lint(_doc(sources=["ZZ-9"]), "en", None)
+    assert any(f.level == "ERROR" and f.rule == "source-unknown" for f in findings)
+
+
+def test_unbundled_family_is_a_warning_not_an_error():
+    findings = lint_mod.lint(_doc(sources=["CP-9"]), "en", None)
+    matching = [f for f in findings if f.rule == "source-unbundled"]
+    assert matching and matching[0].level == "WARN"
+
+
+def test_vague_statement_is_blocked():
+    findings = lint_mod.lint(_doc(statement="Data must be appropriately protected at rest."), "en", None)
+    assert any(f.level == "ERROR" and f.rule == "vague" for f in findings)
+
+
+def test_missing_verification_is_blocked():
+    doc = _doc()
+    del doc["requirements"][0]["managed"]["verification"]
+    assert "no-verification" in _rules(lint_mod.lint(doc, "en", None))
+
+
+def test_inheritance_without_evidence_is_blocked():
+    findings = lint_mod.lint(_doc(responsibility="csp_claimed"), "en", None)
+    assert any(f.level == "ERROR" and f.rule == "no-evidence" for f in findings)
+
+
+def test_threat_derived_requirement_may_cite_no_control():
+    """Regression: threat-only requirements were flagged for having no source.
+
+    Having no baseline control is what puts them in that bucket, and they are
+    the findings the baseline could not produce.
+    """
+    findings = lint_mod.lint(_doc(sources=[], threat_refs=["T-03"]), "en", None)
+    assert not any(f.rule in ("no-source", "no-basis") for f in findings)
+
+
+def test_requirement_with_no_basis_at_all_is_flagged():
+    findings = lint_mod.lint(_doc(sources=[], threat_refs=[]), "en", None)
+    assert "no-basis" in _rules(findings)
+
+
+def test_golden_fixture_passes_lint():
+    doc = {"requirements": [
+        {"id": merge.issue_id(item["slug"], {"issued": {}}), "managed": item["managed"], "human": {}}
+        for item in json.loads((GOLDEN / "draft.json").read_text(encoding="utf-8"))["requirements"]
+    ]}
+    findings = lint_mod.lint(doc, "en", yaml.safe_load((GOLDEN / "threats.yaml").read_text(encoding="utf-8")))
+    errors = [f for f in findings if f.level == "ERROR"]
+    assert not errors, [str(f) for f in errors]

@@ -1,0 +1,9 @@
+# Sensitive derivation state, when this plugin is run against a repository.
+# The profile, threat model, and implementation status together describe where
+# data lives and which controls are not yet in place. Git history survives
+# deletion of the files.
+.security-requirements/
+
+__pycache__/
+*.pyc
+.pytest_cache/

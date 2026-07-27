@@ -1,0 +1,356 @@
+# Data type -> confidentiality / integrity impact contribution
+#
+# Purpose: ask the question in a service owner's vocabulary ("what data does
+# this handle?") and derive the FIPS 199 confidentiality and integrity levels
+# from the answer. Asking for the levels directly does not work -- that is a
+# security practitioner's vocabulary, and non-specialists overestimate, which
+# doubles the requirement count and gets the document discarded.
+#
+# Out of scope: availability. Availability is a property of the service, not of
+# the data. The same contact record is Low in an internal address book and High
+# in an emergency notification service. See availability.yaml.
+#
+# Computation: system level = high water mark across selected types, after
+# modifiers are applied.
+#
+# Labels here are the machine layer and are written in English. They are
+# rendered into the profile's locale at presentation time; do not localise
+# this file.
+#
+# This table is a starting reference, not a legal determination. The user can
+# adjust the outcome at the confirmation gate, and adjustments are recorded.
+#
+# Calibration
+# -----------
+# FIPS 199 defines the levels by severity of effect, and the wording matters:
+#
+#   Low       limited adverse effect
+#   Moderate  serious adverse effect
+#   High      severe or catastrophic adverse effect
+#
+# High is a strong claim. Tampered settlement records cause disputes and
+# accounting error -- serious, and recoverable, so Moderate. High integrity is
+# reserved for data whose corruption is not recoverable or causes harm beyond
+# the business: credentials and secrets (full compromise), biometrics (cannot
+# be reissued), health records (physical harm), source code (supply chain).
+#
+# Over-assigning High is not a safe default. The high water mark rule means one
+# inflated axis drags the whole system to the High baseline (370 controls),
+# which produces a document the team discards -- leaving the service with no
+# requirements at all.
+
+version: "0.2.0"
+scale: [low, moderate, high]
+
+# ---------------------------------------------------------------------------
+# Modifiers -- applied after type selection
+# ---------------------------------------------------------------------------
+modifiers:
+
+  tokenized_external:
+    label: "originals held by an external vault or PSP; we hold only tokens"
+    effect: {confidentiality: -1}
+    note: |
+      The original leaves the system boundary, so the reduction is real.
+      Do not apply if any path in the system can exchange a token for the
+      original.
+
+  pseudonymized_split_key:
+    label: "pseudonymised with the re-identification key held in a separate system"
+    effect: {confidentiality: -1}
+    flags: [linddun_linkability]
+    note: |
+      Do not apply if the key lives in the same system or database.
+      Pseudonymisation leaves residual re-identification risk, so this forces a
+      LINDDUN linkability threat.
+
+  aggregated_large_scale:
+    label: "aggregated at scale (100k+ records)"
+    effect: {confidentiality: +1}
+    note: |
+      An individual record may be Moderate while the aggregate is not.
+      The threshold is organisation-adjustable.
+
+  intended_public:
+    label: "intended for publication"
+    effect: {confidentiality: "=low"}
+    note: |
+      Integrity and availability are not reduced. Tampering with public data is
+      often the more serious risk.
+
+  derived_only_transient:
+    label: "processed in memory only, never persisted"
+    effect: {confidentiality: -1}
+    note: |
+      Apply only where there is evidence it does not reach logs, APM traces, or
+      error reports.
+
+# Rejected as reduction grounds -- these are circular
+rejected_modifiers:
+  - id: encrypted_at_rest
+    reason: |
+      Encryption is the outcome of a requirement, not a property of the data.
+      Accepting it as grounds for reduction lets a requirement delete itself.
+  - id: access_controlled
+    reason: "Same circularity. The presence of a control is not an input to classification."
+  - id: internal_network_only
+    reason: |
+      Network position does not change data sensitivity. Assumptions about
+      trusted internal networks belong in the threat model, where they can be
+      challenged.
+
+# ---------------------------------------------------------------------------
+# Data types
+# ---------------------------------------------------------------------------
+types:
+
+  # --- identity and personal data ---
+
+  - id: basic_contact
+    label: "member email, name, contact details"
+    confidentiality: moderate
+    integrity: low
+    rationale: "General personal data. Exposure enables phishing and spam; individual harm is bounded."
+    regulatory_triggers: [pipa_general, gdpr_personal_data]
+
+  - id: government_id
+    label: "national ID, passport, or driver licence number"
+    confidentiality: high
+    integrity: moderate
+    rationale: "Unique identifier. Exposure enables identity theft, and the harm is not recoverable."
+    regulatory_triggers: [pipa_unique_identifier, gdpr_personal_data]
+
+  - id: biometric
+    label: "fingerprint, face, iris, or other biometric data"
+    confidentiality: high
+    integrity: high
+    rationale: "An identifier that cannot be reissued. Exposure is permanent."
+    regulatory_triggers: [pipa_sensitive, gdpr_special_category]
+
+  - id: precise_location
+    label: "precise location (GPS-level)"
+    confidentiality: moderate
+    integrity: low
+    rationale: "Movement patterns enable physical targeting. Consider the aggregation modifier."
+    regulatory_triggers: [pipa_location, gdpr_personal_data]
+    flags: [linddun_linkability, linddun_detectability]
+
+  - id: minors_data
+    label: "data about children under 14"
+    confidentiality: high
+    integrity: moderate
+    rationale: "Heightened legal duties (guardian consent) and greater social consequence."
+    regulatory_triggers: [pipa_minor, coppa, gdpr_child]
+
+  - id: sensitive_attributes
+    label: "beliefs, union membership, political opinion, sex life, and similar"
+    confidentiality: high
+    integrity: moderate
+    rationale: "Special category data. Exposure invites discrimination or persecution."
+    regulatory_triggers: [pipa_sensitive, gdpr_special_category]
+
+  # --- authentication and secrets ---
+
+  - id: account_credentials
+    label: "password hashes, session tokens, recovery codes"
+    confidentiality: high
+    integrity: high
+    rationale: "Theft yields full account takeover and propagates to every other data type."
+
+  - id: config_secrets
+    label: "API keys, certificates, database credentials, key references"
+    confidentiality: high
+    integrity: high
+    availability_hint: high
+    rationale: "A path to whole-system compromise, and the one data type whose loss also halts the service."
+
+  # --- financial ---
+
+  - id: payment_card_raw
+    label: "raw card numbers (PAN) or CVV"
+    confidentiality: high
+    integrity: high
+    rationale: "Direct financial loss with consequences reaching the wider card network."
+    regulatory_triggers: [pci_dss]
+    note: "Selecting this must always emit the PCI DSS not-covered warning."
+
+  - id: payment_token
+    label: "PSP tokens, last four digits"
+    confidentiality: moderate
+    integrity: moderate
+    rationale: "No original held. Still enables financial loss when combined with authority to charge."
+
+  - id: bank_account
+    label: "bank account numbers and holder names"
+    confidentiality: high
+    integrity: high
+    rationale: "A direct route to fraudulent transfer."
+
+  - id: transaction_history
+    label: "transaction, order, and settlement records"
+    confidentiality: moderate
+    integrity: moderate
+    rationale: "Integrity dominates. Tampering produces settlement disputes and accounting error."
+
+  # --- health ---
+
+  - id: health_records
+    label: "medical records, prescriptions, health status"
+    confidentiality: high
+    integrity: high
+    rationale: "Special category data, and corrupted records translate into physical harm."
+    regulatory_triggers: [pipa_sensitive, hipaa, gdpr_special_category]
+
+  # --- business ---
+
+  - id: source_code_ip
+    label: "source code, algorithms, design assets"
+    confidentiality: high
+    integrity: high
+    rationale: "Loss of competitive position; tampering escalates into a supply chain compromise."
+
+  - id: customer_contracts
+    label: "contracts, pricing, customer lists"
+    confidentiality: moderate
+    integrity: moderate
+    rationale: "Commercial damage; altered terms create legal exposure."
+
+  - id: internal_ops
+    label: "internal operational data (schedules, documents, minutes)"
+    confidentiality: low
+    integrity: moderate
+    rationale: "Limited direct impact, though useful to an attacker mapping the organisation."
+
+  # --- operations and observability ---
+
+  - id: app_logs
+    label: "application logs"
+    confidentiality: low
+    integrity: moderate
+    rationale: "Low by default."
+    note: |
+      Warning: personal data and tokens leaking into logs is among the most
+      common real incidents. Selecting this forces a log sanitisation requirement.
+    forces_requirements: [log_sanitization]
+
+  - id: audit_logs
+    label: "audit and access logs"
+    confidentiality: moderate
+    integrity: moderate
+    rationale: "Integrity is the point. An audit log that can be altered is not audit evidence."
+
+  - id: security_telemetry
+    label: "security events and detection alerts"
+    confidentiality: moderate
+    integrity: moderate
+    rationale: "Reveals detection coverage to an attacker; tampering conceals intrusion."
+
+  - id: analytics_pseudonymous
+    label: "pseudonymous analytics (device ids, event streams)"
+    confidentiality: low
+    integrity: low
+    rationale: "Low per record."
+    flags: [linddun_linkability]
+    note: "Re-identification is the real risk. Forces a LINDDUN linkability threat."
+
+  # --- content ---
+
+  - id: user_generated_content
+    label: "user uploads (posts, images, files)"
+    confidentiality: moderate
+    integrity: moderate
+    rationale: "Sensitivity varies widely with content, and users expect it to stay private."
+    note: "An upload path exists, so file validation and isolation requirements are generated."
+    forces_requirements: [upload_validation]
+
+  - id: public_content
+    label: "public content (notices, catalogue, documentation)"
+    confidentiality: low
+    integrity: moderate
+    rationale: "Confidentiality is irrelevant; tampering creates trust and legal problems."
+
+  # --- derived ---
+
+  - id: ml_training_data
+    label: "model training data"
+    confidentiality: inherit_max
+    integrity: moderate
+    rationale: |
+      Inherits the highest level among source data. Training data can be
+      extracted through the model, so an anonymity assumption does not hold.
+    flags: [linddun_linkability]
+
+  - id: backups
+    label: "backups and snapshots"
+    confidentiality: inherit_max
+    integrity: inherit_max
+    rationale: |
+      Inherits the highest level among source data. In practice backups carry
+      weaker controls than the primary store and are retained far longer, so the
+      exposure window is wider.
+
+# ---------------------------------------------------------------------------
+# Regulatory triggers
+#
+# v1 detects and declares; it does not cover. `applies_when` gates a trigger on
+# jurisdiction so that, for example, a service with only Korean and Japanese
+# users is not told that GDPR applies. A trigger with no `applies_when` always
+# fires when its data type is present.
+# ---------------------------------------------------------------------------
+regulatory_triggers:
+
+  pci_dss:
+    label: "PCI DSS 4.x"
+    covered: false
+    message: "Raw cardholder data detected. PCI DSS appears to apply and is not supported by this tool."
+
+  hipaa:
+    label: "HIPAA Security Rule"
+    covered: false
+    applies_when: {user_regions_any: [US]}
+
+  coppa:
+    label: "COPPA"
+    covered: false
+    applies_when: {user_regions_any: [US]}
+
+  pipa_general:
+    label: "PIPA (Korea), general provisions"
+    covered: false
+    applies_when: {user_regions_any: [KR]}
+
+  pipa_unique_identifier:
+    label: "PIPA (Korea), unique identifying information"
+    covered: false
+    applies_when: {user_regions_any: [KR]}
+    message: "Unique identifying information detected. Confirm the separate legal basis and encryption duty under PIPA."
+
+  pipa_sensitive:
+    label: "PIPA (Korea), sensitive information"
+    covered: false
+    applies_when: {user_regions_any: [KR]}
+
+  pipa_minor:
+    label: "PIPA (Korea), children's data"
+    covered: false
+    applies_when: {user_regions_any: [KR]}
+
+  pipa_location:
+    label: "Location Information Act (Korea)"
+    covered: false
+    applies_when: {user_regions_any: [KR]}
+
+  gdpr_personal_data:
+    label: "GDPR"
+    covered: false
+    applies_when: {user_regions_any: [EU, EEA, UK, DE, FR, IE, NL, ES, IT, SE, PL]}
+
+  gdpr_special_category:
+    label: "GDPR Article 9 special category data"
+    covered: false
+    applies_when: {user_regions_any: [EU, EEA, UK, DE, FR, IE, NL, ES, IT, SE, PL]}
+
+  gdpr_child:
+    label: "GDPR Article 8"
+    covered: false
+    applies_when: {user_regions_any: [EU, EEA, UK, DE, FR, IE, NL, ES, IT, SE, PL]}

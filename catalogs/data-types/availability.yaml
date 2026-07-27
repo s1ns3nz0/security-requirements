@@ -1,0 +1,100 @@
+# Availability impact derivation
+#
+# Availability is a property of the service, not of the data. The same contact
+# record is Low in an internal address book and High in an emergency
+# notification service. That is why this table is separate from
+# classification.yaml and is answered directly by the service owner.
+#
+# Computation: highest level across the RTO bucket, the RPO bucket, and any
+# amplifiers.
+#
+# Labels are the machine layer and stay in English; they are rendered into the
+# profile's locale at presentation time.
+#
+# Calibration note
+# ----------------
+# RTO and RPO answer different questions and must not be collapsed.
+#
+#   RTO -- how long may the service be unreachable?   -> availability
+#   RPO -- how much committed data may be lost?       -> durability / integrity
+#
+# A service that tolerates four hours of downtime but no data loss at all is
+# common, and it is Moderate availability with High integrity -- not High
+# availability. Treating zero-RPO as High availability pushes ordinary business
+# systems into the High baseline (370 controls), which is reserved by FIPS 199
+# for systems whose compromise causes severe or catastrophic harm. The result is
+# a document nobody uses.
+
+version: "0.2.0"
+
+# ---------------------------------------------------------------------------
+# Recovery time objective -- how long may it be down?
+# ---------------------------------------------------------------------------
+rto_buckets:
+  - id: rto_minutes
+    label: "minutes; an outage is felt immediately"
+    availability: high
+  - id: rto_hours
+    label: "hours; recovery within the business day is acceptable"
+    availability: moderate
+  - id: rto_day_plus
+    label: "a day or more is survivable"
+    availability: low
+
+# ---------------------------------------------------------------------------
+# Recovery point objective -- how much data may be lost?
+#
+# These raise integrity rather than availability. The availability contribution
+# reflects only the recovery infrastructure the target implies.
+# ---------------------------------------------------------------------------
+rpo_buckets:
+  - id: rpo_zero
+    label: "no committed record may be lost (transactions, settlement)"
+    availability: moderate
+    integrity_hint: moderate
+    note: |
+      Continuous replication is implied, hence a Moderate availability
+      contribution. The harm of losing the data itself is an integrity concern,
+      so integrity is raised to Moderate -- losing committed records is a
+      serious effect, not the severe or catastrophic one FIPS 199 reserves for
+      High.
+  - id: rpo_minutes
+    label: "a few minutes of work can be re-entered"
+    availability: moderate
+  - id: rpo_hours_plus
+    label: "daily backups are sufficient"
+    availability: low
+
+# ---------------------------------------------------------------------------
+# Amplifiers -- any match raises availability to at least the stated level
+# ---------------------------------------------------------------------------
+amplifiers:
+  - id: safety_critical
+    label: "an outage risks physical harm or loss of life"
+    availability: high
+    note: |
+      Healthcare, emergency response, transport, industrial control. This sets
+      High regardless of the RTO answer.
+
+  - id: revenue_direct
+    label: "an outage stops revenue directly (commerce, payments, advertising)"
+    availability: moderate
+
+  - id: regulatory_reporting
+    label: "statutory reporting or filing deadlines depend on it"
+    availability: moderate
+
+  - id: single_point_dependency
+    label: "other internal systems depend on this one"
+    availability: moderate
+    note: "Failure propagates inside the organisation. Platform, identity, and gateway services."
+
+  - id: contractual_sla
+    label: "an availability SLA is contracted with customers"
+    availability: moderate
+    note: "Breach carries damages. Consider High where the contracted target is 99.9% or better."
+
+  - id: internal_tool_only
+    label: "internal tooling with a workable manual fallback"
+    availability: low
+    note: "Only meaningful when no other amplifier applies."

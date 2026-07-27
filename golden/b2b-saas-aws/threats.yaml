@@ -1,0 +1,133 @@
+# Golden case 1 -- threat model fixture
+#
+# SYNTHETIC, and hand-authored rather than generated. In a real run the model
+# produces this from the DFD. Here it is fixed so the deterministic chain
+# (cross -> merge -> render -> lint) can be regression tested without a model in
+# the loop, and so expected-coverage.yaml has something stable to score against.
+#
+# Note the threats with an empty related_controls list. Those are the ones the
+# AC/AU/SC baseline does not reach, and they are what the tool exists to find.
+
+version: "0.1.0"
+profile: b2b-saas-aws
+
+boundaries:
+  - id: TB-1
+    from: anonymous internet
+    to: api-gateway
+  - id: TB-2
+    from: api-gateway
+    to: order-svc (lambda)
+  - id: TB-3
+    from: order-svc
+    to: rds-postgres
+  - id: TB-4
+    from: order-svc
+    to: s3-exports
+  - id: TB-5
+    from: order-svc
+    to: sentry (third party)
+    note: "crosses out of the organisation; easy to miss because it is a library call"
+  - id: TB-6
+    from: order-svc
+    to: cloudwatch logs
+  - id: TB-7
+    from: stripe
+    to: webhook handler
+
+threats:
+
+  - id: T-01
+    boundary: TB-3
+    category: STRIDE:E
+    novelty: service_specific
+    persona: authenticated_tenant
+    scenario: >-
+      A user of tenant A requests an order by sequential order_id and receives
+      tenant B's record. Authorisation verifies that the caller is
+      authenticated but not that the row belongs to their tenant.
+    affected_assets: [transaction_history]
+    related_controls: [AC-3, AC-4]
+
+  - id: T-02
+    boundary: TB-4
+    category: STRIDE:I
+    novelty: service_specific
+    persona: authenticated_tenant
+    scenario: >-
+      An export presigned URL is issued with a multi-day expiry and forwarded
+      outside the tenant. The object stays reachable without authentication for
+      the life of the URL, and no bucket policy shows this access path.
+    affected_assets: [transaction_history, customer_contracts]
+    related_controls: [AC-21]
+
+  - id: T-03
+    boundary: TB-5
+    category: STRIDE:I
+    novelty: service_specific
+    persona: anonymous_external
+    scenario: >-
+      An unhandled exception serialises the request context into the error
+      report. Member email and address leave the boundary to a third-party
+      error reporting service that is not covered by a processing agreement.
+    affected_assets: [basic_contact]
+    related_controls: []
+
+  - id: T-04
+    boundary: TB-7
+    category: STRIDE:T
+    novelty: service_specific
+    persona: authenticated_tenant
+    scenario: >-
+      A refund webhook is replayed. Idempotency is keyed on a value the caller
+      supplies, so the refund is applied twice and settlement records diverge
+      from the payment provider.
+    affected_assets: [transaction_history, payment_token]
+    related_controls: []
+
+  - id: T-05
+    boundary: TB-6
+    category: LINDDUN:Linkability
+    novelty: service_specific
+    persona: insider_staff
+    scenario: >-
+      device_id in the analytics event stream persists across sessions and
+      joins to the account table on session id, re-identifying users in data
+      the service treats as anonymous.
+    affected_assets: [app_logs]
+    related_controls: []
+
+  - id: T-06
+    boundary: TB-6
+    category: STRIDE:R
+    novelty: service_specific
+    persona: insider_staff
+    scenario: >-
+      The audit log destination is writable by the same role the application
+      runs under, so an actor with application-level code execution can remove
+      the record of their own actions.
+    affected_assets: [audit_logs]
+    related_controls: [AU-9, AU-9(4)]
+
+  - id: T-07
+    boundary: TB-3
+    category: STRIDE:T
+    novelty: generic
+    persona: anonymous_external
+    scenario: >-
+      Database traffic is intercepted on the internal network because the
+      client does not require TLS and the driver does not verify the server
+      certificate by default.
+    affected_assets: [transaction_history, basic_contact]
+    related_controls: [SC-8, SC-8(1)]
+
+  - id: T-08
+    boundary: TB-1
+    category: STRIDE:S
+    novelty: generic
+    persona: anonymous_external
+    scenario: >-
+      Credential stuffing against the sign-in endpoint using passwords breached
+      elsewhere.
+    affected_assets: [account_credentials]
+    related_controls: [AC-7]

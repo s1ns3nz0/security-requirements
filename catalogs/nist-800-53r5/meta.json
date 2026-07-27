@@ -1,0 +1,47 @@
+{
+  "source": "https://github.com/usnistgov/oscal-content",
+  "publication": "NIST SP 800-53 Rev 5 / SP 800-53B",
+  "oscal_catalog_uuid": "ea7c7688-79c5-463b-a91b-0650f2d98623",
+  "oscal_last_modified": "2026-05-11T16:01:09.00000-00:00",
+  "oscal_version": "5.2.0",
+  "license": "US Government work, public domain",
+  "all_families": [
+    "AC",
+    "AT",
+    "AU",
+    "CA",
+    "CM",
+    "CP",
+    "IA",
+    "IR",
+    "MA",
+    "MP",
+    "PE",
+    "PL",
+    "PM",
+    "PS",
+    "PT",
+    "RA",
+    "SA",
+    "SC",
+    "SI",
+    "SR"
+  ],
+  "families_extracted": [
+    "AC",
+    "AU",
+    "SC"
+  ],
+  "control_counts": {
+    "AC": 147,
+    "AU": 69,
+    "SC": 162
+  },
+  "baseline_counts": {
+    "low": 149,
+    "moderate": 287,
+    "high": 370,
+    "privacy": 96
+  },
+  "partial": true
+}

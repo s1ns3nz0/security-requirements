@@ -1,0 +1,171 @@
+# Coarse responsibility mapping by deployment model
+#
+# This is the first pass. Service-specific files in responsibility/services/
+# override it where a managed service changes the answer.
+#
+# Four buckets, not three. The fourth -- `shared` -- is the largest and the one
+# that matters most. SC-13 is the canonical case: the provider runs the key
+# management infrastructure, but enabling encryption on the bucket is the
+# team's job. Collapsing shared into csp_claimed is exactly how real gaps are
+# created, because nobody ends up owning the half that was theirs.
+#
+#   csp_claimed  the provider performs this; the customer's duty is to obtain
+#                and retain evidence. Never stated as fact -- it is a claim
+#                that an auditor will ask you to substantiate.
+#   shared       both parties act. Both halves must be stated separately.
+#   org          an organisational control, outside the delivery team
+#                (HR, physical security, policy, audit programme).
+#   team         the delivery team implements it in code or configuration.
+#
+# Scope: only the AC, AU, and SC families are mapped, because only those are
+# currently bundled. Anything else resolves to UNDETERMINED rather than being
+# silently omitted.
+
+version: "0.1.0"
+families_mapped: [AC, AU, SC]
+
+# ---------------------------------------------------------------------------
+# Applies to every deployment model unless overridden below.
+# ---------------------------------------------------------------------------
+default:
+  # Policy and procedure controls. These are documents the organisation owns;
+  # a delivery team cannot satisfy them by writing code.
+  AC-1: org
+  AU-1: org
+  SC-1: org
+
+  # Account and access management
+  AC-2: team
+  AC-2(1): team
+  AC-2(2): team
+  AC-2(3): team
+  AC-2(4): team
+  AC-2(5): org
+  AC-2(13): team
+  AC-3: team
+  AC-4: team
+  AC-5: org
+  AC-6: team
+  AC-6(1): team
+  AC-6(2): team
+  AC-6(5): team
+  AC-6(7): org
+  AC-6(9): team
+  AC-6(10): team
+  AC-7: team
+  AC-8: team
+  AC-14: team
+  AC-21: team
+  AC-22: team
+
+  # Session handling. AC-11 is workstation session lock -- an endpoint
+  # management concern, not an application one. AC-12 is application session
+  # termination and belongs to the team. These are routinely confused.
+  AC-11: org
+  AC-11(1): org
+  AC-12: team
+
+  # Enterprise endpoint and network estate, not the service under review
+  AC-17: org
+  AC-17(1): org
+  AC-17(2): org
+  AC-17(3): org
+  AC-17(4): org
+  AC-18: org
+  AC-18(1): org
+  AC-18(3): org
+  AC-19: org
+  AC-19(5): org
+  AC-20: org
+  AC-20(1): org
+  AC-20(2): org
+
+  # Audit
+  AU-2: team
+  AU-3: team
+  AU-3(1): team
+  AU-4: shared
+  AU-5: shared
+  AU-6: org
+  AU-6(1): shared
+  AU-6(3): org
+  AU-7: shared
+  AU-7(1): shared
+  AU-8: csp_claimed
+  AU-9: shared
+  AU-9(4): team
+  AU-11: team
+  AU-12: shared
+
+  # System and communications protection
+  SC-2: team
+  SC-4: team
+  SC-5: shared
+  SC-7: shared
+  SC-7(3): shared
+  SC-7(4): shared
+  SC-7(5): shared
+  SC-7(7): team
+  SC-7(8): team
+  SC-8: shared
+  SC-8(1): shared
+  SC-10: shared
+  SC-12: shared
+  SC-13: shared
+  SC-15: org
+  SC-17: org
+  SC-18: team
+  SC-20: csp_claimed
+  SC-21: csp_claimed
+  SC-22: csp_claimed
+  SC-23: team
+  SC-28: shared
+  SC-28(1): shared
+  SC-39: shared
+
+# ---------------------------------------------------------------------------
+# Deployment model overrides
+# ---------------------------------------------------------------------------
+deployment_models:
+
+  serverless:
+    description: "Functions and managed services; no customer-managed hosts."
+    overrides:
+      # No operating system to isolate; the platform enforces process and
+      # tenant separation.
+      SC-39: csp_claimed
+      # Log storage and retention are platform-managed capacity; the team still
+      # chooses the retention period (AU-11 stays with the team).
+      AU-4: csp_claimed
+      # No customer-managed load balancer to fail closed on its own.
+      SC-5: shared
+
+  paas:
+    description: "Managed runtime; provider owns the host, team owns the app."
+    overrides:
+      SC-39: csp_claimed
+
+  iaas:
+    description: "Customer-managed virtual machines."
+    overrides:
+      # The team owns the guest OS, so isolation and host boundary controls
+      # move back to them.
+      SC-39: team
+      AU-4: team
+      SC-7: team
+      SC-7(3): team
+
+  onprem:
+    description: "Self-hosted infrastructure."
+    overrides:
+      SC-39: team
+      AU-4: team
+      AU-8: team
+      SC-7: team
+      SC-7(3): team
+      SC-7(4): team
+      SC-7(5): team
+      SC-20: team
+      SC-21: team
+      SC-22: team
+      SC-12: team

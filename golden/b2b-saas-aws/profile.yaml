@@ -1,0 +1,74 @@
+# Golden case 1 -- multi-tenant B2B SaaS on AWS (order management)
+#
+# SYNTHETIC. Every field is invented. No real organisation is described here.
+# This repository is public, so golden profiles must never be drawn from a real
+# service: a profile plus its open requirements is a reconnaissance document.
+#
+# Purpose: exercise the full pipeline and score derivation quality against
+# expected-coverage.yaml. The multi-tenancy and the error-reporting integration
+# are the interesting parts -- neither is visible to a baseline-only run.
+
+version: "0.1.0"
+locale: en
+generated_at: "2026-07-27"
+catalog_versions:
+  nist_800_53: r5
+  data_types: "0.1.0"
+
+repo:
+  visibility: private
+  root: "."
+
+inferred:
+  csp: aws
+  deployment_model: serverless
+  managed_services:
+    - id: aws-s3
+      evidence: "infra/storage.tf:12"
+    - id: aws-rds
+      evidence: "infra/db.tf:4"
+    - id: aws-lambda
+      evidence: "infra/api.tf:31"
+    - id: aws-api-gateway
+      evidence: "infra/api.tf:8"
+    - id: aws-cognito
+      evidence: "infra/auth.tf:3"
+  stack: [typescript, node20]
+  auth_mechanism: oidc_cognito
+  entrypoints:
+    - "POST /api/v1/orders"
+    - "GET /api/v1/orders/{order_id}"
+    - "POST /api/v1/exports"
+    - "sqs: order-events"
+  external_integrations:
+    - name: stripe
+      purpose: payment
+      data_sent: [payment_token]
+    - name: sentry
+      purpose: error_reporting
+      data_sent: [basic_contact]        # confirmed in Q4: stack traces carry user context
+    - name: sendgrid
+      purpose: transactional_email
+      data_sent: [basic_contact]
+  region_storage: ap-northeast-2
+
+declared:
+  data_types:
+    - id: basic_contact
+    - id: payment_token
+      modifiers: [tokenized_external]
+    - id: transaction_history
+    - id: audit_logs
+    - id: app_logs
+    - id: customer_contracts
+    - id: backups
+  availability:
+    rto: rto_hours
+    rpo: rpo_zero
+    amplifiers: [revenue_direct, contractual_sla]
+  users:
+    - authenticated_individual
+    - business_tenant                   # multi-tenant: tenant isolation is in scope
+  regulations_declared: []
+  existing_org_controls: [sso, central_logging]
+  user_regions: [KR, JP]

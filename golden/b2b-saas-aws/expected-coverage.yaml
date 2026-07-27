@@ -1,0 +1,107 @@
+# Golden case 1 -- expected coverage
+#
+# Scoring is by topic, not by wording. The model will phrase the same
+# requirement differently on every run, so demanding a string match would make
+# the suite measure paraphrase rather than derivation. What is scored is whether
+# the subject was addressed at all.
+#
+# Recall is measured automatically. Precision -- whether the extra requirements
+# are any good -- is sampled by a person, because there is no cheap proxy for it.
+#
+# `match_any` holds keyword hints for the mechanical scorer. They are an
+# approximation: a run whose wording avoids every hint will score as a miss and
+# needs a human look before the hints are widened. Widening hints to make a
+# failing run pass is how this suite stops measuring anything.
+
+version: "0.1.0"
+profile: b2b-saas-aws
+
+topics:
+
+  # --- the reason the tool exists: not reachable from the baseline alone ---
+
+  - id: tenant-object-access
+    must_cover: true
+    critical: true
+    description: "Authorisation verifies record ownership, not merely authentication"
+    match_any: [tenant, ownership, "belongs to", isolation, "row-level"]
+    why: >-
+      The defining multi-tenant failure. A baseline-only run produces AC-3 and
+      stops at "enforce approved authorisations", which a team reads as "we have
+      auth" and closes.
+
+  - id: third-party-egress-pii
+    must_cover: true
+    critical: true
+    description: "Personal data stripped before leaving to an error reporter or analytics SaaS"
+    match_any: [error report, sentry, stack trace, scrub, exception payload, telemetry]
+    why: >-
+      Introduced by a library call, so it appears in no network diagram and no
+      infrastructure review. No AC/AU/SC control reaches it.
+
+  - id: business-logic-replay
+    must_cover: true
+    critical: true
+    description: "Idempotency on a value the caller cannot choose"
+    match_any: [idempoten, replay, duplicate, "exactly once", webhook]
+    why: >-
+      Well-formed requests, so scanners see nothing. Control catalogues have no
+      vocabulary for business logic abuse.
+
+  - id: pseudonymous-relinkage
+    must_cover: true
+    critical: true
+    description: "Anonymous analytics identifiers cannot be joined back to accounts"
+    match_any: [device_id, re-identif, relink, linkab, pseudonym, anonymous]
+    why: >-
+      A LINDDUN class. STRIDE has no category for it and neither does the
+      baseline, so it is only found if the privacy pass actually runs.
+
+  # --- baseline topics that must survive tailoring ---
+
+  - id: encryption-at-rest
+    must_cover: true
+    description: "Personal data at rest encrypted, with key custody addressed"
+    match_any: [at rest, encrypt, kms, customer-managed]
+
+  - id: transport-encryption
+    must_cover: true
+    description: "Transport encryption including certificate verification"
+    match_any: [tls, transit, certificate, force_ssl]
+
+  - id: audit-log-integrity
+    must_cover: true
+    description: "Audit records cannot be altered by the identities they record"
+    match_any: [audit, tamper, immutab, "write separation", integrity]
+
+  - id: presigned-url-exposure
+    must_cover: true
+    description: "Time-bounded unauthenticated object access"
+    match_any: [presigned, signed url, expiry, expire]
+
+  - id: least-privilege-runtime
+    must_cover: false
+    description: "Runtime credentials separated from migration or admin credentials"
+    match_any: [least privilege, separate credential, ddl, migration role]
+
+  - id: log-retention
+    must_cover: false
+    description: "Audit log retention period set deliberately"
+    match_any: [retention, retain, lifecycle]
+
+# Requirements that must NOT appear. The profile declares company-wide SSO and
+# central log collection, so demanding the team build those tells the reader the
+# tool did not read their answers -- and they stop trusting everything else.
+must_not_cover:
+  - id: introduce-sso
+    match_any: ["introduce single sign", "implement centralised authentication", "deploy an identity provider"]
+    why: "Q6 declared SSO already in place. It belongs in the organisational bucket."
+  - id: physical-security
+    match_any: [physical access, badge, data centre entry, visitor log]
+    why: >-
+      Serverless deployment. Physical controls are provider-claimed and must not
+      reach the delivery team as work.
+
+scoring:
+  recall_threshold: 0.85
+  critical_required: true    # every topic marked critical must be covered

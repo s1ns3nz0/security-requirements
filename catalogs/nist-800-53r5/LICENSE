@@ -1,0 +1,18 @@
+The files in this directory are derived from NIST OSCAL content:
+
+    https://github.com/usnistgov/oscal-content
+    NIST Special Publication 800-53 Revision 5 (control catalog)
+    NIST Special Publication 800-53B (control baselines)
+
+These are works of the United States Government. Pursuant to 17 U.S.C. 105,
+they are not subject to copyright protection in the United States and are in
+the public domain.
+
+The transformation applied here (OSCAL JSON to per-family JSONL, resolution of
+organisation-defined parameter placeholders into readable labels) is mechanical
+and is performed by scripts/rebuild_catalogs.py. Control identifiers, titles,
+statements, and guidance text are reproduced without alteration of meaning.
+
+NIST does not endorse this project. Use of NIST publications does not imply
+any approval, certification, or affiliation. Do not represent output derived
+from these files as NIST-validated.

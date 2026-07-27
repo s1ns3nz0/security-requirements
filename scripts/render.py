@@ -1,0 +1,259 @@
+#!/usr/bin/env python3
+"""Render the requirements SSOT into documents for human readers.
+
+Three outputs, because there are three audiences:
+
+    requirements.md    the delivery team -- organised by CSF 2.0 function, so it
+                       reads as work rather than as a control list
+    traceability.md    the auditor -- control identifier to requirement, so the
+                       question "how is AC-3 addressed?" has an answer
+    responsibility.md  everyone -- who owns what, and what evidence substantiates
+                       each inheritance claim
+
+These are the publishable artefacts. Implementation status, the threat model, and
+exception approvals stay in .security-requirements/ and are governed separately;
+together they describe where the data is and which controls are not yet in place.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+import yaml
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+CATALOG_DIR = REPO_ROOT / "catalogs" / "nist-800-53r5"
+
+DISCLAIMER = (
+    "> This document is an automatically generated draft. It does not constitute\n"
+    "> legal advice and does not substitute for compliance certification.\n"
+    "> Qualified review is required.\n"
+)
+
+CSF_FUNCTIONS = {
+    "GV": "GOVERN",
+    "ID": "IDENTIFY",
+    "PR": "PROTECT",
+    "DE": "DETECT",
+    "RS": "RESPOND",
+    "RC": "RECOVER",
+}
+FUNCTION_ORDER = ["GV", "ID", "PR", "DE", "RS", "RC", "??"]
+
+RESPONSIBILITY_LABEL = {
+    "team": "team implements",
+    "shared": "shared",
+    "csp_claimed": "provider claimed",
+    "org": "organisational",
+    "undetermined": "UNDETERMINED",
+}
+
+PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+
+
+def catalog_titles() -> dict[str, str]:
+    titles = {}
+    if CATALOG_DIR.exists():
+        for path in CATALOG_DIR.glob("*.jsonl"):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    rec = json.loads(line)
+                    titles[rec["id"]] = rec["title"]
+    return titles
+
+
+def catalog_meta() -> dict:
+    path = CATALOG_DIR / "meta.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
+def function_of(req: dict) -> str:
+    csf = (req.get("managed") or {}).get("csf") or []
+    if not csf:
+        return "??"
+    return csf[0].split(".")[0].upper()
+
+
+def active(req: dict) -> bool:
+    return (req.get("human") or {}).get("status") not in ("retired", "superseded")
+
+
+def provenance(meta: dict) -> str:
+    lines = ["## Sources", ""]
+    if meta:
+        lines.append(
+            f"- NIST SP 800-53 Rev 5 / SP 800-53B "
+            f"(OSCAL version {meta.get('oscal_version', 'unknown')}, "
+            f"last modified {meta.get('oscal_last_modified', 'unknown')})"
+        )
+        if meta.get("partial"):
+            fams = ", ".join(meta.get("families_extracted", []))
+            lines.append(
+                f"- **Partial catalog.** Only the {fams} families are bundled. Controls in "
+                "other families are reported as unavailable rather than omitted."
+            )
+    lines += [
+        "- NIST Cybersecurity Framework 2.0 (structure)",
+        "- OWASP Application Security Verification Standard (CC BY-SA 4.0)",
+        "",
+        "NIST does not endorse this output. Provider guidance is summarised in the "
+        "authors' own words with links to the original; it is not reproduced.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def render_requirements(doc: dict, titles: dict, meta: dict) -> str:
+    reqs = [r for r in doc.get("requirements", []) or [] if active(r)]
+    grouped: dict[str, list[dict]] = {}
+    for req in reqs:
+        grouped.setdefault(function_of(req), []).append(req)
+
+    out = ["# Security requirements", "", DISCLAIMER, ""]
+    out.append(f"{len(reqs)} active requirements.")
+    out.append("")
+
+    for key in FUNCTION_ORDER:
+        items = grouped.get(key)
+        if not items:
+            continue
+        heading = CSF_FUNCTIONS.get(key, "UNCLASSIFIED")
+        out += [f"## {heading}", ""]
+        items.sort(key=lambda r: (
+            PRIORITY_ORDER.get((r.get("managed") or {}).get("priority", "low"), 3),
+            r["id"],
+        ))
+        for req in items:
+            managed = req.get("managed") or {}
+            human = req.get("human") or {}
+            out.append(f"### {req['id']}")
+            out.append("")
+            out.append(managed.get("statement", ""))
+            out.append("")
+            if managed.get("rationale"):
+                out += [f"*{managed['rationale'].strip()}*", ""]
+
+            rows = []
+            resp = managed.get("responsibility", "undetermined")
+            rows.append(("Responsibility", RESPONSIBILITY_LABEL.get(resp, resp)))
+            if managed.get("csp_part"):
+                rows.append(("Provider", managed["csp_part"]))
+            if managed.get("team_part"):
+                rows.append(("Team", managed["team_part"]))
+            if managed.get("evidence"):
+                evidence = managed["evidence"]
+                rows.append(("Evidence", evidence if isinstance(evidence, str) else "; ".join(evidence)))
+            sources = managed.get("sources") or []
+            if sources:
+                rows.append(("Basis", ", ".join(sources)))
+            rows.append(("Priority", managed.get("priority", "low")))
+
+            verification = managed.get("verification") or {}
+            if verification:
+                check = f"`{verification.get('target', '')}` — expect {verification.get('expect', '')}"
+                rows.append(("Verify", f"{verification.get('method', '')}: {check}"))
+                if verification.get("fallback_manual"):
+                    rows.append(("Verify (manual)", verification["fallback_manual"]))
+
+            out.append("| | |")
+            out.append("|---|---|")
+            for label, value in rows:
+                out.append(f"| {label} | {value} |")
+            out.append("")
+
+            if human.get("status") and human["status"] != "active":
+                out.append(f"> Status: **{human['status']}**")
+                exception = human.get("exception") or {}
+                if exception:
+                    out.append(
+                        f"> Approved by {exception.get('approver', 'unrecorded')}, "
+                        f"expires {exception.get('expires', 'unrecorded')} — "
+                        f"{exception.get('reason', '')}"
+                    )
+                out.append("")
+
+            if req.get("pending_review"):
+                out += ["> A re-run proposes a change to this requirement. "
+                        "See `pending_review` in requirements.yaml.", ""]
+
+    out.append(provenance(meta))
+    return "\n".join(out)
+
+
+def render_traceability(doc: dict, titles: dict, meta: dict) -> str:
+    reqs = [r for r in doc.get("requirements", []) or [] if active(r)]
+    by_control: dict[str, list[str]] = {}
+    for req in reqs:
+        for source in (req.get("managed") or {}).get("sources", []) or []:
+            by_control.setdefault(source, []).append(req["id"])
+
+    out = ["# Traceability", "", DISCLAIMER, "",
+           "Control to requirement. Use this to answer \"how is this control addressed?\"",
+           "", "| Control | Title | Requirements |", "|---|---|---|"]
+    for control in sorted(by_control, key=lambda c: (c.split("-")[0], c)):
+        title = titles.get(control, "")
+        out.append(f"| {control} | {title} | {', '.join(sorted(by_control[control]))} |")
+    out += ["", provenance(meta)]
+    return "\n".join(out)
+
+
+def render_responsibility(doc: dict, meta: dict) -> str:
+    reqs = [r for r in doc.get("requirements", []) or [] if active(r)]
+    buckets: dict[str, list[dict]] = {}
+    for req in reqs:
+        buckets.setdefault((req.get("managed") or {}).get("responsibility", "undetermined"), []).append(req)
+
+    out = ["# Responsibility", "", DISCLAIMER, "",
+           "Inheritance is a claim, not a fact. Every provider-claimed control lists the",
+           "evidence an auditor will ask for.", ""]
+
+    for bucket in ("team", "shared", "csp_claimed", "org", "undetermined"):
+        items = buckets.get(bucket)
+        if not items:
+            continue
+        out += [f"## {RESPONSIBILITY_LABEL[bucket]} ({len(items)})", ""]
+        out += ["| Requirement | Statement | Evidence |", "|---|---|---|"]
+        for req in sorted(items, key=lambda r: r["id"]):
+            managed = req.get("managed") or {}
+            evidence = managed.get("evidence") or ""
+            if isinstance(evidence, list):
+                evidence = "; ".join(evidence)
+            marker = " ⚠ unverified" if managed.get("unverified") else ""
+            statement = managed.get("statement", "").replace("|", "\\|")
+            out.append(f"| {req['id']}{marker} | {statement} | {evidence} |")
+        out.append("")
+
+    out.append(provenance(meta))
+    return "\n".join(out)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("requirements", type=Path)
+    ap.add_argument("--out", type=Path, default=Path("docs/security"))
+    args = ap.parse_args()
+
+    doc = yaml.safe_load(args.requirements.read_text(encoding="utf-8")) or {}
+    titles = catalog_titles()
+    meta = catalog_meta()
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    written = []
+    for name, content in (
+        ("requirements.md", render_requirements(doc, titles, meta)),
+        ("traceability.md", render_traceability(doc, titles, meta)),
+        ("responsibility.md", render_responsibility(doc, meta)),
+    ):
+        path = args.out / name
+        path.write_text(content.rstrip() + "\n", encoding="utf-8")
+        written.append(path)
+
+    for path in written:
+        print(f"wrote {path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
