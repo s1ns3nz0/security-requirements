@@ -258,6 +258,48 @@ def script_of(text: str) -> str | None:
     return dominant if share >= 0.5 else None
 
 
+# Things that name one instance rather than one kind of thing. Not a judgement
+# about meaning -- this repository has been wrong every time it inferred meaning
+# from shape -- but these five forms cannot be a resource type, a control, or a
+# property. A verification target is meant to name what to look at ("the bucket
+# encryption configuration"), and docs/security/ is publishable, so a target
+# naming the production bucket answers "where the data lives", which the README
+# puts on the other side of the line.
+INSTANCE_FORMS = (
+    (re.compile(r"\barn:[a-z0-9-]*:"), "an ARN"),
+    (re.compile(r"https?://"), "a URL"),
+    (re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b"), "an IP address"),
+    (re.compile(r"(?:^|\s)/(?:etc|var|home|Users|opt|srv)/"), "an absolute path"),
+    (re.compile(r"\b[a-z0-9-]+\.(?:internal|local|corp|intranet)\b"), "an internal hostname"),
+)
+
+
+def check_public_safety(req_id: str, managed: dict) -> list[Finding]:
+    """Fields that reach docs/security/ and could name one particular thing."""
+    findings = []
+    verification = managed.get("verification")
+    fields = {
+        "evidence": managed.get("evidence"),
+        "csp_part": managed.get("csp_part"),
+        "team_part": managed.get("team_part"),
+    }
+    if isinstance(verification, dict):
+        fields["verification.target"] = verification.get("target")
+        fields["verification.fallback_manual"] = verification.get("fallback_manual")
+
+    for name, value in fields.items():
+        text = "; ".join(map(str, value)) if isinstance(value, (list, tuple)) else str(value or "")
+        for pattern, what in INSTANCE_FORMS:
+            if pattern.search(text):
+                findings.append(Finding(
+                    "WARN", req_id, "names-an-instance",
+                    f"managed.{name} contains {what}. This field is published, and naming "
+                    f"one particular resource answers \"where the data lives\" -- name the "
+                    f"kind of thing instead."))
+                break
+    return findings
+
+
 def check_statement(req_id: str, statement: str, locale: str) -> list[Finding]:
     findings = []
     lowered = statement.lower()
@@ -367,6 +409,7 @@ def lint(doc: dict, locale: str, threats: dict | None) -> list[Finding]:
             continue
 
         findings += check_statement(req_id, statement, locale)
+        findings += check_public_safety(req_id, managed)
         findings += check_sources(req_id, managed.get("sources", []) or [], catalog, bundled, known)
 
         csf_ids_declared, csf_findings = as_list(req_id, "csf", managed.get("csf"))

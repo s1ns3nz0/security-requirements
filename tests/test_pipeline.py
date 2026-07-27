@@ -5130,20 +5130,28 @@ def test_the_published_file_does_not_say_which_requirements_are_unmet():
 
     This asserts the sentence rather than the four instances.
     """
+    # One fixture carrying all five historical leaks. The first version of this
+    # test carried three of them, so reintroducing the retirement reason, the
+    # exception's rationale, or the pending-review note would have passed.
     documents = _documents([
         _req("REQ-A-B-01", human={"status": "accepted_risk",
-                                  "exception": {"approver": "Jane Park", "expires": "2027-01-31"}}),
-        _req("REQ-C-D-01", human={"status": "pending_review"}),
-        _req("REQ-E-F-01"),
+                                  "exception": {"approver": "Jane Park",
+                                                "expires": "2027-01-31",
+                                                "reason": "the vendor cannot support this"}}),
+        _req("REQ-C-D-01", human={"status": "retired",
+                                  "retired_reason": "closed by the exception above"}),
+        {**_req("REQ-E-F-01"), "pending_review": {"statement": "a newer wording"}},
     ])
     for document in documents:
         for disclosure in ("accepted_risk", "pending_review", "2027-01-31", "Jane Park",
-                           "Status:", "exception"):
+                           "Status:", "exception", "vendor cannot support",
+                           "closed by the exception", "requirements.yaml"):
             assert disclosure.lower() not in document.lower(), f"{disclosure} in a published file"
 
     published = documents[0]
-    for req_id in ("REQ-A-B-01", "REQ-C-D-01", "REQ-E-F-01"):
+    for req_id in ("REQ-A-B-01", "REQ-E-F-01"):
         assert req_id in published, "every active requirement is still defined here"
+    assert "REQ-C-D-01" in published, "and a retired one appears in the ledger"
 
 
 def test_the_published_file_names_no_internal_artefact():
@@ -5202,3 +5210,70 @@ def test_the_walker_reads_a_control_the_way_an_auditor_cites_it():
     assert enhancement["statement"] == "(a) Do the first thing.\n(b) Do the second.\n(1) Nested."
 
     assert not rebuild_mod.UNRESOLVED
+
+
+def test_a_pipe_in_a_field_does_not_break_the_table():
+    """`getSignedUrl|generate_presigned_url` is an ordinary code_grep target and
+    evidence naming two artefacts carries one too. The statement was escaped and
+    everything beside it was not, so a two-column row arrived with six
+    separators and the table broke from that row down. A newline is worse:
+    everything after it reads as a new table."""
+    documents = _documents([_req(
+        "REQ-A-B-01", responsibility="shared",
+        csp_part="Issues the signature | validates expiry",
+        team_part="Sets the lifetime",
+        evidence="provider report | terraform state",
+        verification={"method": "code_grep", "target": "getSignedUrl|generate_presigned_url",
+                      "expect": "an expiry\nargument | under 900"})])
+
+    for document in documents:
+        for line in document.splitlines():
+            if not line.startswith("|"):
+                continue
+            unescaped = [i for i, ch in enumerate(line)
+                         if ch == "|" and (i == 0 or line[i - 1] != "\\")]
+            assert len(unescaped) in (3, 4), f"{len(unescaped)} columns: {line[:80]}"
+            assert "\n" not in line
+
+    # And the content survives the escaping.
+    assert "generate_presigned_url" in documents[0]
+    assert "terraform state" in documents[0]
+
+
+@pytest.mark.parametrize("field,value,what", [
+    ("evidence", "https://wiki.internal/soc2", "a URL"),
+    ("csp_part", "Terminates TLS at 10.0.4.12", "an IP address"),
+    ("team_part", "Sets it in /etc/app/config.yaml", "an absolute path"),
+])
+def test_a_published_field_naming_one_particular_thing_is_flagged(field, value, what):
+    """These fields reach docs/security/ verbatim. Sanitising `human` closed one
+    channel and left four: evidence, the two responsibility halves, and the
+    verification target are free text, and free text names buckets, hosts, and
+    paths. Naming one particular resource answers "where the data lives", which
+    the README puts on the internal side.
+
+    Five forms only -- an ARN, a URL, an IP, an absolute path, an internal
+    hostname. Not a judgement about meaning: this repository has been wrong
+    every time it inferred meaning from shape, and these five cannot be a kind
+    of thing.
+    """
+    findings = lint_mod.lint(_doc(**{field: value}), "en", None)
+    named = [f for f in findings if f.rule == "names-an-instance"]
+    assert named, f"{value} should be flagged"
+    assert what in str(named[0])
+    assert named[0].level == "WARN", "a warning, because the author may have reason"
+
+
+def test_a_verification_target_naming_a_resource_type_is_left_alone():
+    """The whole point of a target is to say what to look at. `an
+    aws_s3_bucket_server_side_encryption_configuration` is a kind of thing and
+    survives a redeployment; the bucket's name does not."""
+    generic = _doc(verification={"method": "iac_inspect",
+                                 "target": "aws_s3_bucket_server_side_encryption_configuration",
+                                 "expect": "sse_algorithm is aws:kms"})
+    assert not [f for f in lint_mod.lint(generic, "en", None) if f.rule == "names-an-instance"]
+
+    instance = _doc(verification={"method": "iac_inspect",
+                                  "target": "arn:aws:s3:::acme-prod-customer-data",
+                                  "expect": "sse_algorithm is aws:kms"})
+    assert [f for f in lint_mod.lint(instance, "en", None) if f.rule == "names-an-instance"]

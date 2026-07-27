@@ -122,6 +122,22 @@ def provenance(meta: dict) -> str:
     return "\n".join(lines)
 
 
+def cell(value) -> str:
+    """A value safe to put in a Markdown table cell.
+
+    A pipe ends the column. Real verification targets contain them --
+    `getSignedUrl|generate_presigned_url` is an ordinary code_grep target -- and
+    so does evidence naming two artefacts. The statement was escaped and
+    everything beside it was not, so a two-column row arrived carrying six
+    separators and the table broke from that row down.
+
+    Newlines end the row, which is worse: everything after one is read as a new
+    table entirely.
+    """
+    text = "; ".join(str(v) for v in value) if isinstance(value, (list, tuple)) else str(value or "")
+    return text.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
+
+
 def render_requirements(doc: dict, titles: dict, meta: dict) -> str:
     reqs = [r for r in doc.get("requirements", []) or [] if active(r)]
     grouped: dict[str, list[dict]] = {}
@@ -177,7 +193,7 @@ def render_requirements(doc: dict, titles: dict, meta: dict) -> str:
             out.append("| | |")
             out.append("|---|---|")
             for label, value in rows:
-                out.append(f"| {label} | {value} |")
+                out.append(f"| {cell(label)} | {cell(value)} |")
             out.append("")
 
             # Neither the status nor the exception. The README draws the line
@@ -224,7 +240,7 @@ def render_requirements(doc: dict, titles: dict, meta: dict) -> str:
             # the rest of the human decisions live.
             state = str(human.get("status") or "retired")
             recorded = "recorded internally" if human.get("retired_reason") else "not recorded"
-            out.append(f"| {req['id']} | {statement} | {state}; reason {recorded} |")
+            out.append(f"| {cell(req['id'])} | {cell(statement)} | {cell(state)}; reason {cell(recorded)} |")
         out.append("")
 
     out.append(provenance(meta))
@@ -271,7 +287,7 @@ def render_traceability(doc: dict, titles: dict, meta: dict) -> str:
             managed = req.get("managed") or {}
             statement = managed.get("statement", "").replace("|", "\\|")
             basis = "threat model" if managed.get("threat_refs") else "not recorded"
-            out.append(f"| {req['id']} | {statement} | {basis} |")
+            out.append(f"| {cell(req['id'])} | {cell(statement)} | {cell(basis)} |")
 
     out += ["", provenance(meta)]
     return "\n".join(out)
@@ -305,12 +321,12 @@ def render_responsibility(doc: dict, meta: dict) -> str:
             # printing them left the requirement asserting a division it did not
             # publish.
             halves = " ".join(
-                f"**{who}:** {managed.get(key, '').strip()}"
+                f"**{who}:** {cell(managed.get(key, '').strip())}"
                 for who, key in (("provider", "csp_part"), ("team", "team_part"))
                 if (managed.get(key) or "").strip()
-            ).replace("|", "\\|")
-            cell = f"{statement}<br>{halves}" if halves else statement
-            out.append(f"| {req['id']}{marker} | {cell} | {evidence} |")
+            )
+            body = f"{cell(statement)}<br>{halves}" if halves else cell(statement)
+            out.append(f"| {cell(req['id'])}{marker} | {body} | {cell(evidence)} |")
         out.append("")
 
     out.append(provenance(meta))

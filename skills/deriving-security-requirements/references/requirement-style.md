@@ -141,3 +141,28 @@ are common and easy to miss:
 |---|---|
 | `app_logs` | `log_sanitization` — personal data and credentials must not be written to application logs |
 | `user_generated_content` | `upload_validation` — uploaded files must be validated and stored outside any execution path |
+
+
+## What may be published
+
+`docs/security/` is publishable and `.security-requirements/` is not. The README
+gives the reason in one sentence: the internal side records where the data
+lives, which trust boundaries exist, which controls are not implemented, and
+which risks were accepted until when.
+
+Four `managed` fields reach the published documents as free text -- `evidence`,
+`csp_part`, `team_part`, and `verification.target` -- and free text names
+buckets, hosts, repositories, and paths. Name the *kind* of thing:
+
+| Instead of | Write |
+|---|---|
+| `arn:aws:s3:::acme-prod-customer-data` | `the bucket holding customer exports` |
+| `https://wiki.internal/soc2` | `the provider's SOC 2 report` |
+| `/etc/app/config.yaml` | `the application's configuration file` |
+| `10.0.4.12` | `the load balancer` |
+
+A requirement that names a kind of thing also survives the next redeployment,
+which is the same reason the style guide asks for properties rather than
+products. The linter warns on the five forms that cannot be a kind of thing --
+an ARN, a URL, an IP address, an absolute path, an internal hostname -- and
+cannot judge the rest.
