@@ -128,10 +128,24 @@ def resolve_csp(raw) -> tuple[str | None, list[str], str]:
     return recognised[0], recognised, "single"
 
 
-def load_services(profile: dict) -> tuple[dict, list[str], list[str]]:
-    """Return (service specs, curated ids, uncurated ids)."""
+def load_services(profile: dict, csp: str | None = None,
+                  providers: list[str] | None = None) -> tuple[dict, list[str], list[str], list[str]]:
+    """Return (service specs, curated ids, uncurated ids, foreign ids).
+
+    Each curated file records the provider it describes, and until now nothing
+    compared that against the provider the profile names. A profile saying
+    ``csp: gcp`` while listing ``aws-s3`` took AWS's split -- forty controls
+    claimed by a provider, carrying AWS's evidence references -- and put them in
+    a document about a Google deployment, with nothing said. Copied profiles and
+    half-finished migrations both produce exactly that.
+
+    Reported rather than dropped: the profile may be genuinely multi-cloud, and
+    the curation is still the best answer for the service it describes. What is
+    not acceptable is that nobody is told.
+    """
     declared = (profile.get("inferred") or {}).get("managed_services", []) or []
-    specs, curated, uncurated = {}, [], []
+    known = {p for p in (providers or []) if p} or ({csp} if csp else set())
+    specs, curated, uncurated, foreign = {}, [], [], []
     for entry in declared:
         sid = entry["id"] if isinstance(entry, dict) else entry
         path = SERVICES_DIR / f"{sid}.yaml"
@@ -141,7 +155,10 @@ def load_services(profile: dict) -> tuple[dict, list[str], list[str]]:
         spec = yaml.safe_load(path.read_text(encoding="utf-8"))
         specs[sid] = spec
         (curated if spec.get("reviewed") else uncurated).append(sid)
-    return specs, curated, uncurated
+        owner = spec.get("provider")
+        if known and owner and owner not in known:
+            foreign.append(f"{sid} describes {owner}")
+    return specs, curated, uncurated, foreign
 
 
 def entry_applies(detail: dict, deployment_model: str | None) -> bool:
@@ -225,7 +242,7 @@ def classify(profile: dict, controls: list[str]) -> dict:
     deployment_model = (profile.get("inferred") or {}).get("deployment_model")
     csp, providers, csp_status = resolve_csp((profile.get("inferred") or {}).get("csp"))
 
-    specs, curated, uncurated = load_services(profile)
+    specs, curated, uncurated, foreign = load_services(profile, csp, providers)
     org_controls = set((profile.get("declared") or {}).get("existing_org_controls", []) or [])
     org_covered = {c for key in org_controls for c in ORG_CONTROL_COVERAGE.get(key, [])}
 
@@ -320,6 +337,7 @@ def classify(profile: dict, controls: list[str]) -> dict:
         "known_deployment_models": sorted(known_models),
         "services_curated": sorted(curated),
         "services_uncurated": sorted(uncurated),
+        "services_foreign": sorted(foreign),
         "counts": counts,
         "controls": results,
     }
@@ -379,6 +397,17 @@ def render(result: dict) -> str:
             out.append(f"  {n:>4}  {labels[bucket]}")
     out.append(f"  {'-' * 4}")
     out.append(f"  {total:>4}  total")
+
+    if result.get("services_foreign"):
+        out += ["",
+                "  WARNING: a declared service belongs to a provider this profile does",
+                f"  not name. The profile says csp: {result.get('csp') or 'none'}, and:"]
+        for line in result["services_foreign"]:
+            out.append(f"    - {line}")
+        out += ["  Its split and its evidence references were still applied, because the",
+                "  curation is the best answer for the service it describes. If the",
+                "  deployment really is multi-cloud, list every provider; if it is not,",
+                "  one of the two is wrong and the claims below name the wrong company."]
 
     if result["services_uncurated"]:
         out += ["", "Unverified services (no curated responsibility file)"]

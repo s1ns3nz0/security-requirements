@@ -2213,3 +2213,59 @@ def test_a_shared_hint_over_an_all_organisational_mapping_must_be_explained(tmp_
 
     assert code == 1
     assert any("Art. 15" in line and "responsibility_note" in line for line in errors), errors
+
+
+# --- fields that documented a behaviour nothing performed --------------------
+#
+# Four of these have now been found: forces_requirements, availability_hint,
+# the privacy set the derivation computed and dropped, and these two. A sweep
+# for data-file keys that appear in no source file is the cheapest way to find
+# the next one.
+
+def test_a_refused_modifier_says_it_was_refused(profile):
+    """The table records why encryption is not grounds for reduction -- it is
+    the outcome of a requirement, so accepting it lets a requirement delete
+    itself. Reported as "unknown modifier", a deliberate refusal reads as a
+    typo, and the next thing the author tries is `encrypted`, then `at_rest`."""
+    bad = copy.deepcopy(profile)
+    bad["declared"]["data_types"] = [{"id": "internal_ops", "modifiers": ["encrypted_at_rest"]}]
+    with pytest.raises(sb.ProfileError) as exc:
+        sb.run(bad)
+    assert "refused, not missing" in str(exc.value)
+    assert "outcome of a requirement" in str(exc.value)
+
+    # A real typo must still read as one, and say what was on offer.
+    bad["declared"]["data_types"] = [{"id": "internal_ops", "modifiers": ["encrpyted"]}]
+    with pytest.raises(sb.ProfileError) as exc:
+        sb.run(bad)
+    assert "unknown modifier" in str(exc.value)
+    assert "intended_public" in str(exc.value)
+
+
+def test_a_service_from_another_provider_is_reported(profile):
+    """Each curated file records the provider it describes, and nothing compared
+    it against the provider the profile names. A profile saying csp: gcp while
+    listing aws-s3 took AWS's split -- forty controls claimed by a provider,
+    carrying AWS's evidence references -- into a document about a Google
+    deployment, silently."""
+    mixed = copy.deepcopy(profile)
+    mixed["inferred"]["csp"] = "gcp"
+    mixed["inferred"]["managed_services"] = [{"id": "aws-s3"}, {"id": "gcp-gke"}]
+    result = classify_resp.classify(mixed, ["AC-3", "SC-13", "MP-6"])
+
+    assert any("aws-s3" in line and "aws" in line for line in result["services_foreign"])
+    assert not any("gcp-gke" in line for line in result["services_foreign"])
+
+    rendered = classify_resp.render(result)
+    assert "belongs to a provider this profile does" in rendered
+    assert "name the wrong company" in rendered
+
+
+def test_a_multi_cloud_profile_is_not_warned_about(profile):
+    """Reported rather than dropped, and not reported when it is not a problem:
+    a profile that names both providers is simply multi-cloud."""
+    mixed = copy.deepcopy(profile)
+    mixed["inferred"]["csp"] = ["aws", "gcp"]
+    mixed["inferred"]["managed_services"] = [{"id": "aws-s3"}, {"id": "gcp-gke"}]
+    result = classify_resp.classify(mixed, ["AC-3", "SC-13"])
+    assert not result["services_foreign"]

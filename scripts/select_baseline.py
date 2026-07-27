@@ -204,7 +204,25 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
         applied = []
         for mod_id in entry.get("modifiers", []) or []:
             if mod_id not in modifiers:
-                raise ProfileError(f"unknown modifier {mod_id!r}; see {DATA_TYPES.name}")
+                # The table records why some modifiers are refused, and the
+                # reasons are the interesting part -- encryption is the outcome
+                # of a requirement, not a property of the data, so accepting it
+                # as grounds for reduction lets a requirement delete itself.
+                # Read as "unknown", a deliberate refusal looks like a typo, and
+                # the next thing the author tries is `encrypted`, then
+                # `at_rest`, then a different data type.
+                refused = {r["id"]: r["reason"] for r in (table.get("rejected_modifiers") or [])}
+                if mod_id in refused:
+                    raise ProfileError(
+                        f"modifier {mod_id!r} is refused, not missing. "
+                        f"{' '.join(refused[mod_id].split())} "
+                        f"If the control is real, it belongs in the threat model or the "
+                        f"existing_org_controls list, not in the classification."
+                    )
+                raise ProfileError(
+                    f"unknown modifier {mod_id!r}; accepted: "
+                    f"{', '.join(sorted(modifiers))}. See {DATA_TYPES.name}"
+                )
             mod = modifiers[mod_id]
             effect = mod.get("effect", {}).get("confidentiality")
             if isinstance(effect, str) and effect.startswith("="):
