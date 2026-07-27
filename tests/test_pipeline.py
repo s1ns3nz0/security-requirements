@@ -6903,6 +6903,134 @@ def test_the_derivation_command_line_explains_the_level_it_produced(tmp_path, ca
     assert derived["controls"], "the JSON is what apply_overlay reads"
 
 
+def test_the_gate_report_carries_the_notes_the_profile_earned():
+    """Everything the derivation had to work around appears on the report, not
+    only in the JSON. A profile that was quietly repaired and then categorised
+    reads exactly like one that was written correctly."""
+    raw = yaml.safe_load((GOLDEN_ROOT / "internal-admin" / "profile.yaml")
+                         .read_text(encoding="utf-8"))
+    raw["declared"]["data_types"] = "internal_ops"
+    report = sb.render_gate(sb.run(raw))
+    assert "NOTE:" in report and "single value where a list belongs" in report
+
+
+def test_an_overridden_categorisation_says_it_was_overridden_and_why():
+    """The override is a person disagreeing with the derivation. A report that
+    does not say so presents their judgement as the tool's."""
+    raw = yaml.safe_load((GOLDEN_ROOT / "internal-admin" / "profile.yaml")
+                         .read_text(encoding="utf-8"))
+    raw.setdefault("derived", {})["impact"] = {"override": {"system": "high"}}
+    report = sb.render_gate(sb.run(raw))
+    assert "OVERRIDDEN by user" in report
+    assert "no reason recorded" in report, \
+        "an override with no reason is still an override, and the gap is the point"
+
+    raw["derived"]["impact"]["override"]["reason"] = "the regulator asked for it"
+    assert "the regulator asked for it" in sb.render_gate(sb.run(raw))
+
+
+def test_a_storage_region_off_the_map_is_undetermined_not_domestic():
+    """Silence would read as "no cross-border transfer", which is a finding. An
+    unrecognised region is an absence of an answer and says so."""
+    raw = yaml.safe_load((GOLDEN_ROOT / "internal-admin" / "profile.yaml")
+                         .read_text(encoding="utf-8"))
+    raw["inferred"]["region_storage"] = "mars-west-1"
+    result = sb.run(raw)
+    assert result["cross_border"]["undetermined"] is True
+    assert result["cross_border"]["storage_country"] is None
+    report = sb.render_gate(result)
+    assert "not in the region map; country undetermined" in report
+
+
+def test_a_baseline_control_in_an_unbundled_family_is_reported_unavailable():
+    """Dropping it would shorten the baseline silently. Reporting it says the
+    control applies and this tool cannot show it to you, which is a different
+    statement from the control not applying."""
+    result = sb.run(yaml.safe_load((GOLDEN_ROOT / "commerce-payments" / "profile.yaml")
+                                   .read_text(encoding="utf-8")))
+    assert isinstance(result["controls_unavailable"], list)
+    if result["controls_unavailable"]:
+        assert "UNAVAILABLE:" in sb.render_gate(result)
+    else:
+        # Every family is bundled today, and that is the claim worth holding.
+        meta = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" / "meta.json")
+                          .read_text(encoding="utf-8"))
+        assert set(meta["all_families"]) == {f.upper() for f in meta["families_extracted"]}
+
+
+def test_a_regime_this_tool_does_not_cover_is_named_rather_than_omitted():
+    """The dangerous silence. A regime with an overlay is reported as reachable
+    and one without has to be reported as applying anyway -- omitting it makes
+    the derivation look complete for a system it does not cover, which is the
+    one impression this tool must never leave."""
+    raw = yaml.safe_load((GOLDEN_ROOT / "internal-admin" / "profile.yaml")
+                         .read_text(encoding="utf-8"))
+    raw["declared"]["data_types"] = [{"id": "minors_data"}, {"id": "internal_ops"}]
+    raw["declared"]["user_regions"] = ["US"]
+    result = sb.run(raw)
+    assert "coppa" in [item["id"] for item in result["uncovered_regulations"]]
+    report = sb.render_gate(result)
+    assert "Uncovered regulations detected" in report
+    assert "Not supported by this tool; review separately" in report
+
+
+@pytest.mark.parametrize("entrypoints,reason", [
+    ([], "no entrypoints were found"),
+    (["python -m tool.cli --help"],
+     "the entrypoints describe a library, CLI, or definitions, not a served application"),
+])
+def test_a_repository_that_is_not_a_service_is_told_so_and_why(entrypoints, reason):
+    """The derivation is service-shaped. Run against a library it produces
+    application-layer controls for an application that does not exist, and the
+    two reasons are different enough that saying only "not a service" would send
+    the author to check the wrong thing."""
+    raw = yaml.safe_load((GOLDEN_ROOT / "internal-admin" / "profile.yaml")
+                         .read_text(encoding="utf-8"))
+    raw["inferred"]["entrypoints"] = entrypoints
+    report = sb.render_gate(sb.run(raw))
+    assert "does not look like a running service" in report
+    assert reason in report
+
+
+def test_the_validator_reports_a_clause_it_could_never_show_as_reached(tmp_path, monkeypatch, capsys):
+    """A clause whose every mapped control sits outside all the baselines this
+    tool resolves can never report as reached, whatever the service does. That
+    is a property of the tool, not of the deployment, and a coverage count that
+    does not distinguish them reads as compliance."""
+    import validate_overlays
+    monkeypatch.setattr(validate_overlays, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(overlay_mod, "OVERLAYS", tmp_path / "overlays")
+    real = REPO_ROOT / "catalogs" / "nist-800-53r5" / "baselines.json"
+    (tmp_path / "catalogs" / "nist-800-53r5").mkdir(parents=True)
+    (tmp_path / "catalogs" / "nist-800-53r5" / "baselines.json").write_text(
+        real.read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "responsibility").mkdir()
+    (tmp_path / "responsibility" / "layers.yaml").write_text(
+        (REPO_ROOT / "responsibility" / "layers.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8")
+    monkeypatch.setattr(validate_overlays, "BASELINES",
+                        tmp_path / "catalogs" / "nist-800-53r5" / "baselines.json")
+    monkeypatch.setattr(validate_overlays, "LAYERS", tmp_path / "responsibility" / "layers.yaml")
+
+    baselines = json.loads(real.read_text(encoding="utf-8"))
+    in_any = set().union(*baselines.values())
+    catalog = lint_mod.load_catalog_ids()
+    orphan = sorted(catalog - in_any)[0]
+
+    _write_overlay(tmp_path / "overlays", "orphaned", mappings=[
+        {"clause": "A1", "title": "t", "controls": [orphan],
+         "standalone": False, "responsibility_hint": "team"}])
+
+    assert validate_overlays.main([]) == 0
+    printed = capsys.readouterr().out
+    assert "unreachable" in printed
+    assert orphan in printed
+    assert "1 advisory" in printed
+
+    # --strict is what turns the advisory into a failure.
+    assert validate_overlays.main(["--strict"]) == 1
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and
