@@ -215,6 +215,15 @@ def resolve_map(params: dict[str, str]) -> dict[str, str]:
 def resolve_params(prose: str, params: dict[str, str]) -> str:
     """Replace ``{{ insert: param, x }}`` with ``[assignment: <label>]``.
 
+    A label expanded inside another label nests, and the nesting is meaningful
+    rather than an artefact. AC-7 ships as "[assignment: lock the account or
+    node for [assignment: time period] and/or lock until released by an
+    administrator and/or delay ...]": the outer bracket is the choice of
+    lockout behaviour and the inner one is a second decision the chosen option
+    still requires. Flattening it would hide the second decision, which is the
+    opposite of why the markers are kept visible at all. Forty-one shipped
+    records read this way.
+
     Keeping the placeholder visible matters: these are the points where an
     organisation must make a decision. A requirement derived from a control
     with an unfilled assignment is incomplete by construction, and the reader

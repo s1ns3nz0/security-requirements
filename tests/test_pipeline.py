@@ -4800,3 +4800,25 @@ def test_no_free_text_from_the_human_block_appears_in_any_published_document():
     assert "accepted_risk" in published
     assert "2027-01-31" in published
     assert "held in the internal record" in published
+
+
+def test_a_nested_assignment_is_a_second_decision_not_an_artefact():
+    """Raised in review as a rendering artefact of expanding labels into labels.
+
+    It is not. AC-7's lockout options are a choice, and one of the options
+    carries a time period the organisation must also set: the outer bracket is
+    which behaviour, the inner one is how long. Flattening would hide the second
+    decision, which is the opposite of why the markers are visible at all.
+    """
+    ac7 = None
+    for line in (REPO_ROOT / "catalogs" / "nist-800-53r5" / "AC.jsonl") \
+            .read_text(encoding="utf-8").splitlines():
+        if line.strip() and json.loads(line)["id"] == "AC-7":
+            ac7 = json.loads(line)
+            break
+    assert ac7, "AC-7 must be in the bundled catalogue"
+    statement = ac7["statement"]
+    assert "[assignment:" in statement
+    nested = re.search(r"\[assignment:[^\]]*\[assignment:[^\]]*\]", statement)
+    assert nested, "AC-7 is the case this test exists for"
+    assert "time period" in nested.group(0)
