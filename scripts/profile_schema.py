@@ -203,7 +203,7 @@ def normalise(profile: dict) -> tuple[dict, list[str]]:
         entries = declared.get("data_types")
         if isinstance(entries, list):
             rebuilt = []
-            seen_types: set[str] = set()
+            seen_types: dict[str, list] = {}
             for entry in entries:
                 if isinstance(entry, str):
                     entry = {"id": entry}
@@ -234,22 +234,38 @@ def normalise(profile: dict) -> tuple[dict, list[str]]:
                     deduped = list(dict.fromkeys(normalised))
                     if len(deduped) != len(normalised):
                         repeated = sorted({m for m in normalised if normalised.count(m) > 1})
+                        # Not "would have moved the level again": intended_public
+                        # is idempotent and customer_owned moves nothing at all.
+                        # The true statement is that the repeat said nothing the
+                        # first one had not.
                         warnings.append(
-                            f"data type {entry['id']!r} repeats {', '.join(map(repr, repeated))}; "
-                            f"a modifier says something about the data once. The repeats were "
-                            f"dropped -- applied, each would have moved the level again."
+                            f"data type {entry['id']!r} repeats "
+                            f"{', '.join(map(repr, repeated))}; a modifier says something "
+                            f"about the data once, so the repeats were dropped."
                         )
                     entry["modifiers"] = deduped
-                if entry.get("id") in seen_types:
-                    # managed_services has deduplicated since an early sweep;
-                    # data_types never did, so the same type appeared twice in
-                    # the reasons and in every count taken from them.
-                    warnings.append(
-                        f"data type {entry['id']!r} was declared more than once; "
-                        f"the duplicate was dropped."
+                previous = seen_types.get(entry.get("id"))
+                if previous is not None:
+                    # An exact repeat is a duplicate and is dropped. A repeat
+                    # that says something different is a disagreement, and
+                    # keeping the first meant the order the author typed them in
+                    # decided the answer: basic_contact declared once with
+                    # intended_public and once without came out low or moderate
+                    # depending which line came first.
+                    if previous == (entry.get("modifiers") or []):
+                        warnings.append(
+                            f"data type {entry['id']!r} was declared more than once; "
+                            f"the duplicate was dropped."
+                        )
+                        continue
+                    raise SchemaError(
+                        f"data type {entry['id']!r} is declared twice with different "
+                        f"modifiers ({previous or 'none'} and "
+                        f"{entry.get('modifiers') or 'none'}). One data type has one set "
+                        f"of properties; whichever was written first would otherwise "
+                        f"decide the level."
                     )
-                    continue
-                seen_types.add(entry.get("id"))
+                seen_types[entry.get("id")] = entry.get("modifiers") or []
                 rebuilt.append(entry)
             declared["data_types"] = rebuilt
 

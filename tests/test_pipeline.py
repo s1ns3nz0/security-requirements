@@ -4137,11 +4137,19 @@ def test_a_modifier_repeated_is_still_one_statement():
            once["impact"]["confidentiality"]["level"] == "moderate"
     assert any("repeats" in w for w in result["schema_warnings"])
 
-    # Two different modifiers still both apply.
-    both = sb.run(_onprem(data_types=[{"id": "basic_contact",
-                                       "modifiers": ["aggregated_large_scale",
-                                                     "pseudonymized_split_key"]}]))
-    assert not both["schema_warnings"]
+    # Two different modifiers still both apply, and to the same total in either
+    # order -- asserting only that no warning fired would have missed that.
+    def level(modifiers):
+        return sb.run(_onprem(data_types=[{"id": "basic_contact", "modifiers": modifiers}])
+                      )["impact"]["confidentiality"]["level"]
+
+    forward = level(["aggregated_large_scale", "pseudonymized_split_key"])
+    backward = level(["pseudonymized_split_key", "aggregated_large_scale"])
+    assert forward == backward == "moderate", f"{forward} vs {backward}"
+    assert not sb.run(_onprem(data_types=[{"id": "basic_contact",
+                                           "modifiers": ["aggregated_large_scale",
+                                                         "pseudonymized_split_key"]}])
+                      )["schema_warnings"]
 
 
 def test_a_data_type_declared_twice_is_one_data_type():
@@ -4157,6 +4165,35 @@ def test_a_data_type_declared_twice_is_one_data_type():
     two = sb.run(_onprem(data_types=[{"id": "basic_contact"}, {"id": "internal_ops"}]))
     assert len(two["impact"]["confidentiality"]["because"]) == 2
     assert not two["schema_warnings"]
+
+
+def test_the_same_type_saying_two_different_things_is_refused():
+    """Deduplicating by first appearance let the order decide the answer:
+    basic_contact declared once with intended_public and once without came out
+    low or moderate depending which line was written first. An exact repeat is
+    a duplicate; a repeat that says something different is a disagreement."""
+    for order in ([{"id": "basic_contact", "modifiers": ["intended_public"]},
+                   {"id": "basic_contact"}],
+                  [{"id": "basic_contact"},
+                   {"id": "basic_contact", "modifiers": ["intended_public"]}]):
+        with pytest.raises(profile_schema.SchemaError) as exc:
+            sb.run(_onprem(data_types=order))
+        assert "declared twice with different modifiers" in str(exc.value)
+
+    # Identical declarations are still just a duplicate.
+    same = sb.run(_onprem(data_types=[{"id": "basic_contact", "modifiers": ["intended_public"]}] * 2))
+    assert same["impact"]["confidentiality"]["level"] == "low"
+    assert any("more than once" in w for w in same["schema_warnings"])
+
+
+def test_the_repeat_warning_claims_only_what_is_true():
+    """It said every repeat "would have moved the level again". intended_public
+    is idempotent and customer_owned moves nothing at all."""
+    repeated = sb.run(_onprem(data_types=[{"id": "user_generated_content",
+                                           "modifiers": ["intended_public"] * 2}]))
+    warning = next(w for w in repeated["schema_warnings"] if "repeats" in w)
+    assert "moved the level again" not in warning
+    assert "says something about the data once" in warning
 
 
 def test_modifier_effects_do_not_depend_on_the_order_they_were_typed_in():
