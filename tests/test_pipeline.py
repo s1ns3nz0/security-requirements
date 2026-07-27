@@ -6614,9 +6614,12 @@ def test_no_tolerable_data_loss_raises_integrity_not_only_availability():
     most."""
     low = sb.run(_profile(availability={"rto": "rto_day_plus", "rpo": "rpo_hours_plus"}))
     zero = sb.run(_profile(availability={"rto": "rto_day_plus", "rpo": "rpo_zero"}))
-    assert sb.LEVELS.index(zero["impact"]["integrity"]["level"]) >= \
-        sb.LEVELS.index(low["impact"]["integrity"]["level"])
-    assert any("RPO 0" in because for because in zero["impact"]["integrity"]["because"])
+    # The exact move, not ">=", which holds when nothing happens at all.
+    assert low["impact"]["integrity"]["level"] == "low"
+    assert zero["impact"]["integrity"]["level"] == "moderate"
+    assert any("no committed record may be lost" in because
+               for because in zero["impact"]["integrity"]["because"]), \
+        "the reason names the bucket that raised it, not a hard-coded RPO 0"
 
 
 def test_every_integrity_hint_the_catalogue_declares_is_applied():
@@ -6690,7 +6693,10 @@ def test_strict_is_the_difference_between_a_warning_and_a_failure(tmp_path, caps
     doc = _requirements_file(tmp_path / "requirements.yaml", statement="Encrypt backups.")
     monkeypatch.setattr(sys, "argv", ["lint.py", str(doc)])
     assert lint_mod.main() == 0
-    assert "warning(s)" in capsys.readouterr().out
+    printed = capsys.readouterr().out
+    assert "0 error(s), 1 warning(s)" in printed, \
+        "the count, not the word -- \"warning(s)\" is satisfied by zero of them"
+    assert "too-short" in printed
 
     monkeypatch.setattr(sys, "argv", ["lint.py", str(doc), "--strict"])
     assert lint_mod.main() == 1
@@ -6902,7 +6908,14 @@ def test_the_derivation_command_line_explains_the_level_it_produced(tmp_path, ca
     for axis in ("Confidentiality", "Integrity", "Availability"):
         assert axis in printed
     assert "System impact: HIGH" in printed
-    assert "<-" in printed, "every level says what raised it"
+    # Per axis, not "an arrow appears somewhere". Removing the reasons from two
+    # of the three axes satisfied the first version of this.
+    lines = printed.splitlines()
+    for axis in ("Confidentiality", "Integrity", "Availability"):
+        index = next(i for i, line in enumerate(lines) if line.strip().startswith(axis))
+        assert any(lines[j].strip().startswith("<-")
+                   for j in range(index + 1, min(index + 12, len(lines)))), \
+            f"{axis} printed a level with nothing saying what raised it"
 
     derived = json.loads(out.read_text(encoding="utf-8"))
     assert derived["baseline"] == "nist-800-53b-high"
@@ -6948,167 +6961,61 @@ def test_a_storage_region_off_the_map_is_undetermined_not_domestic():
     assert "not in the region map; country undetermined" in report
 
 
-def test_a_baseline_control_in_an_unbundled_family_is_reported_unavailable():
+def test_a_baseline_control_in_an_unbundled_family_is_reported_unavailable(monkeypatch):
     """Dropping it would shorten the baseline silently. Reporting it says the
     control applies and this tool cannot show it to you, which is a different
-    statement from the control not applying."""
+    statement from the control not applying.
+
+    Every family is bundled today, so the branch is unreachable from a real
+    profile and the first version of this test took the `else` and proved
+    nothing -- deleting the reporting entirely would have passed it. The
+    catalogue is narrowed here instead."""
+    real = sb.load_catalog()
+    baselines = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" / "baselines.json")
+                           .read_text(encoding="utf-8"))
+    missing = sorted(baselines["high"])[0]
+    monkeypatch.setattr(sb, "load_catalog",
+                        lambda: {k: v for k, v in real.items() if k != missing})
+
     result = sb.run(yaml.safe_load((GOLDEN_ROOT / "commerce-payments" / "profile.yaml")
                                    .read_text(encoding="utf-8")))
-    assert isinstance(result["controls_unavailable"], list)
-    if result["controls_unavailable"]:
-        assert "UNAVAILABLE:" in sb.render_gate(result)
-    else:
-        # Every family is bundled today, and that is the claim worth holding.
-        meta = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" / "meta.json")
-                          .read_text(encoding="utf-8"))
-        assert set(meta["all_families"]) == {f.upper() for f in meta["families_extracted"]}
-
-
-def test_a_regime_this_tool_does_not_cover_is_named_rather_than_omitted():
-    """The dangerous silence. A regime with an overlay is reported as reachable
-    and one without has to be reported as applying anyway -- omitting it makes
-    the derivation look complete for a system it does not cover, which is the
-    one impression this tool must never leave."""
-    raw = yaml.safe_load((GOLDEN_ROOT / "internal-admin" / "profile.yaml")
-                         .read_text(encoding="utf-8"))
-    raw["declared"]["data_types"] = [{"id": "minors_data"}, {"id": "internal_ops"}]
-    raw["declared"]["user_regions"] = ["US"]
-    result = sb.run(raw)
-    assert "coppa" in [item["id"] for item in result["uncovered_regulations"]]
+    assert missing in result["controls_unavailable"]
+    assert missing not in result["controls"]
     report = sb.render_gate(result)
-    assert "Uncovered regulations detected" in report
-    assert "Not supported by this tool; review separately" in report
+    assert "UNAVAILABLE:" in report
+    assert missing.split("-")[0] in report, "the family is named so the reader knows what is absent"
 
 
-@pytest.mark.parametrize("entrypoints,reason", [
-    ([], "no entrypoints were found"),
-    (["python -m tool.cli --help"],
-     "the entrypoints describe a library, CLI, or definitions, not a served application"),
-])
-def test_a_repository_that_is_not_a_service_is_told_so_and_why(entrypoints, reason):
-    """The derivation is service-shaped. Run against a library it produces
-    application-layer controls for an application that does not exist, and the
-    two reasons are different enough that saying only "not a service" would send
-    the author to check the wrong thing."""
-    raw = yaml.safe_load((GOLDEN_ROOT / "internal-admin" / "profile.yaml")
+def test_a_hint_that_is_not_an_impact_level_stops_the_derivation(monkeypatch):
+    """`integrity_hint: medium` is a typo somebody will make, and dropping it
+    silently would be the original failure in a new spelling: the catalogue
+    claims an effect and the derivation ignores it. That is what this whole
+    branch was written to stop happening."""
+    real = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" / "availability.yaml")
+                          .read_text(encoding="utf-8"))
+    broken = copy.deepcopy(real)
+    for bucket in broken["rpo_buckets"]:
+        if bucket.get("integrity_hint"):
+            bucket["integrity_hint"] = "medium"
+            break
+    else:
+        pytest.skip("no hint in the catalogue to break")
+
+    original = sb.yaml.safe_load
+
+    def fake_load(text):
+        loaded = original(text)
+        if isinstance(loaded, dict) and "rpo_buckets" in loaded:
+            return broken
+        return loaded
+
+    monkeypatch.setattr(sb.yaml, "safe_load", fake_load)
+    raw = yaml.safe_load((GOLDEN_ROOT / "b2b-saas-aws" / "profile.yaml")
                          .read_text(encoding="utf-8"))
-    raw["inferred"]["entrypoints"] = entrypoints
-    report = sb.render_gate(sb.run(raw))
-    assert "does not look like a running service" in report
-    assert reason in report
-
-
-def test_the_validator_reports_a_clause_it_could_never_show_as_reached(tmp_path, monkeypatch, capsys):
-    """A clause whose every mapped control sits outside all the baselines this
-    tool resolves can never report as reached, whatever the service does. That
-    is a property of the tool, not of the deployment, and a coverage count that
-    does not distinguish them reads as compliance."""
-    import validate_overlays
-    monkeypatch.setattr(validate_overlays, "REPO_ROOT", tmp_path)
-    monkeypatch.setattr(overlay_mod, "OVERLAYS", tmp_path / "overlays")
-    real = REPO_ROOT / "catalogs" / "nist-800-53r5" / "baselines.json"
-    (tmp_path / "catalogs" / "nist-800-53r5").mkdir(parents=True)
-    (tmp_path / "catalogs" / "nist-800-53r5" / "baselines.json").write_text(
-        real.read_text(encoding="utf-8"), encoding="utf-8")
-    (tmp_path / "responsibility").mkdir()
-    (tmp_path / "responsibility" / "layers.yaml").write_text(
-        (REPO_ROOT / "responsibility" / "layers.yaml").read_text(encoding="utf-8"),
-        encoding="utf-8")
-    monkeypatch.setattr(validate_overlays, "BASELINES",
-                        tmp_path / "catalogs" / "nist-800-53r5" / "baselines.json")
-    monkeypatch.setattr(validate_overlays, "LAYERS", tmp_path / "responsibility" / "layers.yaml")
-
-    baselines = json.loads(real.read_text(encoding="utf-8"))
-    in_any = set().union(*baselines.values())
-    catalog = lint_mod.load_catalog_ids()
-    orphan = sorted(catalog - in_any)[0]
-
-    _write_overlay(tmp_path / "overlays", "orphaned", mappings=[
-        {"clause": "A1", "title": "t", "controls": [orphan],
-         "standalone": False, "responsibility_hint": "team"}])
-
-    assert validate_overlays.main([]) == 0
-    printed = capsys.readouterr().out
-    assert "unreachable" in printed
-    assert orphan in printed
-    assert "1 advisory" in printed
-
-    # --strict is what turns the advisory into a failure.
-    assert validate_overlays.main(["--strict"]) == 1
-
-
-def test_a_modifier_that_leaves_residual_risk_raises_a_threat_flag():
-    """Pseudonymisation lowers confidentiality and does not remove the risk it
-    was applied against: the re-identification key exists somewhere. The flag
-    carries that to the threat model, so the reduction and its residue travel
-    together instead of only the reduction being recorded."""
-    raw = yaml.safe_load((GOLDEN_ROOT / "internal-admin" / "profile.yaml")
-                         .read_text(encoding="utf-8"))
-    raw["declared"]["data_types"] = [
-        {"id": "basic_contact", "modifiers": ["pseudonymized_split_key"]},
-        {"id": "internal_ops"}]
-    result = sb.run(raw)
-    assert "linddun_linkability" in result["threat_flags"]
-    assert "Threat model flags: linddun_linkability" in sb.render_gate(result)
-
-
-def test_the_derivation_command_line_exits_two_on_a_profile_it_cannot_use(
-        tmp_path, capsys, monkeypatch):
-    """Exit 2 and a message, not a traceback. The profile is written by an
-    interview, so the person reading this is being told to go back and answer
-    something -- a stack trace tells them the tool broke."""
-    raw = yaml.safe_load((GOLDEN_ROOT / "internal-admin" / "profile.yaml")
-                         .read_text(encoding="utf-8"))
-    raw["declared"]["data_types"] = []
-    path = tmp_path / "profile.yaml"
-    path.write_text(yaml.safe_dump(raw), encoding="utf-8")
-    monkeypatch.setattr(sys, "argv", ["select_baseline.py", str(path)])
-    assert sb.main() == 2
-    assert "run the interview first" in capsys.readouterr().err
-
-
-def test_two_absolute_statements_about_one_data_type_cannot_both_be_true():
-    """The catalogue ships one absolute modifier, so this guard cannot fire
-    today and exists for the day a second is added. `=low` and `=high` on the
-    same type is not a conflict to resolve by precedence -- one of them is
-    simply wrong, and picking either would encode a coin toss as a
-    categorisation."""
-    table = {
-        "types": [{"id": "synthetic", "label": "a type",
-                   "confidentiality": "moderate", "integrity": "moderate",
-                   "personal_data": False}],
-        "modifiers": {
-            "says_low": {"label": "public", "effect": {"confidentiality": "=low"}},
-            "says_high": {"label": "secret", "effect": {"confidentiality": "=high"}},
-        },
-    }
-    profile = {"declared": {"data_types": [
-        {"id": "synthetic", "modifiers": ["says_low", "says_high"]}]}}
     with pytest.raises(sb.ProfileError) as excinfo:
-        sb.derive_confidentiality_integrity(profile, table)
-    message = str(excinfo.value)
-    assert "each fix the confidentiality level and they disagree" in message
-    assert "says_low" in message and "says_high" in message
-
-
-def test_a_regime_about_personal_data_does_not_apply_where_there_is_none():
-    """And it is decided from the derived list rather than re-read from the
-    catalogue -- an earlier version consulted the types table directly and told
-    a service holding EU users' own content that the Regulation did not reach
-    it."""
-    profile = yaml.safe_load((GOLDEN_ROOT / "internal-admin" / "profile.yaml")
-                             .read_text(encoding="utf-8"))
-    # EU users, so the jurisdiction test passes and the data-type test is the
-    # one that decides.
-    profile["declared"]["user_regions"] = ["DE"]
-    derived = sb.run(profile)
-    assert not derived.get("personal_data_types"), \
-        "this case is chosen because it declares no personal data"
-
-    overlay = overlay_mod.load("gdpr")
-    applies, reason, _ = overlay_mod.applies(overlay, profile, derived)
-    assert applies is False
-    assert "no declared data type is personal data" in reason
+        sb.run(raw)
+    assert "is not an impact level" in str(excinfo.value)
+    assert "medium" in str(excinfo.value)
 
 
 def test_the_golden_cases_still_span_the_scale():

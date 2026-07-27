@@ -597,7 +597,11 @@ def derive_availability(profile: dict, table: dict) -> dict:
         levels.append(spec["availability"])
         why.append(f"{spec['label']}: {spec['availability']}")
         if spec.get("integrity_hint"):
-            integrity_hint = spec["integrity_hint"]
+            # The label travels with the level. Hard-coding "RPO 0" in the
+            # sentence downstream meant a hint added to any other bucket would
+            # print a reason that was not the reason.
+            integrity_hint = {"level": spec["integrity_hint"],
+                              "because": spec.get("label", value), "bucket": value}
 
     declared_amps = list(declared.get("amplifiers", []) or [])
     for amp_id in declared_amps:
@@ -833,12 +837,24 @@ def run(profile: dict) -> dict:
     # not, which is worse than either behaviour on its own: the catalogue
     # documented an effect the derivation did not have.
     hint = availability.pop("integrity_hint", None)
-    if hint in LEVELS:
-        raised = highest([integrity["level"], hint])
+    if hint:
+        # A hint outside the levels is the original failure in a new spelling:
+        # the catalogue would claim an effect and the derivation would drop it.
+        # `integrity_hint: medium` is a typo somebody will make.
+        if hint["level"] not in LEVELS:
+            raise ProfileError(
+                f"availability bucket {hint['bucket']!r} declares integrity_hint "
+                f"{hint['level']!r}, which is not an impact level ({', '.join(LEVELS)}). "
+                f"See {AVAILABILITY.name}"
+            )
+        # A hint is a floor, not a setting. It says this much integrity is
+        # implied whatever the data types said; lowering what the data types
+        # established would need a person and a recorded reason, which is what
+        # the override is for.
+        raised = highest([integrity["level"], hint["level"]])
         if raised != integrity["level"]:
             integrity["level"] = raised
-            integrity["because"].append(
-                f"no tolerable data loss (RPO 0): {hint}")
+            integrity["because"].append(f"{hint['because']}: {hint['level']}")
 
     system = highest([confidentiality["level"], integrity["level"], availability["level"]])
 
