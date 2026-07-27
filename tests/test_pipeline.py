@@ -4964,3 +4964,43 @@ def test_the_auditor_s_document_shows_what_no_control_produced():
     # A threat-only requirement with no recorded provenance still appears.
     _, no_refs, _ = _documents([_req("REQ-E-F-01", sources=[])])
     assert "not recorded" in no_refs.split("## Traced to no control")[1]
+
+
+def test_the_hipaa_build_refuses_a_clause_list_nobody_counted(tmp_path, monkeypatch):
+    """The build asserts how many standards each section of the regulation
+    carries. Get it wrong and the overlay ships a short list, which is worse
+    than no overlay: every coverage count taken from it reads as compliance
+    against a regulation that has more in it than the tool knows.
+
+    Never exercised, because the real source has always matched.
+    """
+    import xml.etree.ElementTree as ET
+
+    root = ET.Element("root")
+    for sid in hipaa_mod.SECTIONS:
+        div = ET.SubElement(root, "DIV8")
+        div.set("N", sid)
+        # One standard where the regulation has several.
+        ET.SubElement(div, "P").text = \
+            "(a)(1)(i) Standard: A single standard. Implement policies and procedures."
+
+    source = tmp_path / "title-45.xml"
+    source.write_text(ET.tostring(root, encoding="unicode"), encoding="utf-8")
+    monkeypatch.setattr(hipaa_mod, "OUT_DIR", tmp_path / "out")
+    monkeypatch.setattr(sys, "argv", ["rebuild_overlay_hipaa.py", "--offline",
+                                      "--source", str(source)])
+
+    with pytest.raises(SystemExit) as exc:
+        hipaa_mod.main()
+    message = str(exc.value)
+    assert "standards, extracted" in message
+    assert "do not" in message and "nobody has counted" in message
+    assert not (tmp_path / "out").exists(), "nothing is written when the count is wrong"
+
+
+def test_offline_needs_a_source(tmp_path, monkeypatch):
+    """--offline without a file would otherwise reach the network the flag says
+    not to use."""
+    monkeypatch.setattr(sys, "argv", ["rebuild_overlay_hipaa.py", "--offline"])
+    with pytest.raises(SystemExit):
+        hipaa_mod.main()
