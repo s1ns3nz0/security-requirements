@@ -5741,7 +5741,13 @@ def test_an_ordinary_citation_is_not_mangled_into_a_refusal(url):
     assert lint_mod.url_problem(url) is None, url
 
 
-@pytest.mark.parametrize("rationale", ["TODO", "n/a", "later", ".", "미정"])
+@pytest.mark.parametrize("rationale", [
+    "TODO", "n/a", "N/A", "later", ".", "1234", "미정", "unknown", "wip",
+    # Every word a placeholder, not only the whole string: matching the exact
+    # text let "TODO later" through, which is the same non-answer with a word
+    # after it. Splitting on the slash to achieve that then let "n/a" back in.
+    "TODO later", "tbd - pending",
+])
 def test_a_placeholder_is_not_a_basis(rationale):
     """A rationale is allowed to stand in for a control identifier because a
     reason a reader can evaluate is worth more than an invented number. "TODO"
@@ -6529,7 +6535,7 @@ def test_the_hipaa_overlay_that_ships_has_the_published_shape():
 
 @pytest.mark.parametrize("rationale", [
     "Contract", "PCI DSS", "\ubc95\uc801 \uc758\ubb34", "SOC 2",
-    "The client's processing agreement.",
+    "The client's processing agreement.", "GDPR Art. 32", "see above",
 ])
 def test_a_short_reason_is_still_a_reason(rationale):
     """A ten-character floor was here for one review. It rejected "Contract",

@@ -149,9 +149,15 @@ def is_substantive(text) -> bool:
     the error is reserved for having written nothing at all.
     """
     stripped = str(text or "").strip().strip(".-\u2014\u00b7? ")
-    if not stripped or stripped.lower() in PLACEHOLDER_RATIONALE:
+    if not stripped or not any(c.isalpha() for c in stripped):
         return False
-    return any(c.isalpha() for c in stripped)
+    # Word by word, not the whole string. Matching the exact text let "TODO
+    # later" through, which is the same non-answer with a word after it.
+    # Not on the slash: "n/a" is one token and splitting it produced "n" and
+    # "a", neither of which is a placeholder, so the fix for "TODO later" let
+    # "n/a" back through.
+    words = [w for w in re.split(r"[\s,;:.!?()\[\]-]+", stripped.lower()) if w]
+    return not all(w in PLACEHOLDER_RATIONALE for w in words)
 
 
 class Finding:
