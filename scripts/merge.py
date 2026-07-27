@@ -350,10 +350,26 @@ def issue_id(slug: str, state: dict) -> str:
             f"was issued against."
         )
     if slug in issued:
-        return issued[slug]
-    used = {v for v in issued.values() if v.startswith(f"REQ-{slug}-")}
-    seq = len(used) + 1
-    new_id = f"REQ-{slug}-{seq:02d}"
+        recorded = issued[slug]
+        # The state file exists to keep an identifier attached to the same
+        # requirement across refreshes, so an entry pointing at some other
+        # slug's identifier is the one thing it must not do quietly. A merge
+        # conflict in this file is all it takes, and the result is a document
+        # whose identifiers no longer mean what a reader thinks.
+        if not re.fullmatch(rf"REQ-{re.escape(slug)}-\d{{2}}", recorded):
+            raise ValueError(
+                f"the state file maps {slug!r} to {recorded!r}, which belongs to a "
+                f"different requirement. Identifiers are how a reader follows one "
+                f"requirement across versions of the document; this file no longer "
+                f"describes the one it was issued against."
+            )
+        return recorded
+
+    # Always 01. The slug is the key, so one slug has one identifier and the
+    # sequence has never had anything to count -- the earlier `len(used) + 1`
+    # read as collision handling and handled nothing. Kept explicit so that the
+    # next person does not have to work that out from a dead branch.
+    new_id = f"REQ-{slug}-01"
     issued[slug] = new_id
     return new_id
 

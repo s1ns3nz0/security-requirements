@@ -4338,3 +4338,48 @@ def test_a_hand_edited_state_file_gets_a_sentence(tmp_path, broken, expected):
     assert r.returncode == 2
     assert "Traceback" not in r.stderr
     assert expected in r.stderr
+
+
+def test_a_state_entry_that_points_at_another_requirement_is_refused():
+    """The state file exists to keep an identifier attached to the same
+    requirement across refreshes, so an entry pointing at some other slug's
+    identifier is the one thing it must not do quietly. A merge conflict in this
+    file is all it takes, and the result is a document whose identifiers no
+    longer mean what a reader thinks."""
+    with pytest.raises(ValueError) as exc:
+        merge.issue_id("PKI-SIGNING-KEY", {"issued": {"PKI-SIGNING-KEY": "REQ-OTHER-01"}})
+    assert "belongs to a different requirement" in str(exc.value)
+
+    # A malformed sequence is the same problem.
+    with pytest.raises(ValueError):
+        merge.issue_id("A-B", {"issued": {"A-B": "REQ-A-B-1"}})
+
+    # Its own identifier is returned unchanged, which is the whole point.
+    assert merge.issue_id("A-B", {"issued": {"A-B": "REQ-A-B-01"}}) == "REQ-A-B-01"
+
+
+def test_one_slug_has_one_identifier():
+    """The sequence number was computed from the count of existing values
+    starting with the same prefix, which read as collision handling. The slug is
+    the key, so there has never been anything to count and it was always 01."""
+    state = {"issued": {}}
+    assert merge.issue_id("A-B", state) == "REQ-A-B-01"
+    assert merge.issue_id("A-B", state) == "REQ-A-B-01"
+    assert merge.issue_id("C-D", state) == "REQ-C-D-01"
+    assert state["issued"] == {"A-B": "REQ-A-B-01", "C-D": "REQ-C-D-01"}
+
+
+def test_a_refresh_is_byte_for_byte_idempotent(tmp_path):
+    """Counting zero added and zero retired is weaker than the property that
+    makes a refresh safe to run: the file it writes the second time is the file
+    it wrote the first."""
+    work = _refresh_workspace(tmp_path)
+    args = ("merge.py", "--apply", "--draft", str(work / "draft.json"),
+            "--existing", str(work / "requirements.yaml"), "--state", str(work / "state.yaml"))
+    assert _run_cli(*args).returncode == 0
+    after_first = (work / "requirements.yaml").read_bytes()
+    state_first = (work / "state.yaml").read_bytes()
+
+    assert _run_cli(*args).returncode == 0
+    assert (work / "requirements.yaml").read_bytes() == after_first
+    assert (work / "state.yaml").read_bytes() == state_first
