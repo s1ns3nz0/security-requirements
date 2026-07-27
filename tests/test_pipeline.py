@@ -4822,3 +4822,78 @@ def test_a_nested_assignment_is_a_second_decision_not_an_artefact():
     nested = re.search(r"\[assignment:[^\]]*\[assignment:[^\]]*\]", statement)
     assert nested, "AC-7 is the case this test exists for"
     assert "time period" in nested.group(0)
+
+
+def test_the_csf_filter_drops_exactly_what_it_says_it_drops(tmp_path, monkeypatch):
+    """The upstream release carries CSF 1.1 material alongside 2.0 -- 185
+    subcategories across 34 categories -- with the retired entries marked
+    withdrawn. Both filters matter: the withdrawn flag and the published
+    category set. Neither had ever run on a paragraph.
+    """
+    good = next(iter(sorted(rebuild_mod.CSF_20_CATEGORIES)))
+    catalog = {"catalog": {
+        "metadata": {"version": "1.0", "last-modified": "2026-01-01"},
+        "groups": [{"id": good.split(".")[0].lower(), "controls": [
+            {"id": good, "class": "category", "title": "A category", "controls": [
+                {"id": f"{good}-01", "class": "subcategory", "title": "Kept"},
+                {"id": f"{good}-02", "class": "subcategory", "title": "Retired",
+                 "props": [{"name": "status", "value": "withdrawn"}]},
+                {"id": f"{good}-03", "class": "control", "title": "Not a subcategory"},
+            ]},
+            {"id": "ZZ.OLD", "class": "category", "title": "A 1.1 category", "controls": [
+                {"id": "ZZ.OLD-01", "class": "subcategory", "title": "Gone in 2.0"},
+            ]},
+        ]}]}}
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / rebuild_mod.CSF_FILE).write_text(json.dumps(catalog), encoding="utf-8")
+    out = tmp_path / "csf"
+    monkeypatch.setattr(rebuild_mod, "CSF_OUT_DIR", out)
+
+    meta = rebuild_mod.build_csf(source)
+
+    assert meta["category_count"] == 1, "the 1.1 category is not in the published set"
+    assert meta["subcategory_count"] == 1, "the withdrawn subcategory is not published"
+    assert meta["withdrawn_or_legacy_skipped"] == 2
+
+    kept = [json.loads(line) for line in
+            (out / "subcategories.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert [r["id"] for r in kept] == [f"{good}-01"]
+    assert kept[0]["category"] == good
+    assert kept[0]["function"] == good.split(".")[0]
+
+
+def test_the_asvs_build_carries_its_licence_with_it(tmp_path, monkeypatch):
+    """ASVS is CC BY-SA 4.0. The build writes the licence and the notice beside
+    the requirements because redistributing the text without them is the one
+    thing the licence forbids, and nothing had ever checked that it does."""
+    payload = {"requirements": [
+        {"req_id": "V1.1.1", "chapter_id": "V1", "chapter_name": "Encoding",
+         "section_id": "V1.1", "section_name": "Input", "req_description": "Verify a thing.",
+         "L": "1"},
+        {"req_id": "V2.1.1", "chapter_id": "V2", "chapter_name": "Auth",
+         "section_id": "V2.1", "section_name": "Passwords", "req_description": "Verify another.",
+         "L": ""},
+    ]}
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / rebuild_mod.ASVS_FILE).write_text(json.dumps(payload), encoding="utf-8")
+    out = tmp_path / "asvs"
+    monkeypatch.setattr(rebuild_mod, "ASVS_OUT_DIR", out)
+
+    meta = rebuild_mod.build_asvs(source)
+
+    assert (out / "LICENSE").read_text(encoding="utf-8").strip()
+    assert (out / "NOTICE").read_text(encoding="utf-8").strip()
+    assert "CC BY-SA" in (out / "LICENSE").read_text(encoding="utf-8")
+
+    # One file per chapter, and an unlabelled level is recorded as unspecified
+    # rather than guessed at -- the level decides which requirements a service
+    # is held to.
+    assert {p.stem for p in out.glob("*.jsonl")} == {"V1", "V2"}
+    first = json.loads((out / "V1.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert first["id"] == "ASVS-V1.1.1" and first["level"] == 1
+    second = json.loads((out / "V2.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert second["level"] is None
+    assert meta["level_counts"]["unspecified"] == 1
+    assert meta["requirement_count"] == 2
