@@ -331,6 +331,11 @@ SLUG_RE = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)*$")
 
 def issue_id(slug: str, state: dict) -> str:
     """Return the stable identifier for a content slug, allocating if new."""
+    if not isinstance(state, dict):
+        raise ValueError(
+            f"the state file holds a {type(state).__name__}; it is a mapping with an "
+            f"`issued` block recording which identifier was allocated to which slug."
+        )
     issued = state.setdefault("issued", {})
     if not isinstance(issued, dict):
         raise ValueError(
@@ -340,6 +345,13 @@ def issue_id(slug: str, state: dict) -> str:
     # The state file is hand-editable and shared across a team, and a value that
     # is not an identifier produced a raw AttributeError from inside the
     # allocator. Every other input in this repository gets a sentence.
+    bad_keys = sorted(k for k in issued if not (isinstance(k, str) and SLUG_RE.match(k)))
+    if bad_keys:
+        raise ValueError(
+            f"the state file has {len(bad_keys)} entry/entries whose key is not a slug: "
+            f"{', '.join(map(repr, bad_keys[:4]))}. A draft slug can never address them, so "
+            f"they would sit in the file for ever without being wrong in any visible way."
+        )
     wrong = {k: v for k, v in issued.items() if not isinstance(v, str)}
     if wrong:
         first = next(iter(wrong))
@@ -356,7 +368,12 @@ def issue_id(slug: str, state: dict) -> str:
         # slug's identifier is the one thing it must not do quietly. A merge
         # conflict in this file is all it takes, and the result is a document
         # whose identifiers no longer mean what a reader thinks.
-        if not re.fullmatch(rf"REQ-{re.escape(slug)}-\d{{2}}", recorded):
+        # Exactly -01. The allocator writes nothing else, so accepting -02
+        # through -99 left a hand-edited entry able to introduce a second
+        # identity for one slug: the new one is added, the old one retires, and
+        # the total-churn guard sees a normal refresh because most of the
+        # document still matches.
+        if recorded != f"REQ-{slug}-01":
             raise ValueError(
                 f"the state file maps {slug!r} to {recorded!r}, which belongs to a "
                 f"different requirement. Identifiers are how a reader follows one "
@@ -570,11 +587,7 @@ def main() -> int:
     state = load_yaml(args.state, {"issued": {}})
 
     try:
-        try:
-            result = apply_merge(draft_items, existing, state)
-        except ValueError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 2
+        result = apply_merge(draft_items, existing, state)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

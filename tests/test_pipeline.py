@@ -4326,6 +4326,9 @@ def test_a_second_refresh_with_no_change_moves_nothing(tmp_path):
 @pytest.mark.parametrize("broken,expected", [
     ("issued:\n  PKI-SIGNING-KEY: 1\n", "is not an identifier"),
     ("issued: [a, b]\n", "is a list"),
+    ("- a\n- b\n", "holds a list"),
+    ("issued:\n  not a slug!: REQ-X-01\n", "not a slug"),
+    ("issued:\n  PKI-SIGNING-KEY: REQ-OTHER-01\n", "belongs to a different requirement"),
 ])
 def test_a_hand_edited_state_file_gets_a_sentence(tmp_path, broken, expected):
     """It is shared across a team and edited by hand, and a value that is not an
@@ -4350,9 +4353,14 @@ def test_a_state_entry_that_points_at_another_requirement_is_refused():
         merge.issue_id("PKI-SIGNING-KEY", {"issued": {"PKI-SIGNING-KEY": "REQ-OTHER-01"}})
     assert "belongs to a different requirement" in str(exc.value)
 
-    # A malformed sequence is the same problem.
-    with pytest.raises(ValueError):
-        merge.issue_id("A-B", {"issued": {"A-B": "REQ-A-B-1"}})
+    # A malformed sequence is the same problem, and so is a second identity for
+    # one slug: the allocator writes -01 and nothing else, so accepting -02
+    # through -99 left a hand-edited entry able to add an identity while the old
+    # one retired -- with most of the document still matching, the total-churn
+    # guard sees an ordinary refresh.
+    for wrong in ("REQ-A-B-1", "REQ-A-B-02", "REQ-A-B-99"):
+        with pytest.raises(ValueError):
+            merge.issue_id("A-B", {"issued": {"A-B": wrong}})
 
     # Its own identifier is returned unchanged, which is the whole point.
     assert merge.issue_id("A-B", {"issued": {"A-B": "REQ-A-B-01"}}) == "REQ-A-B-01"
