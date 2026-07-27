@@ -4705,3 +4705,29 @@ def test_a_build_does_not_inherit_the_previous_build_s_failures(tmp_path, monkey
         rebuild_mod.build_nist(source, {"zz"})
     assert "left-over-from-somewhere" not in str(exc.value)
     assert not rebuild_mod.UNRESOLVED
+
+
+def test_a_requirement_cannot_claim_a_threat_that_is_not_in_the_model():
+    """The threat side of this check has been here all along -- a threat's
+    control identifiers are verified against the catalogue. A requirement's
+    threat references were verified against nothing, so a mistyped id produced a
+    requirement that traces to nothing while saying it traces to a threat, and
+    the traceability document repeats the claim."""
+    model = {"threats": [{"id": "T-01"}]}
+
+    good = _doc(threat_refs=["T-01"])
+    assert "threat-ref-unknown" not in _rules(lint_mod.lint(good, "en", model))
+
+    mistyped = _doc(threat_refs=["T-99"])
+    findings = lint_mod.lint(mistyped, "en", model)
+    assert "threat-ref-unknown" in _rules(findings)
+    assert any("claims a provenance it does not have" in str(f) for f in findings)
+
+    # A string is iterable, which is how this repository has been bitten five
+    # times.
+    scalar = _doc(threat_refs="T-01")
+    assert "threat-ref-format" in _rules(lint_mod.lint(scalar, "en", model))
+
+    # With no model supplied there is nothing to check against, and inventing a
+    # complaint would be worse than staying quiet.
+    assert "threat-ref-unknown" not in _rules(lint_mod.lint(mistyped, "en", None))

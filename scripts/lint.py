@@ -424,6 +424,29 @@ def lint(doc: dict, locale: str, threats: dict | None) -> list[Finding]:
                                     "cites neither a control nor a threat; nothing traces to this"))
 
     if threats:
+        known_threats = {t.get("id") for t in threats.get("threats", []) or [] if t.get("id")}
+        for req in doc.get("requirements", []) or []:
+            managed = req.get("managed") or {}
+            refs = managed.get("threat_refs")
+            if isinstance(refs, str):
+                findings.append(Finding("ERROR", req.get("id", "<no id>"), "threat-ref-format",
+                                        f"threat_refs is the single string {refs!r}; a string is "
+                                        f"iterable, so it would be read one character at a time"))
+                continue
+            for ref in refs or []:
+                if ref not in known_threats:
+                    # The threat side of the same check has been here all along
+                    # -- a threat's control identifiers are verified against the
+                    # catalogue. A requirement's threat references were not
+                    # verified against anything, so a mistyped id produced a
+                    # requirement that traces to nothing and says it traces to a
+                    # threat.
+                    findings.append(Finding(
+                        "ERROR", req.get("id", "<no id>"), "threat-ref-unknown",
+                        f"{ref!r} is not a threat in the model. The requirement claims a "
+                        f"provenance it does not have, and the traceability document will "
+                        f"repeat the claim."))
+
         for threat in threats.get("threats", []) or []:
             findings += check_sources(threat.get("id", "<threat>"),
                                       threat.get("related_controls", []) or [], catalog, bundled, known)
