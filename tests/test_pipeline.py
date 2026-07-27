@@ -2940,3 +2940,56 @@ def test_an_unanswered_axis_is_named_even_when_the_other_is_answered():
     warned = [w for w in result["consistency_warnings"] if "absence of an answer" in w]
     assert warned and "confidentiality level" in warned[0]
     assert "integrity" not in warned[0].split("is the absence")[0]
+
+
+# --- round five: five more authoritative repositories -------------------------
+
+def test_one_requirement_per_requirement():
+    """Two data types can force the same one. customer_owned on both the files
+    and the contact details of a file-sync service put the identical processor
+    obligation into the document twice, differing only in a field the reader
+    never sees. The team owes one set of obligations, over both sets of data."""
+    both = _onprem(data_types=[
+        {"id": "user_generated_content", "modifiers": ["customer_owned"]},
+        {"id": "basic_contact", "modifiers": ["customer_owned"]},
+    ])
+    forced = sb.run(both)["forced_requirements"]
+    ids = [f["id"] for f in forced]
+    assert len(ids) == len(set(ids)), ids
+
+    obligations = next(f for f in forced if f["id"] == "data_processor_obligations")
+    assert set(obligations["from_data_types"]) == {"user_generated_content", "basic_contact"}
+    assert "user uploads" in obligations["label"] and "member email" in obligations["label"]
+
+
+def test_one_line_per_overlay_not_per_trigger():
+    """Two triggers routing to the same regime printed it twice under different
+    names -- "GDPR" and "GDPR Article 9 special category data" -- each pointing
+    at the same command."""
+    special = _onprem(data_types=[{"id": "sensitive_attributes"}, {"id": "basic_contact"}],
+                      user_regions=["DE"])
+    result = sb.run(special)
+    entries = result["overlay_triggers"]
+    assert len(entries) == len({e["id"] for e in entries}), entries
+
+    gdpr = next(e for e in entries if e["id"] == "gdpr")
+    assert set(gdpr["triggers"]) == {"gdpr_personal_data", "gdpr_special_category"}
+
+    rendered = sb.render_gate(result)
+    assert rendered.count("scripts/apply_overlay.py gdpr") == 1
+    assert "also reached by" in rendered
+
+
+def test_the_flags_do_not_name_regimes_the_jurisdiction_gate_refused():
+    """Emitted raw, regulatory_flags listed the Korean regimes against every
+    service holding personal data whatever country its users are in -- and
+    nothing reads the field, so nothing was going to correct the impression."""
+    european = _onprem(data_types=[{"id": "basic_contact"}], user_regions=["DE"])
+    flags = sb.run(european)["regulatory_flags"]
+    assert "gdpr_personal_data" in flags
+    assert not [f for f in flags if f.startswith("pipa_")]
+
+    korean = _onprem(data_types=[{"id": "basic_contact"}], user_regions=["KR"])
+    korean_flags = sb.run(korean)["regulatory_flags"]
+    assert "pipa_general" in korean_flags
+    assert "gdpr_personal_data" not in korean_flags
