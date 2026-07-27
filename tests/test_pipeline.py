@@ -4762,3 +4762,41 @@ def test_nothing_from_the_human_record_reaches_the_published_file():
                                   "exception": {"approver": "someone"}})])
     assert "no expiry date" in no_expiry
     assert "someone" not in no_expiry
+
+
+def test_no_free_text_from_the_human_block_appears_in_any_published_document():
+    """Two leaks were found one at a time -- the retirement reason, then the
+    exception's approver and rationale. `human` is open-ended by design, so the
+    next field someone adds would be published the moment anyone renders it.
+
+    This asserts the class rather than the instance: every plausible free-text
+    field carries a distinctive marker, and no marker may appear in any of the
+    three documents. A status is a state and is published; a date is not a
+    person and is published. Prose written by a person is not.
+    """
+    marker = "CANARY7391"
+    human = {
+        "status": "accepted_risk",
+        "retired_reason": f"{marker}-retired",
+        "reinstated_reason": f"{marker}-reinstated",
+        "note": f"{marker}-note",
+        "owner": f"{marker}-owner",
+        "reviewer": f"{marker}-reviewer",
+        "decision_log": [f"{marker}-log"],
+        "exception": {"approver": f"{marker}-approver",
+                      "reason": f"{marker}-reason",
+                      "ticket": f"{marker}-ticket",
+                      "expires": "2027-01-31"},
+    }
+    documents = _documents([
+        _req("REQ-A-B-01", human=dict(human)),
+        _req("REQ-C-D-01", human={"status": "retired", "retired_reason": f"{marker}-gone"}),
+    ])
+    for document in documents:
+        assert marker not in document, document[:400]
+
+    # The facts a reader outside does need are still there.
+    published = documents[0]
+    assert "accepted_risk" in published
+    assert "2027-01-31" in published
+    assert "held in the internal record" in published
