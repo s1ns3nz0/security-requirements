@@ -4731,3 +4731,34 @@ def test_a_requirement_cannot_claim_a_threat_that_is_not_in_the_model():
     # With no model supplied there is nothing to check against, and inventing a
     # complaint would be worse than staying quiet.
     assert "threat-ref-unknown" not in _rules(lint_mod.lint(mistyped, "en", None))
+
+
+def test_nothing_from_the_human_record_reaches_the_published_file():
+    """requirements.md is what leaves the building; `human:` is the internal
+    record. The retirement reason was fixed two commits ago and the exception
+    block sat next to it, publishing the approver's name and title, the expiry,
+    and the rationale -- which named a vendor."""
+    doc = {"requirements": [
+        _req("REQ-A-B-01", human={"status": "accepted_risk", "exception": {
+            "approver": "Jane Park, CISO", "expires": "2027-01-31",
+            "reason": "the vendor cannot support customer keys until the Q1 release"}}),
+        _req("REQ-C-D-01", human={"status": "retired",
+                                  "retired_reason": "closed by the CISO's exception"}),
+    ]}
+    published, _, _ = _documents(doc["requirements"])
+
+    for private in ("Jane Park", "CISO", "vendor", "cannot support"):
+        assert private not in published, private
+
+    # What a reader outside does need: that an exception exists, and when it
+    # lapses. A date is not a person.
+    assert "An exception is recorded" in published
+    assert "2027-01-31" in published
+    assert "held in the internal record" in published
+
+    # And an exception with no expiry says so rather than inventing one.
+    no_expiry, _, _ = _documents([
+        _req("REQ-E-F-01", human={"status": "accepted_risk",
+                                  "exception": {"approver": "someone"}})])
+    assert "no expiry date" in no_expiry
+    assert "someone" not in no_expiry

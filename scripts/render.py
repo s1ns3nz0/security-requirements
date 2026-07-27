@@ -184,10 +184,17 @@ def render_requirements(doc: dict, titles: dict, meta: dict) -> str:
                 out.append(f"> Status: **{human['status']}**")
                 exception = human.get("exception") or {}
                 if exception:
+                    # The approver's name, the reason, and the vendor named in
+                    # it belong to the internal record. This file is what leaves
+                    # the building, and the same leak was fixed for
+                    # retired_reason two commits ago while this one sat next to
+                    # it. What a reader outside needs is that an exception
+                    # exists and when it lapses -- a date is not a person.
+                    expires = exception.get("expires")
                     out.append(
-                        f"> Approved by {exception.get('approver', 'unrecorded')}, "
-                        f"expires {exception.get('expires', 'unrecorded')} — "
-                        f"{exception.get('reason', '')}"
+                        "> An exception is recorded against this requirement"
+                        + (f", expiring {expires}." if expires else " with no expiry date.")
+                        + " Its approver and rationale are held in the internal record."
                     )
                 out.append("")
 
