@@ -5004,3 +5004,44 @@ def test_offline_needs_a_source(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["rebuild_overlay_hipaa.py", "--offline"])
     with pytest.raises(SystemExit):
         hipaa_mod.main()
+
+
+# --- the style rules, which decide whether a requirement can be checked -------
+
+@pytest.mark.parametrize("statement,rule,why", [
+    ("The service must use nginx to terminate TLS for every route.", "implementation",
+     "naming the product dates the requirement to this quarter's architecture"),
+    ("Encrypt the data.", "too-short",
+     "a statement nobody can disagree with is a statement nobody can verify"),
+    ("Data must be encrypted and access must be logged.", "not-atomic",
+     "two obligations in one statement cannot be satisfied or failed separately"),
+    ("Data must be appropriately protected at all times.", "vague",
+     "'appropriately' makes the requirement undecidable"),
+])
+def test_a_statement_that_cannot_be_checked_is_flagged(statement, rule, why):
+    assert rule in _rules(lint_mod.lint(_doc(statement=statement), "en", None)), why
+
+
+@pytest.mark.parametrize("csf,rule", [
+    (["ZZ.QQ-99"], "csf-unknown"),
+    (["nonsense"], "csf-format"),
+    ("PR.DS-01", "csf-format"),
+])
+def test_a_csf_identifier_is_checked_against_the_bundled_framework(csf, rule):
+    """The published document is organised by CSF function. An identifier that
+    is not in the framework files the requirement under a heading that does not
+    exist, and an invented one reads exactly like a real one."""
+    assert rule in _rules(lint_mod.lint(_doc(csf=csf), "en", None))
+
+    assert "csf-unknown" not in _rules(lint_mod.lint(_doc(csf=["PR.DS-01"]), "en", None))
+
+
+def test_an_identifier_that_is_a_running_number_is_refused():
+    """`REQ-001` carries no meaning and cannot survive a requirement being
+    removed: everything after it shifts, and a document from last quarter no
+    longer refers to the same things."""
+    doc = _doc()
+    doc["requirements"][0]["id"] = "REQ-001"
+    findings = lint_mod.lint(doc, "en", None)
+    assert "id-format" in _rules(findings)
+    assert any("never a running number" in str(f) for f in findings)
