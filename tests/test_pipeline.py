@@ -4897,3 +4897,30 @@ def test_the_asvs_build_carries_its_licence_with_it(tmp_path, monkeypatch):
     assert second["level"] is None
     assert meta["level_counts"]["unspecified"] == 1
     assert meta["requirement_count"] == 2
+
+
+def test_the_auditor_s_document_shows_what_no_control_produced():
+    """traceability.md is the auditor's, and it listed only what a control maps
+    to. A threat-only requirement -- the kind this tool exists to find, and the
+    kind no catalogue could have given you -- was absent from the one document
+    an auditor reads for coverage. The requirements document said five and this
+    one showed four."""
+    _, trace, _ = _documents([
+        _req("REQ-A-B-01", sources=["SC-28"]),
+        _req("REQ-C-D-01", sources=[], threat_refs=["T-05"],
+             statement="The party holding the key must be named in the risk record."),
+    ])
+    assert "Traced to no control" in trace
+    assert "REQ-C-D-01" in trace
+    assert "T-05" in trace, "and which threat it came from"
+    assert "REQ-C-D-01" not in trace.split("## Traced to no control")[0], \
+        "it is not in the control table, because no control produced it"
+
+    # A document where every requirement cites a control does not grow a section
+    # saying so.
+    _, only_sourced, _ = _documents([_req("REQ-A-B-01", sources=["SC-28"])])
+    assert "Traced to no control" not in only_sourced
+
+    # A threat-only requirement with no recorded provenance still appears.
+    _, no_refs, _ = _documents([_req("REQ-E-F-01", sources=[])])
+    assert "not recorded" in no_refs.split("## Traced to no control")[1]

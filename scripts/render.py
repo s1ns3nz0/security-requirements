@@ -249,6 +249,24 @@ def render_traceability(doc: dict, titles: dict, meta: dict) -> str:
     for control in sorted(by_control, key=lambda c: (c.split("-")[0], c)):
         title = titles.get(control, "")
         out.append(f"| {control} | {title} | {', '.join(sorted(by_control[control]))} |")
+
+    # Requirements no control produced. This document is the auditor's, and it
+    # listed only what a control maps to -- so a threat-only requirement, which
+    # is the kind this tool exists to find and the kind no catalogue could have
+    # given you, was absent from the one document an auditor reads for coverage.
+    # The requirements document said five and this one showed four.
+    unsourced = [r for r in reqs if not (r.get("managed") or {}).get("sources")]
+    if unsourced:
+        out += ["", "## Traced to no control", "",
+                "These come from the threat model. No control in the baseline addresses",
+                "them, which is why they are here and not in the table above.", "",
+                "| Requirement | Statement | From |", "|---|---|---|"]
+        for req in sorted(unsourced, key=lambda r: r["id"]):
+            managed = req.get("managed") or {}
+            statement = managed.get("statement", "").replace("|", "\\|")
+            refs = ", ".join(managed.get("threat_refs") or []) or "not recorded"
+            out.append(f"| {req['id']} | {statement} | {refs} |")
+
     out += ["", provenance(meta)]
     return "\n".join(out)
 
