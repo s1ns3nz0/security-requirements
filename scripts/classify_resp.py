@@ -101,16 +101,48 @@ def normalise_org_controls(declared: list) -> tuple[set[str], list[str]]:
 
 
 ORG_CONTROL_COVERAGE = {
-    "sso": ["AC-2", "AC-2(1)", "AC-7", "AC-11", "AC-12"],
-    "central_logging": ["AU-6", "AU-6(1)", "AU-6(3)", "AU-7", "AU-7(1)", "AU-9"],
-    "access_review": ["AC-2(3)", "AC-2(4)", "AC-6(7)"],
-    "incident_response": ["AU-6", "AU-5"],
-    "security_policy": ["AC-1", "AU-1", "SC-1"],
-    # Added because interview question six has offered it since the beginning
-    # and nothing here answered to it. A standing security function is what
-    # PM-2 asks for, and the programme plan and risk-management leadership go
-    # with it.
-    "security_function": ["PM-2", "PM-1", "PM-29"],
+    # What a declared organisational capability actually discharges -- not what
+    # it supports. The first version claimed company-wide SSO discharged AC-2
+    # (account lifecycle), AC-7 (unsuccessful logon enforcement), and AC-12
+    # (session termination), all of which the application still has to do. That
+    # promoted a fact about the organisation into a finding about the service,
+    # which is the failure this repository exists to prevent, and it did it by
+    # deleting work from the delivery team's list.
+    #
+    # An entry belongs here only if the capability performs the control, not if
+    # it makes the control easier.
+    "sso": [
+        # The identity provider performs identification and authentication. What
+        # the application does with the resulting identity is its own problem
+        # and stays on its list.
+        "IA-2", "IA-2(1)", "IA-2(2)", "IA-8",
+    ],
+    "central_logging": [
+        # Review and analysis are the collection platform's, and so is
+        # correlation across sources. Protecting the application's own audit
+        # records is not -- AU-9 stayed off this list deliberately.
+        "AU-6", "AU-6(1)", "AU-6(3)",
+    ],
+    "access_review": [
+        # A periodic review process is exactly AC-2(3) and AC-6(7). AC-2(4) is
+        # automated auditing of account actions, which is the system's.
+        "AC-2(3)", "AC-6(7)",
+    ],
+    "incident_response": [
+        # The incident controls themselves. AU-5 was here and is not an incident
+        # process -- it is the system's response to an audit processing failure.
+        "IR-4", "IR-5", "IR-6", "IR-8",
+    ],
+    "security_policy": [
+        # The policy controls of each family. A policy set is what they ask for.
+        "AC-1", "AU-1", "SC-1",
+    ],
+    "security_function": [
+        # A standing security function is the role PM-2 asks for. It is not the
+        # programme plan (PM-1) and not risk-management leadership (PM-29):
+        # having a team does not produce either document.
+        "PM-2",
+    ],
 }
 
 
@@ -348,8 +380,14 @@ def classify(profile: dict, controls: list[str]) -> dict:
             # still got centralised authentication on its own list -- the exact
             # outcome question six exists to prevent.
             entry["org_control_declared"] = True
-            if entry["responsibility"] != "org":
-                entry["responsibility_before_org_control"] = entry["responsibility"]
+            # `shared` is never reclassified. A division has two parties, and an
+            # organisational capability answers the organisation's half -- it
+            # does not stand in for the team's. Moving the whole control erased
+            # work that genuinely exists, and on a profile with no provider it
+            # also jumped the rule that would otherwise have given the ownerless
+            # half back to the team.
+            if entry["responsibility"] == "team":
+                entry["responsibility_before_org_control"] = "team"
                 entry["responsibility"] = "org"
                 entry["source"] = f"{entry['source']}+declared-org-control"
 

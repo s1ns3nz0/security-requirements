@@ -491,9 +491,12 @@ def test_region_spelling_does_not_lose_cross_border(profile, written):
 
 @pytest.mark.parametrize("written", [["sso"], ["SSO"], "sso", [" SSO "]])
 def test_org_control_spelling_keeps_its_annotations(profile, written):
+    """IA-2 rather than AC-2. AC-2 carried this until the coverage table was cut
+    back: company-wide SSO performs identification and authentication, and does
+    not discharge account lifecycle management for the application."""
     p = copy.deepcopy(profile)
     p["declared"]["existing_org_controls"] = written
-    result = classify_resp.classify(p, ["AC-2", "AU-6"])
+    result = classify_resp.classify(p, ["IA-2", "AU-6"])
     assert any(e.get("org_control_declared") for e in result["controls"])
 
 
@@ -778,15 +781,59 @@ def test_generic_threat_does_not_raise_to_high(crossed):
     assert item["priority"] == "medium"
 
 
-def test_a_control_the_organisation_already_runs_moves_to_it(crossed):
-    """The interview schema has always said an existing control "does not delete
-    the requirement -- it is classified as org and annotated", and only the
-    annotation was applied. A team running company-wide SSO still got
-    centralised authentication on its own list, which is the exact outcome
-    question six exists to prevent."""
-    moved = [i for i in crossed["items"] if i.get("org_control_declared")]
-    assert moved, "the golden profile declares organisational controls"
-    assert all(i["responsibility"] == "org" for i in moved)
+def test_a_declared_capability_discharges_only_what_it_performs():
+    """The first version of this moved every covered control to the
+    organisation, which deleted work that genuinely exists.
+
+    Asserted per declaration rather than by asking the source what it did:
+    a test that selects whatever the code annotated and checks the code moved
+    it cannot notice an over-broad mapping, which is what it was hiding.
+    """
+    def owners(declared, controls, csp="aws"):
+        p = _onprem()
+        p["inferred"]["csp"] = csp
+        p["declared"]["existing_org_controls"] = declared
+        result = classify_resp.classify(p, controls)
+        return {e["control"]: e["responsibility"] for e in result["controls"]}
+
+    # SSO performs identification and authentication. It does not perform
+    # account lifecycle, unsuccessful-logon enforcement, or session termination.
+    sso = owners(["company-wide SSO / identity provider"],
+                 ["IA-2", "AC-2", "AC-7", "AC-12"])
+    assert sso["IA-2"] == "org"
+    assert sso["AC-2"] == "team" and sso["AC-7"] == "team" and sso["AC-12"] == "team"
+
+    # A shared control keeps its team half. An organisational capability answers
+    # the organisation's side of a division, not both sides of it.
+    logging = owners(["centralised log collection"], ["AU-6", "AU-6(1)", "AU-9"])
+    assert logging["AU-6"] == "org"
+    assert logging["AU-6(1)"] == "shared", "the team half of a shared control survives"
+    assert logging["AU-9"] == "shared", "protecting the application's own audit records"
+
+    # An incident process is the incident controls, not the system's response to
+    # an audit processing failure.
+    incident = owners(["incident response process"], ["IR-4", "AU-5"])
+    assert incident["IR-4"] == "org"
+    assert incident["AU-5"] != "org" or "AU-5" not in classify_resp.ORG_CONTROL_COVERAGE.get(
+        "incident_response", [])
+
+    # A standing security function is the role PM-2 asks for. It does not write
+    # the programme plan or lead risk management.
+    assert set(classify_resp.ORG_CONTROL_COVERAGE["security_function"]) == {"PM-2"}
+
+
+def test_a_shared_control_is_not_reclassified_on_a_profile_with_no_provider():
+    """Reassignment ran before the rule that gives an ownerless shared
+    responsibility back to the team, so a covered shared control on an
+    on-premise profile escaped it and landed on nobody."""
+    p = _onprem()
+    p["declared"]["existing_org_controls"] = ["centralised log collection"]
+    result = classify_resp.classify(p, ["AU-6(1)"])
+    entry = result["controls"][0]
+    # shared collapses to team when there is no second party, and the covered
+    # control now reaches that rule instead of being moved past it.
+    assert entry["responsibility"] == "team"
+    assert "no-csp" in entry["source"]
 
 
 @pytest.mark.parametrize("written", ["AC-3", "ac-3", " AC-3 ", "Ac-3"])
@@ -3167,7 +3214,20 @@ def test_the_interview_answers_reach_the_thing_that_reads_them():
 
     keys, unknown = classify_resp.normalise_org_controls(labels)
     assert not unknown, f"the interview offers answers the tool cannot read: {unknown}"
-    assert keys, "and at least some of them have to mean something"
+
+    # Every label except the opt-out has to mean something. Asserting only that
+    # `keys` is non-empty would pass with six of the seven mapping to nothing.
+    opt_out = [l for l in labels if l.lower().startswith("none")]
+    assert len(opt_out) == 1, labels
+    assert len(keys) == len(labels) - 1, \
+        f"{len(labels) - 1} answers should map to a capability, {len(keys)} do: {sorted(keys)}"
+    assert keys <= set(classify_resp.ORG_CONTROL_COVERAGE), \
+        f"a label maps to a key nothing covers: {keys - set(classify_resp.ORG_CONTROL_COVERAGE)}"
+
+    for label in labels:
+        if label in opt_out:
+            mapped, _ = classify_resp.normalise_org_controls([label])
+            assert mapped == set(), f"{label!r} should select nothing"
 
     # An answer nobody can read is reported rather than dropped.
     _, unreadable = classify_resp.normalise_org_controls(["quantum firewall"])

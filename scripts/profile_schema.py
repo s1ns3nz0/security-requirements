@@ -266,15 +266,21 @@ def normalise(profile: dict) -> tuple[dict, list[str]]:
 # being compared as literal strings, so they matched only a profile that wrote
 # the bloc's name instead of a country. Expanding them here makes the three
 # lists agree by construction rather than by maintenance.
-EEA_MEMBERS = {
+EU_MEMBERS = {
     "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR",
     "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK",
-    "SI", "ES", "SE",                      # the twenty-seven
-    "IS", "LI", "NO",                      # and the three EFTA members
+    "SI", "ES", "SE",
 }
 
+# Iceland, Liechtenstein, and Norway are in the Area and not in the Union.
+# Mapping both tokens to the same set made "EU" mean thirty states. Nothing
+# depended on the difference today, because every rule naming EU also names
+# EEA -- which is exactly the condition under which a wrong primitive sits
+# quietly until the first rule that needs it.
+EEA_MEMBERS = EU_MEMBERS | {"IS", "LI", "NO"}
+
 REGION_GROUPS = {
-    "EU": EEA_MEMBERS,
+    "EU": EU_MEMBERS,
     "EEA": EEA_MEMBERS,
 }
 
