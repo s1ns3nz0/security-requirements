@@ -134,13 +134,24 @@ PLACEHOLDER_RATIONALE = frozenset({
 
 
 def is_substantive(text) -> bool:
-    """Whether a rationale says anything a reader could evaluate."""
-    stripped = str(text or "").strip().strip(".-\u2014\u00b7 ")
+    """Whether a rationale says anything a reader could evaluate.
+
+    Named placeholders and strings with no letters in them, and nothing else.
+    The first version added a ten-character floor, on the theory that a real
+    reason is longer than "TODO" -- and it rejected "Contract", "PCI DSS", and
+    "\ubc95\uc801 \uc758\ubb34", each of which is a complete answer to why a requirement
+    exists. That made a rule written to stop a placeholder into a rule that
+    blocked correct documents, which is the failure this file spent the day
+    finding elsewhere.
+
+    This cannot tell a thoughtful reason from a lazy one and does not try. A
+    requirement resting on its rationale alone still draws a warning saying so;
+    the error is reserved for having written nothing at all.
+    """
+    stripped = str(text or "").strip().strip(".-\u2014\u00b7? ")
     if not stripped or stripped.lower() in PLACEHOLDER_RATIONALE:
         return False
-    # Ten characters, not five words: a short Korean clause is a real reason and
-    # counts two words where the English equivalent counts eight.
-    return len(stripped) >= 10
+    return any(c.isalpha() for c in stripped)
 
 
 class Finding:

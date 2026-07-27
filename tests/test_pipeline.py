@@ -5974,14 +5974,28 @@ def test_the_hipaa_rebuild_writes_a_clause_list_and_its_provenance(tmp_path, mon
 
     clauses = [json.loads(line) for line
                in (out / "criteria.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
-    assert [c["kind"] for c in clauses].count("standard") == sum(SYNTHETIC_CFR_COUNTS.values())
-    assert {c["designation_source"] for c in clauses if c["kind"] == "implementation_specification"} \
-        == {"inline", "group heading"}
+    # Not the counts. Reaching this line already means the guard's arithmetic
+    # held, so asserting it again asserts nothing; what is worth checking is what
+    # the parser put in each record.
+    standards = [c for c in clauses if c["kind"] == "standard"]
+    assert standards[0]["title"] == "Safeguard number 1"
+    assert standards[0]["clause"] == "164.308(a)"
+    assert standards[0]["section_title"] == "Administrative safeguards"
+    assert all(c["designation"] is None for c in standards), \
+        "a designation belongs to an implementation specification, not to a standard"
+
+    specs = [c for c in clauses if c["kind"] == "implementation_specification"]
+    inline = [c for c in specs if c["designation_source"] == "inline"]
+    grouped = [c for c in specs if c["designation_source"] == "group heading"]
+    assert [c["designation"] for c in inline] == ["Required"] * len(inline)
+    assert [c["designation"] for c in grouped] == ["Addressable"] * len(grouped)
+    assert grouped and grouped[0]["title"] == "Grouped item 1", \
+        "the specification beneath the heading, not the heading"
 
     meta = json.loads((out / "source.json").read_text(encoding="utf-8"))
     assert meta["point_in_time"] == "2026-03-01"
-    assert meta["standards"] == sum(SYNTHETIC_CFR_COUNTS.values())
-    assert meta["standards_per_section"] == SYNTHETIC_CFR_COUNTS
+    assert meta["implementation_specifications"] == len(specs)
+    assert set(meta["designations"]) == {"Required", "Addressable"}
 
 
 def test_a_short_clause_list_stops_the_hipaa_rebuild(tmp_path, monkeypatch):
@@ -6154,8 +6168,13 @@ def test_a_service_belonging_to_another_provider_is_reported_not_dropped():
     report = classify_resp.render(result)
     assert "belongs to a provider this profile does" in report
     assert "name the wrong company" in report
-    assert "aws-s3" in result["services_curated"] or result["services_curated"] == [], \
-        "the curation is applied, not discarded"
+    # Not "or the list is empty", which was the first version of this line and
+    # accepted exactly the behaviour the docstring says it prevents.
+    assert result["services_curated"] == ["aws-s3"]
+    encryption = next(e for e in result["controls"] if e["control"] == "SC-28")
+    assert [s["service"] for s in encryption["services"]] == ["aws-s3"], \
+        "the split is applied, so the control carries the curated half"
+    assert encryption["responsibility"] != "undetermined"
 
 
 def test_a_control_that_maps_to_nothing_is_named_undetermined():
@@ -6301,9 +6320,10 @@ def test_the_merge_report_names_a_reopened_requirement_carrying_an_exception(
     assert (record.get("human") or {}).get("status") == "retired"
 
     # And now it derives again -- through the command line, which is where the
-    # reopening is reported. apply_merge edits the records in place, so the file
-    # has to be written from what the retirement produced, before anything else
-    # touches it.
+    # reopening is reported. The deepcopy below is defensive rather than
+    # load-bearing: apply_merge does edit records in place, but nothing calls it
+    # again before this file is written. Said plainly because a comment claiming
+    # a dependency the test does not have is a comment that will be trusted.
     draft_path = tmp_path / "draft.json"
     draft_path.write_text(json.dumps({"requirements": draft}), encoding="utf-8")
     existing_path = tmp_path / "requirements.yaml"
@@ -6490,6 +6510,36 @@ def test_an_overlay_claiming_a_power_the_machinery_does_not_have_is_refused(tmp_
     with pytest.raises(overlay_mod.OverlayError) as excinfo:
         overlay_mod.load("ambitious")
     assert "nothing applies it" in str(excinfo.value)
+
+
+def test_the_hipaa_overlay_that_ships_has_the_published_shape():
+    """The synthetic tests replace EXPECTED_STANDARDS, so they prove the guard
+    fires and prove nothing about the real numbers. Nine administrative
+    standards, four physical, five technical -- asserted here against the file
+    that actually ships."""
+    clauses = [json.loads(line) for line in
+               (REPO_ROOT / "overlays" / "hipaa-security-rule" / "criteria.jsonl")
+               .read_text(encoding="utf-8").splitlines() if line.strip()]
+    per_section = {}
+    for clause in clauses:
+        if clause["kind"] == "standard":
+            per_section[clause["section"]] = per_section.get(clause["section"], 0) + 1
+    assert per_section == hipaa_mod.EXPECTED_STANDARDS
+
+
+@pytest.mark.parametrize("rationale", [
+    "Contract", "PCI DSS", "\ubc95\uc801 \uc758\ubb34", "SOC 2",
+    "The client's processing agreement.",
+])
+def test_a_short_reason_is_still_a_reason(rationale):
+    """A ten-character floor was here for one review. It rejected "Contract",
+    "PCI DSS", and "\ubc95\uc801 \uc758\ubb34", each a complete answer to why a
+    requirement exists, and turned a rule written to stop a placeholder into one
+    that blocked correct documents."""
+    doc = _doc(sources=[], threat_refs=[], rationale=rationale)
+    findings = [f for f in lint_mod.lint(doc, "en", None) if f.rule == "no-basis"]
+    assert findings and findings[0].level == "WARN", \
+        f"{rationale!r} is a basis; the warning says it traces only to itself"
 
 
 def test_the_golden_cases_still_span_the_scale():
