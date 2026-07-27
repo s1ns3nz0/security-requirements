@@ -5124,3 +5124,19 @@ def test_the_published_file_does_not_say_which_requirements_are_unmet():
     published = documents[0]
     for req_id in ("REQ-A-B-01", "REQ-C-D-01", "REQ-E-F-01"):
         assert req_id in published, "every active requirement is still defined here"
+
+
+def test_the_published_file_names_no_internal_artefact():
+    """A note saying "a re-run proposes a change, see pending_review in
+    requirements.yaml" told a reader outside the organisation that a
+    requirement is in flux and named the file to look in. It survived one
+    commit past the removal of the status field that says the same thing."""
+    documents = _documents([
+        {**_req("REQ-A-B-01"), "pending_review": {"statement": "a newer wording"}},
+    ])
+    for document in documents:
+        assert "pending_review" not in document
+        assert "requirements.yaml" not in document
+        assert ".security-requirements" not in document
+
+    assert "REQ-A-B-01" in documents[0], "the requirement is still defined"

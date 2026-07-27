@@ -191,9 +191,11 @@ def render_requirements(doc: dict, titles: dict, meta: dict) -> str:
             # This document holds the requirement definitions. Whether each one
             # is met yet is what .security-requirements/ is for, and it is
             # gitignored on a public repository for exactly this reason.
-            if req.get("pending_review"):
-                out += ["> A re-run proposes a change to this requirement. "
-                        "See `pending_review` in requirements.yaml.", ""]
+            # No note about a pending change either. It told a reader outside
+            # the organisation that a requirement is in flux and named the
+            # internal file to look in, which is process rather than
+            # definition -- and it survived one commit past the removal of the
+            # status field that says the same thing.
 
     # Retired requirements, and why. The merge preserves retired_reason and
     # previous_status with some care, and the published document showed
