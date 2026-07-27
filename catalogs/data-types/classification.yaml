@@ -87,6 +87,7 @@ modifiers:
 
   legal_entity_only:
     label: "held for organisations, not for people"
+    requires: personal_data
     # The mirror of service_content: the table gives a default reading of the
     # type and the profile says it is wrong here. GDPR protects natural
     # persons and says nothing about legal ones, so a purchase ledger holding
@@ -101,6 +102,10 @@ modifiers:
 
   service_content:
     label: "what this service exists to hold"
+    # A modifier that cannot do anything here should say so rather than being
+    # quietly ignored. Declared as a precondition rather than hard-coded,
+    # because the check has to name what was expected.
+    requires: system_information
     # Not an effect. The other modifiers move a level; this one says the table's
     # default reading of the type is wrong for this service, and the level to
     # use is the one already written against the type. A modifier that restated

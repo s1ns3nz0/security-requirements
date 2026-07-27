@@ -29,7 +29,7 @@ from pathlib import Path
 
 import yaml
 
-from profile_schema import SchemaError, normalise
+from profile_schema import EEA_MEMBERS, SchemaError, expand_regions, normalise
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CATALOG_DIR = REPO_ROOT / "catalogs" / "nist-800-53r5"
@@ -216,6 +216,7 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
     evidence_c = evidence_i = 0
     conf_why, integ_why, flags, triggers = [], [], [], []
     modifier_forced = []
+    inert_modifiers: list[str] = []
 
     trigger_specs_local = table.get("regulatory_triggers", {}) or {}
 
@@ -278,6 +279,17 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
                     f"{', '.join(sorted(modifiers))}. See {DATA_TYPES.name}"
                 )
             mod = modifiers[mod_id]
+            # Some modifiers only mean something against a type with a
+            # particular property -- service_content overrides the
+            # system-information exclusion, legal_entity_only clears the
+            # personal-data reading -- and applied elsewhere they did nothing
+            # and said nothing. A declaration that has no effect is worth one
+            # line, because the author wrote it expecting one.
+            required = mod.get("requires")
+            if required and not spec.get(required):
+                inert_modifiers.append(
+                    f"{mod_id} on {entry['id']}: the modifier applies to types marked "
+                    f"{required}, and this one is not, so it changed nothing")
             effect = mod.get("effect", {}).get("confidentiality")
             if isinstance(effect, str) and effect.startswith("="):
                 c = effect[1:]
@@ -521,7 +533,8 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
             "note": "\n\n".join(n for n in dict.fromkeys(s["note"] for s in sources) if n),
         })
 
-    return (confidentiality, integrity, sorted(set(flags)), sorted(set(triggers)), ordered)
+    return (confidentiality, integrity, sorted(set(flags)), sorted(set(triggers)),
+            ordered, inert_modifiers)
 
 
 def derive_availability(profile: dict, table: dict) -> dict:
@@ -594,12 +607,7 @@ REGION_COUNTRY = {
 # storage in Austria, Finland, or Estonia as an offshore transfer away from EU
 # users -- the opposite of the free movement the Regulation establishes, and a
 # requirement the reader would have spent money on.
-EEA = {
-    "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR",
-    "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK",
-    "SI", "ES", "SE",                      # the twenty-seven
-    "IS", "LI", "NO",                      # and the three EFTA members
-}
+EEA = EEA_MEMBERS
 # The two placeholders a profile may write instead of naming a member state.
 EU_LIKE = EEA | {"EU", "EEA"}
 
@@ -633,7 +641,10 @@ def applies_in_jurisdiction(spec: dict, user_regions: set[str]) -> bool:
         return True
     if not user_regions:
         return True
-    allowed = {r.upper() for r in condition.get("user_regions_any", [])}
+    # Both sides expanded: a rule naming EEA must match a profile that says BE,
+    # and a profile saying EU must match a rule that names member states.
+    allowed = expand_regions(condition.get("user_regions_any", []))
+    user_regions = expand_regions(user_regions)
     return bool(allowed & user_regions)
 
 
@@ -766,7 +777,8 @@ def run(profile: dict) -> dict:
     types_table = yaml.safe_load(DATA_TYPES.read_text(encoding="utf-8"))
     avail_table = yaml.safe_load(AVAILABILITY.read_text(encoding="utf-8"))
 
-    confidentiality, integrity, flags, triggers, forced = derive_confidentiality_integrity(profile, types_table)
+    (confidentiality, integrity, flags, triggers, forced,
+     inert_modifiers) = derive_confidentiality_integrity(profile, types_table)
     availability = derive_availability(profile, avail_table)
 
     if availability.pop("integrity_hint", None) == "high":
@@ -977,6 +989,8 @@ def run(profile: dict) -> dict:
                 # list said otherwise: a profile declaring SOC 2 had it in
                 # applicable_overlays and nowhere in regulatory_flags.
                 in_scope_triggers.append(declared_trigger)
+
+    consistency.extend(inert_modifiers)
 
     # Per axis, not only when both are empty. A profile of nothing but model
     # training data has genuine integrity evidence and none at all for

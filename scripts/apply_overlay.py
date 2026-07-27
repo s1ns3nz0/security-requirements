@@ -28,7 +28,7 @@ from pathlib import Path
 
 import yaml
 
-from profile_schema import normalise
+from profile_schema import expand_regions, normalise
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -181,7 +181,8 @@ def applies(overlay: dict, profile: dict, derived: dict | None = None) -> tuple[
     else:
         elective_reason = None
 
-    wanted_regions = {r.upper() for r in condition.get("user_regions_any") or []}
+    wanted_regions = expand_regions(condition.get("user_regions_any") or [])
+    regions = expand_regions(regions)
     if wanted_regions and regions and not (wanted_regions & regions):
         return False, f"no user region in {sorted(wanted_regions)}", {}
 

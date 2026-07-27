@@ -768,8 +768,25 @@ def test_service_specific_threats_raise_priority(crossed):
 
 
 def test_generic_threat_does_not_raise_to_high(crossed):
-    item = next(i for i in crossed["items"] if i["control"] == "AC-7")
+    """SC-8 rather than AC-7. AC-7 carried this property until the profile's
+    declared organisational controls started being applied -- the golden profile
+    runs company-wide SSO, so AC-7 is the organisation's and its priority drops
+    accordingly. The property being tested is about threats, not about who owns
+    the control, so the test needed a control the org controls do not reach."""
+    item = next(i for i in crossed["items"] if i["control"] == "SC-8")
+    assert item["origin"] == "threat_and_baseline"
     assert item["priority"] == "medium"
+
+
+def test_a_control_the_organisation_already_runs_moves_to_it(crossed):
+    """The interview schema has always said an existing control "does not delete
+    the requirement -- it is classified as org and annotated", and only the
+    annotation was applied. A team running company-wide SSO still got
+    centralised authentication on its own list, which is the exact outcome
+    question six exists to prevent."""
+    moved = [i for i in crossed["items"] if i.get("org_control_declared")]
+    assert moved, "the golden profile declares organisational controls"
+    assert all(i["responsibility"] == "org" for i in moved)
 
 
 @pytest.mark.parametrize("written", ["AC-3", "ac-3", " AC-3 ", "Ac-3"])
@@ -3076,3 +3093,82 @@ def test_a_covered_regulation_is_still_in_scope():
     assert "gdpr_personal_data" in result["regulatory_flags"], \
         "a covered regulation still applies to the service"
     assert not any(u["id"] == "gdpr_personal_data" for u in result["uncovered_regulations"])
+
+
+# --- round six: twenty more authoritative repositories ------------------------
+
+def test_every_member_state_reaches_the_regulation():
+    """Which countries are in the Union was written down three times -- the
+    cross-border residency set, the GDPR trigger's region list, and the GDPR
+    overlay's -- with thirty, eleven, and twenty members. A service with users
+    in Belgium, Austria, Denmark, Finland, Portugal, Greece, Hungary, Romania,
+    or Czechia was told the Regulation did not reach it. That is a false
+    negative on a regulation for a third of the member states, found on a
+    Belgian threat-intelligence platform.
+    """
+    import profile_schema
+    for member in sorted(profile_schema.EEA_MEMBERS):
+        profile = _onprem(data_types=[{"id": "basic_contact"}], user_regions=[member])
+        assert "gdpr" in sb.run(profile)["applicable_overlays"], member
+
+    # The bloc's own name still works, from either side of the comparison.
+    for bloc in ("EU", "EEA"):
+        assert "gdpr" in sb.run(_onprem(data_types=[{"id": "basic_contact"}],
+                                        user_regions=[bloc]))["applicable_overlays"]
+
+    # And somewhere else is still somewhere else.
+    for outside in ("JP", "US", "BR", "AU"):
+        assert "gdpr" not in sb.run(_onprem(data_types=[{"id": "basic_contact"}],
+                                            user_regions=[outside]))["applicable_overlays"], outside
+
+
+def test_the_overlay_agrees_with_the_trigger_on_who_is_european():
+    """Two of the three lists were consulted by different stages, so a profile
+    could be routed to an overlay that then declined it, or the reverse."""
+    for member in ("BE", "AT", "LU", "PT", "HR"):
+        profile = _onprem(data_types=[{"id": "basic_contact"}], user_regions=[member])
+        routed = "gdpr" in sb.run(profile)["applicable_overlays"]
+        accepted = overlay_mod.applies(overlay_mod.load("gdpr"), profile)[0]
+        assert routed is accepted is True, member
+
+
+def test_a_modifier_that_cannot_apply_says_so():
+    """service_content overrides the system-information exclusion and
+    legal_entity_only clears the personal-data reading. Put on a type with
+    neither property they did nothing and said nothing, and the author wrote
+    them expecting something. Found on a security-telemetry platform."""
+    inert = _onprem(data_types=[{"id": "security_telemetry", "modifiers": ["service_content"]}])
+    warnings = sb.run(inert)["consistency_warnings"]
+    assert any("changed nothing" in w and "service_content" in w for w in warnings)
+
+    working = _onprem(data_types=[{"id": "account_credentials", "modifiers": ["service_content"]}])
+    assert not any("changed nothing" in w for w in sb.run(working)["consistency_warnings"])
+
+    # The precondition is declared on the modifier, not hard-coded in the check.
+    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+                            "classification.yaml").read_text(encoding="utf-8"))
+    assert table["modifiers"]["service_content"]["requires"] == "system_information"
+    assert table["modifiers"]["legal_entity_only"]["requires"] == "personal_data"
+
+
+def test_the_interview_answers_reach_the_thing_that_reads_them():
+    """Question six offers seven checkboxes; the coverage table is keyed on five
+    short names; and not one label matched a key. A profile produced by
+    following the documented interview had every answer silently discarded, and
+    the tool went on demanding centralised authentication from teams that had
+    said they run company-wide SSO -- the one outcome the question exists to
+    prevent."""
+    import re as _re
+    doc = (REPO_ROOT / "skills" / "deriving-security-requirements" / "references" /
+           "profile-schema.md").read_text(encoding="utf-8")
+    block = doc.split("### Q6")[1].split("```")[1]
+    labels = [line.strip("[ ]").strip() for line in block.splitlines() if line.strip().startswith("[")]
+    assert len(labels) >= 6, labels
+
+    keys, unknown = classify_resp.normalise_org_controls(labels)
+    assert not unknown, f"the interview offers answers the tool cannot read: {unknown}"
+    assert keys, "and at least some of them have to mean something"
+
+    # An answer nobody can read is reported rather than dropped.
+    _, unreadable = classify_resp.normalise_org_controls(["quantum firewall"])
+    assert unreadable == ["quantum firewall"]

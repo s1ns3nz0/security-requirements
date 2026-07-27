@@ -249,3 +249,46 @@ def normalise(profile: dict) -> tuple[dict, list[str]]:
                 ]
 
     return profile, warnings
+
+
+# --------------------------------------------------------------------------
+# jurisdiction vocabulary
+# --------------------------------------------------------------------------
+#
+# Which countries are in the Union was written down three times -- the
+# cross-border residency set, the GDPR trigger's region list, and the GDPR
+# overlay's -- with thirty, eleven, and twenty members. A service with users in
+# Belgium, Austria, Denmark, Finland, Portugal, Greece, Hungary, Romania, or
+# Czechia was told the Regulation did not reach it, which is a false negative on
+# a regulation for a third of the member states.
+#
+# The data files already write EEA and EU where they mean the bloc. They were
+# being compared as literal strings, so they matched only a profile that wrote
+# the bloc's name instead of a country. Expanding them here makes the three
+# lists agree by construction rather than by maintenance.
+EEA_MEMBERS = {
+    "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR",
+    "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK",
+    "SI", "ES", "SE",                      # the twenty-seven
+    "IS", "LI", "NO",                      # and the three EFTA members
+}
+
+REGION_GROUPS = {
+    "EU": EEA_MEMBERS,
+    "EEA": EEA_MEMBERS,
+}
+
+
+def expand_regions(regions) -> set[str]:
+    """Resolve bloc names to their members, leaving country codes alone.
+
+    Applied to both sides of a jurisdiction comparison: a rule that says EEA
+    must match a profile that says BE, and a profile that says EU must match a
+    rule that names only member states.
+    """
+    out: set[str] = set()
+    for region in regions or []:
+        code = str(region).strip().upper()
+        out.add(code)
+        out |= REGION_GROUPS.get(code, set())
+    return out

@@ -51,12 +51,66 @@ PRECEDENCE = {"team": 3, "shared": 2, "csp_claimed": 1, "org": 0}
 # Organisational controls a profile may declare as already in place. Used to
 # annotate, never to delete: the control still has to be answered at audit,
 # it is simply answered by someone other than the delivery team.
+# What interview question six actually puts in the profile. The question offers
+# seven checkboxes and the coverage table below is keyed on five short names,
+# and not one of the labels matched a key -- so a profile produced by following
+# the documented interview had every answer silently discarded, and the tool
+# went on demanding centralised authentication from teams that had said they run
+# company-wide SSO. That is the one outcome the question exists to prevent.
+ORG_CONTROL_ALIASES = {
+    "company-wide sso / identity provider": "sso",
+    "company-wide sso": "sso",
+    "identity provider": "sso",
+    "single sign-on": "sso",
+    "centralised log collection": "central_logging",
+    "centralized log collection": "central_logging",
+    "centralised logging": "central_logging",
+    "centralized logging": "central_logging",
+    "information security policy set": "security_policy",
+    "security policy": "security_policy",
+    "periodic access review process": "access_review",
+    "access review": "access_review",
+    "incident response process": "incident_response",
+    "dedicated security function": "security_function",
+    "security team": "security_function",
+    "none of these yet": None,
+    "none": None,
+}
+
+
+def normalise_org_controls(declared: list) -> tuple[set[str], list[str]]:
+    """Return (recognised keys, entries nothing could be made of).
+
+    Unrecognised entries are reported rather than dropped. Dropped, a
+    misspelling and a considered answer look identical, and the reader is told
+    nothing about why the requirement they already satisfy is still on the list.
+    """
+    keys, unknown = set(), []
+    for raw in declared or []:
+        text = " ".join(str(raw).strip().lower().split())
+        if text in ORG_CONTROL_ALIASES:
+            mapped = ORG_CONTROL_ALIASES[text]
+            if mapped:
+                keys.add(mapped)
+            continue
+        if text.replace(" ", "_") in ORG_CONTROL_COVERAGE:
+            keys.add(text.replace(" ", "_"))
+            continue
+        unknown.append(str(raw))
+    return keys, unknown
+
+
 ORG_CONTROL_COVERAGE = {
     "sso": ["AC-2", "AC-2(1)", "AC-7", "AC-11", "AC-12"],
     "central_logging": ["AU-6", "AU-6(1)", "AU-6(3)", "AU-7", "AU-7(1)", "AU-9"],
     "access_review": ["AC-2(3)", "AC-2(4)", "AC-6(7)"],
     "incident_response": ["AU-6", "AU-5"],
     "security_policy": ["AC-1", "AU-1", "SC-1"],
+    # Added because interview question six has offered it since the beginning
+    # and nothing here answered to it. A standing security function is what
+    # PM-2 asks for, and the programme plan and risk-management leadership go
+    # with it.
+    "security_function": ["PM-2", "PM-1", "PM-29"],
 }
 
 
@@ -243,7 +297,8 @@ def classify(profile: dict, controls: list[str]) -> dict:
     csp, providers, csp_status = resolve_csp((profile.get("inferred") or {}).get("csp"))
 
     specs, curated, uncurated, foreign = load_services(profile, csp, providers)
-    org_controls = set((profile.get("declared") or {}).get("existing_org_controls", []) or [])
+    org_controls, unknown_org_controls = normalise_org_controls(
+        (profile.get("declared") or {}).get("existing_org_controls"))
     org_covered = {c for key in org_controls for c in ORG_CONTROL_COVERAGE.get(key, [])}
 
     results = []
@@ -286,7 +341,17 @@ def classify(profile: dict, controls: list[str]) -> dict:
             entry["source"] = f"services/{best['service']}.yaml"
 
         if control_id in org_covered and entry["responsibility"] in ("org", "team", "shared"):
+            # Annotated *and* reclassified, which is what the interview schema
+            # has always said happens: "an existing control does not delete the
+            # requirement. It is classified as org and annotated." Only the
+            # annotation was ever applied, so a team running company-wide SSO
+            # still got centralised authentication on its own list -- the exact
+            # outcome question six exists to prevent.
             entry["org_control_declared"] = True
+            if entry["responsibility"] != "org":
+                entry["responsibility_before_org_control"] = entry["responsibility"]
+                entry["responsibility"] = "org"
+                entry["source"] = f"{entry['source']}+declared-org-control"
 
         # A claim needs a claimant, and a division needs two parties. With no
         # cloud provider in the profile neither csp_claimed nor shared is a
@@ -338,6 +403,8 @@ def classify(profile: dict, controls: list[str]) -> dict:
         "services_curated": sorted(curated),
         "services_uncurated": sorted(uncurated),
         "services_foreign": sorted(foreign),
+        "org_controls_recognised": sorted(org_controls),
+        "org_controls_unrecognised": unknown_org_controls,
         "counts": counts,
         "controls": results,
     }
@@ -397,6 +464,28 @@ def render(result: dict) -> str:
             out.append(f"  {n:>4}  {labels[bucket]}")
     out.append(f"  {'-' * 4}")
     out.append(f"  {total:>4}  total")
+
+    declared_org = [e for e in result["controls"] if e.get("org_control_declared")]
+    if declared_org:
+        out += ["",
+                f"  {len(declared_org)} controls moved to the organisation because the profile",
+                "  says it already runs them. They are still answered at audit, by someone else:"]
+        by_source: dict[str, list[str]] = {}
+        for entry in declared_org:
+            was = entry.get("responsibility_before_org_control", "org")
+            by_source.setdefault(was, []).append(entry["control"])
+        for was, controls in sorted(by_source.items()):
+            shown = "  ".join(sorted(controls)[:14])
+            more = f"  ... and {len(controls) - 14} more" if len(controls) > 14 else ""
+            out.append(f"    was {was}: {shown}{more}")
+
+    if result.get("org_controls_unrecognised"):
+        out += ["",
+                "  WARNING: these answers to \"what does the organisation already have\"",
+                "  matched nothing, so the requirements they cover are still on the list:"]
+        for entry in result["org_controls_unrecognised"]:
+            out.append(f"    - {entry}")
+        out.append(f"  Recognised: {', '.join(sorted(ORG_CONTROL_COVERAGE))}.")
 
     if result.get("services_foreign"):
         out += ["",
