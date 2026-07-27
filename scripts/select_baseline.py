@@ -339,6 +339,9 @@ def detect_cross_border(profile: dict, user_regions: set[str]) -> dict | None:
     """
     region = (profile.get("inferred") or {}).get("region_storage")
     if not region or not user_regions:
+        # Either the storage region was never established or there are no user
+        # regions to compare it against. Saying nothing is right: a transfer
+        # question needs both ends.
         return None
     country = REGION_COUNTRY.get(region)
     if not country:

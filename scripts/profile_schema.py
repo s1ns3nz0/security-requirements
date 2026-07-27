@@ -62,6 +62,11 @@ LOWER_FIELDS = [
     ("inferred", "auth_mechanism"),
 ]
 
+# `auth_mechanism: none` says the service has no authentication, which is a
+# finding rather than a gap in the interview. Collapsing it into the same value
+# as "we did not establish this" would lose the distinction.
+SENTINEL_EXEMPT = {("inferred", "auth_mechanism")}
+
 LOWER_LIST_FIELDS = [
     ("declared", "existing_org_controls"),
     ("declared", "users"),
@@ -73,6 +78,12 @@ UPPER_LIST_FIELDS = [("declared", "user_regions")]
 # Spellings people use for a deployment model that the layer file keys
 # differently. Kept small and obvious; an unknown value still warns rather than
 # being guessed at.
+# The schema tells an author to write UNDETERMINED where inference failed and
+# they do not know. Treating that as a value rather than as the absence of one
+# produced messages like "region UNDETERMINED is not in the region map", which
+# reads as though it were a place.
+SENTINELS = {"undetermined", "unknown", "tbd", "n/a", "na", "none", "?", "-"}
+
 MODEL_ALIASES = {
     "k8s": "kubernetes",
     "kube": "kubernetes",
@@ -123,7 +134,9 @@ def normalise(profile: dict) -> tuple[dict, list[str]]:
             continue
         value = block.get(field)
         if isinstance(value, str):
-            block[field] = value.strip().lower()
+            cleaned = value.strip().lower()
+            sentinel = cleaned in SENTINELS and (section, field) not in SENTINEL_EXEMPT
+            block[field] = None if sentinel else cleaned
 
     for section, field in LOWER_LIST_FIELDS:
         block = _get(profile, section)

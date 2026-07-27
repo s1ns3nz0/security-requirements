@@ -684,7 +684,7 @@ def test_unrecognised_provider_claims_nothing(profile):
     """A claim needs a claimant. If the provider cannot be identified, no
     evidence can be named for it, so no inheritance may be asserted."""
     p = copy.deepcopy(profile)
-    p["inferred"]["csp"] = "amazon"          # not the identifier the repository knows
+    p["inferred"]["csp"] = "weirdcloud"       # not a provider this repository knows
     p["inferred"]["deployment_model"] = "iaas"
     p["inferred"]["managed_services"] = []
     result = classify_resp.classify(p, ["PE-4", "MP-3"])
@@ -1696,3 +1696,70 @@ def test_gke_network_policy_is_the_team_s(profile):
     result = classify_resp.classify(p, ["SC-7", "IA-5"])
     assert all(e["responsibility"] == "team" for e in result["controls"])
     assert result["controls"][0]["source"] == "services/gcp-gke.yaml"
+
+
+@pytest.mark.parametrize("written,expected", [
+    ("azurerm", "azure"), ("azuread", "azure"), ("google", "gcp"),
+    ("google-beta", "gcp"), ("alicloud", "alibaba"), ("amazon", "aws"),
+    ("oracle", "oci"), ("tencentcloud", "tencent"),
+])
+def test_terraform_provider_names_resolve(profile, written, expected):
+    """Found on terragoat, which declares five providers.
+
+    A Terraform block says `provider "azurerm"`, never `provider "azure"`, so
+    the vocabulary that matters is the one in the source the profile is inferred
+    from rather than the one in the shared responsibility documentation. Every
+    name Terraform uses was unrecognised, which meant no inheritance was claimed
+    for any cloud but AWS.
+    """
+    p = copy.deepcopy(profile)
+    p["inferred"]["csp"] = written
+    result = classify_resp.classify(p, ["PE-4"])
+    assert result["csp_status"] == "single"
+    assert result["csp"] == expected
+
+
+def test_one_unknown_provider_does_not_discard_the_known_ones(profile):
+    """Discarding the whole list because one member is unfamiliar throws away
+    what the profile supplied: a repository declaring aws alongside an unknown
+    provider still has a shared responsibility model for the aws half."""
+    p = copy.deepcopy(profile)
+    p["inferred"]["csp"] = ["aws", "weirdcloud"]
+    p["inferred"]["deployment_model"] = "iaas"
+    p["inferred"]["managed_services"] = []
+    result = classify_resp.classify(p, ["PE-4", "MP-3"])
+    assert result["csp_status"] == "partial"
+    assert result["csp_declared"] == ["aws"]
+    assert any(e["responsibility"] == "csp_claimed" for e in result["controls"])
+
+
+def test_five_providers_still_report_as_multiple(profile):
+    p = copy.deepcopy(profile)
+    p["inferred"]["csp"] = ["aws", "azurerm", "google", "alicloud", "oci"]
+    result = classify_resp.classify(p, ["SC-7"])
+    assert result["csp_status"] == "multiple"
+    assert result["csp_declared"] == ["aws", "azure", "gcp", "alibaba", "oci"]
+
+
+@pytest.mark.parametrize("written", ["UNDETERMINED", "unknown", "TBD", "n/a", "?", "-"])
+def test_the_schema_recognises_its_own_sentinels(profile, written):
+    """The schema tells an author to write UNDETERMINED where inference failed.
+    Treating that as a value produced "region UNDETERMINED is not in the region
+    map", which reads as though it were a place."""
+    p = copy.deepcopy(profile)
+    p["inferred"]["region_storage"] = written
+    assert sb.run(p)["cross_border"] is None
+
+
+def test_no_authentication_is_not_the_same_as_unknown(profile):
+    """`auth_mechanism: none` says the service has no authentication, which is a
+    finding. Collapsing it into the sentinel would lose that."""
+    p = copy.deepcopy(profile)
+    p["inferred"]["auth_mechanism"] = "none"
+    sb.run(p)
+    assert p["inferred"]["auth_mechanism"] == "none"
+
+    q = copy.deepcopy(profile)
+    q["inferred"]["auth_mechanism"] = "UNDETERMINED"
+    sb.run(q)
+    assert q["inferred"]["auth_mechanism"] == "undetermined"

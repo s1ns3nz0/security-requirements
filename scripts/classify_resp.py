@@ -67,6 +67,22 @@ class ClassifyError(Exception):
 # Providers whose shared responsibility model this repository can reason about.
 KNOWN_PROVIDERS = {"aws", "azure", "gcp", "oci", "alibaba", "ibm", "tencent"}
 
+# What a provider is called in the place the profile is inferred from. A
+# Terraform block says `provider "azurerm"`, never `provider "azure"`, so the
+# vocabulary that matters is the one in the source rather than the one in the
+# shared responsibility documentation. Every name here was taken from a real
+# repository: terragoat alone declares aws, azurerm, google, alicloud, and oci.
+PROVIDER_ALIASES = {
+    "azurerm": "azure", "azuread": "azure", "azurestack": "azure",
+    "microsoft-azure": "azure", "az": "azure",
+    "google": "gcp", "google-beta": "gcp", "googlecloud": "gcp",
+    "google-cloud": "gcp", "gcloud": "gcp",
+    "alicloud": "alibaba", "aliyun": "alibaba", "alibabacloud": "alibaba",
+    "oraclecloud": "oci", "oracle": "oci",
+    "amazon": "aws", "amazonaws": "aws", "aws-cn": "aws",
+    "ibmcloud": "ibm", "tencentcloud": "tencent",
+}
+
 # Ways a person writes "there is no cloud provider". The first version of the
 # no-provider rule matched the literal string "none" and nothing else, so every
 # other spelling silently restored inheritance claims against a provider that
@@ -93,15 +109,23 @@ def resolve_csp(raw) -> tuple[str | None, list[str], str]:
         return None, [], "none"
     values = raw if isinstance(raw, (list, tuple)) else [raw]
     cleaned = [str(v).strip().lower() for v in values if str(v).strip() != ""]
-    named = [v for v in cleaned if v not in NO_PROVIDER]
+    named = [PROVIDER_ALIASES.get(v, v) for v in cleaned if v not in NO_PROVIDER]
     if not named:
         return None, [], "none"
-    unknown = [v for v in named if v not in KNOWN_PROVIDERS]
-    if unknown:
+
+    # Keep what was recognised. Discarding the whole list because one member is
+    # unknown throws away information the profile supplied -- a repository
+    # declaring aws alongside an unfamiliar provider still has a shared
+    # responsibility model for the aws half.
+    recognised = [v for v in dict.fromkeys(named) if v in KNOWN_PROVIDERS]
+    unknown = [v for v in dict.fromkeys(named) if v not in KNOWN_PROVIDERS]
+    if not recognised:
         return None, named, "unrecognised"
-    if len(named) > 1:
-        return named[0], named, "multiple"
-    return named[0], named, "single"
+    if unknown:
+        return recognised[0], recognised, "partial"
+    if len(recognised) > 1:
+        return recognised[0], recognised, "multiple"
+    return recognised[0], recognised, "single"
 
 
 def load_services(profile: dict) -> tuple[dict, list[str], list[str]]:
@@ -285,6 +309,13 @@ def render(result: dict) -> str:
             f"  WARNING: provider {', '.join(result['csp_declared'])!r} is not one this repository",
             f"  reasons about ({', '.join(sorted(KNOWN_PROVIDERS))}). No inheritance was claimed,",
             f"  because a claim with no identifiable claimant carries no evidence.",
+            "",
+        ]
+    elif result.get("csp_status") == "partial":
+        out += [
+            f"  WARNING: some declared providers are not ones this repository reasons about.",
+            f"  Recognised: {', '.join(result['csp_declared'])}. The split below reflects",
+            f"  {result['csp']} only, and nothing is claimed for the rest.",
             "",
         ]
     elif result.get("csp_status") == "multiple":
