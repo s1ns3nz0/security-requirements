@@ -1141,3 +1141,63 @@ def test_topic_without_hints_is_refused():
     topic = {"id": "t", "must_cover": True, "description": "d"}
     with pytest.raises(ValueError, match="match_any"):
         eval_mod.score({"topics": [topic], "scoring": {}}, doc)
+
+
+# ---------------------------------------------------------------------------
+# inheritance, service identity, and catalog provenance
+# ---------------------------------------------------------------------------
+
+def test_a_backup_of_secrets_is_not_low(profile):
+    """Found by probing inherit_max chains.
+
+    Excluding system information from the water mark leaked into the
+    inheritance pool, so a store holding nothing but credentials derived Low.
+    What a backup contains and how a system is categorised are different
+    questions.
+    """
+    p = copy.deepcopy(profile)
+    p["declared"]["data_types"] = [{"id": "backups"}, {"id": "config_secrets"}]
+    reasons = sb.run(p)["impact"]["confidentiality"]["because"]
+    backup = next(r for r in reasons if "backup" in r.lower())
+    assert backup.endswith("high")
+    assert "system information" in backup
+
+
+def test_a_backup_cannot_launder_credentials_into_the_water_mark(profile):
+    """The other half of the same rule. Feeding the inherited level back into
+    categorisation would let credentials reach the system level through a
+    backup and defeat their exclusion."""
+    p = copy.deepcopy(profile)
+    p["declared"]["data_types"] = [
+        {"id": "backups"}, {"id": "config_secrets"}, {"id": "internal_ops"},
+    ]
+    assert sb.run(p)["impact"]["system"] == "moderate"
+
+
+@pytest.mark.parametrize("written", ["aws-s3", "AWS-S3", "aws-S3", " aws-s3 ", "Aws-S3"])
+def test_service_identifier_spelling_resolves_the_same_everywhere(profile, written):
+    """Service identifiers become filenames. Left as written, `AWS-S3` found the
+    curated file on a case-insensitive filesystem and nothing on a
+    case-sensitive one, so the same profile produced different responsibility
+    splits on macOS and on Linux."""
+    p = copy.deepcopy(profile)
+    p["inferred"]["managed_services"] = [{"id": written}]
+    result = classify_resp.classify(p, ["SC-28"])
+    assert result["services_curated"] == ["aws-s3"]
+    assert result["services_uncurated"] == []
+
+
+def test_duplicate_services_are_declared_once(profile):
+    p = copy.deepcopy(profile)
+    p["inferred"]["managed_services"] = [{"id": "aws-s3"}, "aws-s3", {"id": "AWS-S3"}]
+    assert classify_resp.classify(p, ["SC-28"])["services_curated"] == ["aws-s3"]
+
+
+def test_catalog_provenance_records_what_is_on_disk():
+    """A partial rebuild writes the families it was asked for and leaves the
+    rest where an earlier run put them, so the directory can hold two builds
+    while the provenance names one. Consumers read the directory."""
+    meta = json.loads(
+        (REPO_ROOT / "catalogs" / "nist-800-53r5" / "meta.json").read_text(encoding="utf-8"))
+    assert meta["families_present"] == meta["families_extracted"]
+    assert meta["families_stale"] == []

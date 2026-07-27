@@ -153,6 +153,38 @@ def normalise(profile: dict) -> tuple[dict, list[str]]:
         if isinstance(model, str) and model in MODEL_ALIASES:
             inferred["deployment_model"] = MODEL_ALIASES[model]
 
+        # Service identifiers become filenames under responsibility/services/.
+        # Left as written, `AWS-S3` resolved to the curated file on a
+        # case-insensitive filesystem and to nothing on a case-sensitive one, so
+        # the same profile produced different responsibility splits on macOS and
+        # on Linux. Trailing space lost the curation outright.
+        services = inferred.get("managed_services")
+        if isinstance(services, list):
+            seen: set[str] = set()
+            deduped = []
+            for entry in services:
+                if isinstance(entry, str):
+                    entry = {"id": entry}
+                elif isinstance(entry, dict):
+                    entry = dict(entry)
+                else:
+                    raise SchemaError(
+                        f"inferred.managed_services contains {entry!r} "
+                        f"({type(entry).__name__}); each entry must be an identifier "
+                        f"or a mapping with an `id`"
+                    )
+                if isinstance(entry.get("id"), str):
+                    entry["id"] = entry["id"].strip().lower()
+                if entry.get("id") in seen:
+                    warnings.append(
+                        f"managed service {entry['id']!r} was declared more than once; "
+                        f"the duplicate was dropped."
+                    )
+                    continue
+                seen.add(entry.get("id"))
+                deduped.append(entry)
+            inferred["managed_services"] = deduped
+
     declared = _get(profile, "declared")
     if declared:
         entries = declared.get("data_types")

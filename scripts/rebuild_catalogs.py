@@ -520,15 +520,33 @@ def build_nist(src_dir: Path | None, wanted: set[str] | None) -> int:
         # invented family degrades to a warning and survives the gate.
         "all_families": sorted(g["id"].upper() for g in catalog["groups"]),
         "families_extracted": sorted(counts),
+        # What is actually on disk, which is not the same thing. A partial
+        # rebuild writes the families it was asked for and leaves the rest
+        # where a previous run put them, so the directory can hold material
+        # from two builds while the provenance names only the newer one. Every
+        # consumer reads the directory, not this list, so the mismatch has to
+        # be recorded and shouted about.
+        "families_present": sorted(p.stem for p in OUT_DIR.glob("*.jsonl")),
         "control_counts": counts,
         "baseline_counts": {k: len(v) for k, v in baselines.items()},
         "partial": bool(wanted),
     }
+    stale = sorted(set(meta["families_present"]) - set(meta["families_extracted"]))
+    meta["families_stale"] = stale
     (OUT_DIR / "meta.json").write_text(
         json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
 
     print(f"  wrote {sum(counts.values())} controls to {OUT_DIR}", file=sys.stderr)
+    if stale:
+        print(
+            f"\n  WARNING: {len(stale)} families on disk were not written by this run:\n"
+            f"    {', '.join(stale)}\n"
+            f"  The directory now mixes output from more than one build, and every\n"
+            f"  consumer reads the directory rather than the provenance. Run a full\n"
+            f"  rebuild before relying on it.",
+            file=sys.stderr,
+        )
     return 0
 
 

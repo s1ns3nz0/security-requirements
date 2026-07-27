@@ -49,6 +49,28 @@
     "SI",
     "SR"
   ],
+  "families_present": [
+    "AC",
+    "AT",
+    "AU",
+    "CA",
+    "CM",
+    "CP",
+    "IA",
+    "IR",
+    "MA",
+    "MP",
+    "PE",
+    "PL",
+    "PM",
+    "PS",
+    "PT",
+    "RA",
+    "SA",
+    "SC",
+    "SI",
+    "SR"
+  ],
   "control_counts": {
     "AC": 147,
     "AT": 17,
@@ -77,5 +99,6 @@
     "high": 370,
     "privacy": 96
   },
-  "partial": false
+  "partial": false,
+  "families_stale": []
 }

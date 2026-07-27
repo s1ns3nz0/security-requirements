@@ -133,8 +133,17 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
         if c_raw == "inherit_max":
             if not allow_inherit:
                 return None
-            c = highest(concrete_c)
-            note = f"inherits highest ({c})"
+            # Two numbers for one store. `c` is what it actually holds, which is
+            # what a requirement about protecting it must reflect. What it
+            # contributes to categorisation is computed separately below, from
+            # the water-mark pool only -- otherwise credentials launder through
+            # a backup into the system level and defeat their exclusion.
+            c = highest(content_c)
+            categorised = highest(concrete_c)
+            note = "inherits highest (" + c + ")"
+            if categorised != c:
+                note += (f"; categorised at {categorised}, the excess coming from "
+                         f"system information")
         else:
             c, note = c_raw, None
 
@@ -162,7 +171,7 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
                     "note": (mod.get("note") or "").strip(),
                 })
 
-        i = i_raw if i_raw != "inherit_max" else highest(concrete_i)
+        i = i_raw if i_raw != "inherit_max" else highest(content_i)
 
         reason = label + (f" ({note})" if note else "")
         if applied:
@@ -173,9 +182,27 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
         flags.extend(spec.get("flags", []) or [])
         return c, i
 
+    # Two pools, because they answer different questions.
+    #
+    #   concrete_*  what the system is categorised on. System information is
+    #               excluded: credentials live in nearly every service, and
+    #               counting them puts everything on the High baseline.
+    #   content_*   what is actually inside a store. A backup of a system whose
+    #               only content is secrets is as sensitive as those secrets,
+    #               whatever the categorisation rule says.
+    #
+    # Collapsing them made `backups` alongside `config_secrets` derive Low: the
+    # exclusion leaked out of categorisation and into inheritance.
+    content_c, content_i = [], []
+
     deferred, system_only = [], []
     for entry in selected:
         if types[entry["id"]].get("system_information"):
+            spec = types[entry["id"]]
+            if spec["confidentiality"] != "inherit_max":
+                content_c.append(spec["confidentiality"])
+            if spec["integrity"] != "inherit_max":
+                content_i.append(spec["integrity"])
             # Categorisation follows the business information a system holds.
             # Credentials and secrets are present in nearly every service; if
             # they entered the high water mark, every consumer-facing
@@ -189,11 +216,19 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
             continue
         concrete_c.append(result[0])
         concrete_i.append(result[1])
+        content_c.append(result[0])
+        content_i.append(result[1])
 
     for entry in deferred:
+        categorised_c, categorised_i = highest(concrete_c), highest(concrete_i)
         c, i = evaluate(entry, allow_inherit=True)
-        concrete_c.append(c)
-        concrete_i.append(i)
+        content_c.append(c)
+        content_i.append(i)
+        # An inheriting store adds nothing new to categorisation: it holds a
+        # copy of what is already counted. Appending its content level would
+        # launder system information into the water mark.
+        concrete_c.append(categorised_c)
+        concrete_i.append(categorised_i)
 
     for entry in system_only:
         spec = types[entry["id"]]
