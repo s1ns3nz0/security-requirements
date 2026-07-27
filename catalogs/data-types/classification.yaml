@@ -113,6 +113,16 @@ modifiers:
 # model concern and an SC-12 requirement, not an input to categorisation.
 # Do not reintroduce it.
 
+# `personal_data: true`
+#
+# Marks the types that put a service inside a privacy regime. It selects the
+# SP 800-53B *privacy* baseline, which this repository bundled from the start
+# and never resolved: the derivation only ever produced low, moderate, or high,
+# all of which are security baselines. The GDPR overlay made the consequence
+# visible -- every article mapping to a PT or PM control landed outside the
+# derived set, not because nothing addresses it but because the controls that do
+# live in a baseline nothing was reading.
+
 # Rejected as reduction grounds -- these are circular
 rejected_modifiers:
   - id: encrypted_at_rest
@@ -136,6 +146,7 @@ types:
 
   - id: basic_contact
     label: "member email, name, contact details"
+    personal_data: true
     confidentiality: moderate
     integrity: low
     rationale: "General personal data. Exposure enables phishing and spam; individual harm is bounded."
@@ -143,6 +154,7 @@ types:
 
   - id: government_id
     label: "national ID, passport, or driver licence number"
+    personal_data: true
     confidentiality: high
     integrity: moderate
     rationale: "Unique identifier. Exposure enables identity theft, and the harm is not recoverable."
@@ -150,6 +162,7 @@ types:
 
   - id: biometric
     label: "fingerprint, face, iris, or other biometric data"
+    personal_data: true
     confidentiality: high
     integrity: high
     rationale: "An identifier that cannot be reissued. Exposure is permanent."
@@ -157,6 +170,7 @@ types:
 
   - id: precise_location
     label: "precise location (GPS-level)"
+    personal_data: true
     confidentiality: moderate
     integrity: low
     rationale: "Movement patterns enable physical targeting. Consider the aggregation modifier."
@@ -165,6 +179,7 @@ types:
 
   - id: minors_data
     label: "data about children under 14"
+    personal_data: true
     confidentiality: high
     integrity: moderate
     rationale: "Heightened legal duties (guardian consent) and greater social consequence."
@@ -172,6 +187,7 @@ types:
 
   - id: sensitive_attributes
     label: "beliefs, union membership, political opinion, sex life, and similar"
+    personal_data: true
     confidentiality: high
     integrity: moderate
     rationale: "Special category data. Exposure invites discrimination or persecution."
@@ -237,6 +253,7 @@ types:
 
   - id: health_records
     label: "medical records, prescriptions, health status"
+    personal_data: true
     confidentiality: high
     integrity: high
     rationale: "Special category data, and corrupted records translate into physical harm."
@@ -300,6 +317,7 @@ types:
 
   - id: analytics_pseudonymous
     label: "pseudonymous analytics (device ids, event streams)"
+    personal_data: true
     confidentiality: low
     integrity: low
     rationale: "Low per record."
@@ -310,6 +328,7 @@ types:
 
   - id: user_generated_content
     label: "user uploads (posts, images, files)"
+    personal_data: true
     confidentiality: moderate
     integrity: moderate
     rationale: "Sensitivity varies widely with content, and users expect it to stay private."
@@ -400,16 +419,19 @@ regulatory_triggers:
     applies_when: {user_regions_any: [KR]}
 
   gdpr_personal_data:
+    overlay: gdpr
     label: "GDPR"
     covered: false
     applies_when: {user_regions_any: [EU, EEA, UK, DE, FR, IE, NL, ES, IT, SE, PL]}
 
   gdpr_special_category:
+    overlay: gdpr
     label: "GDPR Article 9 special category data"
     covered: false
     applies_when: {user_regions_any: [EU, EEA, UK, DE, FR, IE, NL, ES, IT, SE, PL]}
 
   gdpr_child:
+    overlay: gdpr
     label: "GDPR Article 8"
     covered: false
     applies_when: {user_regions_any: [EU, EEA, UK, DE, FR, IE, NL, ES, IT, SE, PL]}

@@ -1,0 +1,77 @@
+id: gdpr
+name: "GDPR — Regulation (EU) 2016/679"
+name_en: "General Data Protection Regulation"
+version: "2016/679"
+criteria_count: 46
+
+source:
+  authority: "Regulation (EU) 2016/679, CELEX 32016R0679"
+  text: "https://eur-lex.europa.eu/eli/reg/2016/679/oj"
+  structure_from: "https://gdpr-info.eu/ (article numbers and titles)"
+  note: >-
+    Only article numbers, titles, and chapter placement are bundled. The article
+    text is not, and the reason is not licensing -- the EUR-Lex reuse policy
+    would permit it. Every retrieval route was tried: the EUR-Lex HTML and XML
+    endpoints answer 202 behind a client-side gate, and the Cellar REST service
+    returns notices rather than the document at every manifestation offered.
+    Rather than substitute a mirror's wording for the Official Journal's, each
+    article carries a link and the tool works from the titles, which is enough
+    to say which obligations the derived requirements reach.
+
+    Article numbers and titles were taken from a widely used mirror and accepted
+    only after checking the count against the published structure: 99 articles,
+    of which the 46 in Chapters II to V are in scope.
+
+scope:
+  chapters_included: [II, III, IV, V]
+  articles: "5-50"
+  excluded_note: >-
+    Chapters I and VI to XI establish subject matter and scope, supervisory
+    authorities, the consistency mechanism, remedies and penalties, and final
+    provisions. None of them bears on how a service is built or run. Including
+    them would add fifty clauses saying "not applicable to system design", which
+    is padding, not coverage.
+
+license:
+  text: >-
+    EUR-Lex content is reusable under Commission Decision 2011/833/EU with
+    acknowledgement of source. Only European Union legislation printed in the
+    paper edition of the Official Journal is deemed authentic.
+
+applies_when:
+  user_regions_any: [EU, EEA, UK, DE, FR, IE, NL, ES, IT, SE, PL, BE, AT, DK, FI, PT, CZ, GR, RO, HU]
+  data_types_any:
+    - basic_contact
+    - government_id
+    - sensitive_attributes
+    - biometric
+    - minors_data
+    - precise_location
+    - health_records
+    - analytics_pseudonymous
+
+baseline_effect: {}   # the Regulation does not itself raise the FIPS 199 categorisation
+
+mapping:
+  authored: true
+  published_crosswalk_exists: false
+  note: >-
+    Twenty-five of the forty-six articles carry no control at all, and that is
+    the finding rather than a gap in the work. The Regulation is mostly not
+    written in the register of a control catalogue: subject access, portability,
+    restriction of processing, automated decision-making, lawful basis, and the
+    whole transfer regime are obligations on what a system must be able to do
+    and prove, not measures it must deploy. Article 32 is the exception and maps
+    cleanly, which is exactly why a derivation that stops at Article 32 leaves
+    most of the Regulation unaddressed.
+
+    Compare the two overlays already shipped: HIPAA had no standalone clauses
+    because its Security Rule reads like a control catalogue, and ISMS-P had six.
+    The proportion is a property of the regime, not a measure of effort.
+
+disclaimer: >-
+  Mapping legal obligations onto technical controls is interpretation, not legal
+  advice. This overlay does not establish GDPR compliance, does not constitute a
+  data protection impact assessment under Article 35, does not determine a
+  lawful basis or the adequacy of a transfer, and does not substitute for
+  counsel or for a data protection officer.

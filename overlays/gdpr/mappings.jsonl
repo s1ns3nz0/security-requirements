@@ -1,0 +1,46 @@
+{"clause": "Art. 5", "title": "Principles relating to processing of personal data", "controls": ["PT-3", "SI-12", "SI-18"], "standalone": false, "responsibility_hint": "team", "chapter": "II", "notes": "Purpose limitation, minimisation, and storage limitation are design constraints; accountability under 5(2) is the duty to be able to show it."}
+{"clause": "Art. 6", "title": "Lawfulness of processing", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "II", "notes": "Lawful basis. A legal determination with no control counterpart."}
+{"clause": "Art. 7", "title": "Conditions for consent", "controls": ["PT-4"], "standalone": false, "responsibility_hint": "team", "chapter": "II"}
+{"clause": "Art. 8", "title": "Conditions applicable to child’s consent in relation to information society services", "controls": ["PT-4"], "standalone": false, "responsibility_hint": "team", "chapter": "II"}
+{"clause": "Art. 9", "title": "Processing of special categories of personal data", "controls": ["PT-7"], "standalone": false, "responsibility_hint": "team", "chapter": "II"}
+{"clause": "Art. 10", "title": "Processing of personal data relating to criminal convictions and offences", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "II"}
+{"clause": "Art. 11", "title": "Processing which does not require identification", "controls": ["SI-19"], "standalone": false, "responsibility_hint": "team", "chapter": "II"}
+{"clause": "Art. 12", "title": "Transparent information, communication and modalities for the exercise of the rights of the data subject", "controls": [], "standalone": true, "responsibility_hint": "team", "chapter": "III", "notes": "How rights are exercised: response format, timescale, and cost. Process, not control."}
+{"clause": "Art. 13", "title": "Information to be provided where personal data are collected from the data subject", "controls": ["PT-5"], "standalone": false, "responsibility_hint": "team", "chapter": "III"}
+{"clause": "Art. 14", "title": "Information to be provided where personal data have not been obtained from the data subject", "controls": ["PT-5"], "standalone": false, "responsibility_hint": "team", "chapter": "III"}
+{"clause": "Art. 15", "title": "Right of access by the data subject", "controls": ["PM-21"], "standalone": false, "responsibility_hint": "team", "chapter": "III", "notes": "Subject access. The system must be able to produce everything held about one person, which nothing in the baseline requires."}
+{"clause": "Art. 16", "title": "Right to rectification", "controls": ["SI-18"], "standalone": false, "responsibility_hint": "team", "chapter": "III"}
+{"clause": "Art. 17", "title": "Right to erasure (‘right to be forgotten’)", "controls": ["MP-6", "SI-12"], "standalone": false, "responsibility_hint": "team", "chapter": "III", "notes": "Erasure. The pipeline overlay finding on soft deletion lands here: a delete that leaves a retrievable copy does not satisfy this."}
+{"clause": "Art. 18", "title": "Right to restriction of processing", "controls": [], "standalone": true, "responsibility_hint": "team", "chapter": "III", "notes": "Restriction of processing: a state the data model must be able to represent."}
+{"clause": "Art. 19", "title": "Notification obligation regarding rectification or erasure of personal data or restriction of processing", "controls": ["PM-21"], "standalone": false, "responsibility_hint": "team", "chapter": "III"}
+{"clause": "Art. 20", "title": "Right to data portability", "controls": [], "standalone": true, "responsibility_hint": "team", "chapter": "III", "notes": "Portability. A structured, machine-readable export is an engineering obligation with no control counterpart."}
+{"clause": "Art. 21", "title": "Right to object", "controls": [], "standalone": true, "responsibility_hint": "team", "chapter": "III"}
+{"clause": "Art. 22", "title": "Automated individual decision-making, including profiling", "controls": [], "standalone": true, "responsibility_hint": "team", "chapter": "III", "notes": "Automated decision-making and profiling. No control in the catalogue addresses it."}
+{"clause": "Art. 23", "title": "Restrictions", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "III"}
+{"clause": "Art. 24", "title": "Responsibility of the controller", "controls": ["PM-18", "CA-2"], "standalone": false, "responsibility_hint": "org", "chapter": "IV"}
+{"clause": "Art. 25", "title": "Data protection by design and by default", "controls": ["SA-8", "PL-8", "PT-3"], "standalone": false, "responsibility_hint": "team", "chapter": "IV", "notes": "Data protection by design and by default -- the article this tool is closest to being an instrument for."}
+{"clause": "Art. 26", "title": "Joint controllers", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "IV"}
+{"clause": "Art. 27", "title": "Representatives of controllers or processors not established in the Union", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "IV"}
+{"clause": "Art. 28", "title": "Processor", "controls": ["SA-9", "SA-4"], "standalone": false, "responsibility_hint": "org", "chapter": "IV", "notes": "Processor obligations. The customer_owned modifier marks the mirror case, where we are the processor."}
+{"clause": "Art. 29", "title": "Processing under the authority of the controller or processor", "controls": ["AC-3", "AC-6"], "standalone": false, "responsibility_hint": "team", "chapter": "IV"}
+{"clause": "Art. 30", "title": "Records of processing activities", "controls": ["CM-12", "PM-5"], "standalone": false, "responsibility_hint": "team", "chapter": "IV"}
+{"clause": "Art. 31", "title": "Cooperation with the supervisory authority", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "IV"}
+{"clause": "Art. 32", "title": "Security of processing", "controls": ["SC-8", "SC-13", "SC-28", "CP-9", "CP-10", "RA-3", "CA-2"], "standalone": false, "responsibility_hint": "shared", "chapter": "IV", "notes": "Security of processing: the one article written in the register of a control catalogue, and the only one that maps cleanly."}
+{"clause": "Art. 33", "title": "Notification of a personal data breach to the supervisory authority", "controls": ["IR-6", "IR-4"], "standalone": false, "responsibility_hint": "org", "chapter": "IV", "notes": "72 hours to the supervisory authority -- a fixed statutory clock the baseline leaves open."}
+{"clause": "Art. 34", "title": "Communication of a personal data breach to the data subject", "controls": ["IR-6"], "standalone": false, "responsibility_hint": "org", "chapter": "IV"}
+{"clause": "Art. 35", "title": "Data protection impact assessment", "controls": ["RA-8", "RA-3"], "standalone": false, "responsibility_hint": "org", "chapter": "IV"}
+{"clause": "Art. 36", "title": "Prior consultation", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "IV"}
+{"clause": "Art. 37", "title": "Designation of the data protection officer", "controls": ["PM-19"], "standalone": false, "responsibility_hint": "org", "chapter": "IV"}
+{"clause": "Art. 38", "title": "Position of the data protection officer", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "IV"}
+{"clause": "Art. 39", "title": "Tasks of the data protection officer", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "IV"}
+{"clause": "Art. 40", "title": "Codes of conduct", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "IV"}
+{"clause": "Art. 41", "title": "Monitoring of approved codes of conduct", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "IV"}
+{"clause": "Art. 42", "title": "Certification", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "IV"}
+{"clause": "Art. 43", "title": "Certification bodies", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "IV"}
+{"clause": "Art. 44", "title": "General principle for transfers", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "V", "notes": "Transfers. The derivation flags a storage/user region mismatch; the adequacy test is the law's and is not made here."}
+{"clause": "Art. 45", "title": "Transfers on the basis of an adequacy decision", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "V"}
+{"clause": "Art. 46", "title": "Transfers subject to appropriate safeguards", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "V"}
+{"clause": "Art. 47", "title": "Binding corporate rules", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "V"}
+{"clause": "Art. 48", "title": "Transfers or disclosures not authorised by Union law", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "V"}
+{"clause": "Art. 49", "title": "Derogations for specific situations", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "V"}
+{"clause": "Art. 50", "title": "International cooperation for the protection of personal data", "controls": [], "standalone": true, "responsibility_hint": "org", "chapter": "V"}

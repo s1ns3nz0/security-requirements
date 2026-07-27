@@ -458,6 +458,20 @@ def run(profile: dict) -> dict:
     catalog = load_catalog()
     controls, unavailable = resolve_baseline(baseline, catalog)
 
+    # A service holding personal data is inside a privacy regime, and the
+    # controls that regime needs are allocated to the SP 800-53B privacy
+    # baseline rather than to any security one. Resolved separately rather than
+    # merged: it does not change the FIPS 199 categorisation, and folding it in
+    # would inflate the security baseline count it is not part of.
+    types_table_types = {t["id"]: t for t in types_table["types"]}
+    personal = [e["id"] for e in (profile.get("declared") or {}).get("data_types", [])
+                if types_table_types.get(e["id"] if isinstance(e, dict) else e, {}).get("personal_data")]
+    privacy_controls, privacy_unavailable = ([], [])
+    if personal:
+        baselines = json.loads((CATALOG_DIR / "baselines.json").read_text(encoding="utf-8"))
+        for control_id in baselines["privacy"]:
+            (privacy_controls if control_id in catalog else privacy_unavailable).append(control_id)
+
     trigger_specs = types_table.get("regulatory_triggers", {})
     user_regions = {r.upper() for r in (profile.get("declared") or {}).get("user_regions", []) or []}
 
@@ -512,6 +526,9 @@ def run(profile: dict) -> dict:
         "overlay_triggers": overlays,
         "cross_border": cross_border,
         "controls": [c["id"] for c in controls],
+        "privacy_controls": privacy_controls,
+        "privacy_baseline_applies": bool(personal),
+        "personal_data_types": personal,
         "controls_unavailable": unavailable,
         "control_count": len(controls),
     }
@@ -558,6 +575,10 @@ def render_gate(result: dict) -> str:
         out.append(f"  ASVS level: L{result['asvs_level']}")
     else:
         out.append("  ASVS: not applicable -- no application surface in the entrypoints")
+
+    if result.get("privacy_baseline_applies"):
+        out.append(f"  Privacy baseline: {len(result['privacy_controls'])} controls "
+                   f"(personal data declared: {', '.join(result['personal_data_types'])})")
 
     shape = result.get("shape", {})
     if shape.get("shape") != "service":

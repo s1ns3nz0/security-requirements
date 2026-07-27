@@ -304,10 +304,15 @@ def test_gdpr_does_not_fire_for_korean_and_japanese_users(derived):
 
 
 def test_gdpr_fires_for_eu_users(profile):
+    """GDPR now routes to its overlay rather than being declared uncovered, but
+    the trigger must still fire."""
     eu = copy.deepcopy(profile)
     eu["declared"]["user_regions"] = ["DE"]
-    ids = {item["id"] for item in sb.run(eu)["uncovered_regulations"]}
-    assert "gdpr_personal_data" in ids
+    result = sb.run(eu)
+    triggered = ({t["id"] for t in result["uncovered_regulations"]}
+                 | {t["trigger"] for t in result["overlay_triggers"]})
+    assert "gdpr_personal_data" in triggered
+    assert "gdpr" in result["applicable_overlays"]
 
 
 def test_pci_always_fires_regardless_of_region(profile):
@@ -1215,7 +1220,7 @@ def test_catalog_provenance_records_what_is_on_disk():
 import apply_overlay as overlay_mod  # noqa: E402
 
 
-ALL_OVERLAYS = ["pipa-isms-p", "hipaa-security-rule"]
+ALL_OVERLAYS = ["pipa-isms-p", "hipaa-security-rule", "gdpr"]
 
 
 @pytest.mark.parametrize("overlay_id", ALL_OVERLAYS)
@@ -1372,3 +1377,56 @@ def test_hipaa_trigger_routes_to_its_overlay(profile):
     result = sb.run(p)
     assert "hipaa-security-rule" in result["applicable_overlays"]
     assert "hipaa" not in {t["id"] for t in result["uncovered_regulations"]}
+
+
+def test_privacy_baseline_is_resolved_for_personal_data(profile):
+    """Found by building the GDPR overlay.
+
+    SP 800-53B allocates the privacy controls to a privacy baseline, which this
+    repository bundled from the start and never resolved -- the derivation only
+    ever produced low, moderate, or high, all security baselines. Ten GDPR
+    articles therefore landed outside the derived set, not because nothing
+    addresses them but because the controls that do live in a baseline nothing
+    was reading.
+    """
+    result = sb.run(profile)
+    assert result["privacy_baseline_applies"] is True
+    assert len(result["privacy_controls"]) > 50
+    assert "PT-4" in result["privacy_controls"]
+
+    no_personal = copy.deepcopy(profile)
+    no_personal["declared"]["data_types"] = [{"id": "internal_ops"}]
+    assert sb.run(no_personal)["privacy_baseline_applies"] is False
+
+
+def test_an_overlay_sees_the_privacy_baseline(profile):
+    """Judging a privacy regime against the security baseline alone reports the
+    tool's own blind spot as the service's gap."""
+    loaded = overlay_mod.load("gdpr")
+    derived = sb.run(profile)
+    without = overlay_mod.evaluate(loaded, derived["controls"])
+    with_privacy = overlay_mod.evaluate(
+        loaded, derived["controls"], privacy_controls=derived["privacy_controls"])
+    assert len(with_privacy["covered"]) > len(without["covered"])
+    assert len(with_privacy["uncovered"]) < len(without["uncovered"])
+
+
+def test_gdpr_is_mostly_unmappable_and_that_is_the_finding():
+    """The proportion is a property of the regime. HIPAA's Security Rule reads
+    like a control catalogue and has no standalone clauses; the Regulation is
+    largely obligations on what a system must be able to do and prove."""
+    gdpr = overlay_mod.load("gdpr")
+    hipaa = overlay_mod.load("hipaa-security-rule")
+    gdpr_standalone = sum(1 for m in gdpr["mappings"] if m["standalone"])
+    assert gdpr_standalone > len(gdpr["mappings"]) // 3
+    assert sum(1 for m in hipaa["mappings"] if m["standalone"]) == 0
+
+
+def test_gdpr_scope_excludes_the_non_operative_chapters():
+    """Chapters I and VI to XI establish scope, supervisory machinery, and final
+    provisions. Fifty clauses saying "not applicable to system design" is
+    padding, not coverage."""
+    loaded = overlay_mod.load("gdpr")
+    chapters = {c["chapter"] for c in loaded["criteria"].values()}
+    assert chapters == {"II", "III", "IV", "V"}
+    assert len(loaded["criteria"]) == 46

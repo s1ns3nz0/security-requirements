@@ -113,8 +113,12 @@ def applies(overlay: dict, profile: dict) -> tuple[bool, str, dict]:
     return True, reason, scope
 
 
-def evaluate(overlay: dict, derived_controls: list[str], scope: dict | None = None) -> dict:
-    baseline = set(derived_controls)
+def evaluate(overlay: dict, derived_controls: list[str], scope: dict | None = None,
+             privacy_controls: list[str] | None = None) -> dict:
+    # The privacy baseline counts as derived. Judging a privacy regime only
+    # against the security baseline reports its own blind spot as the service's
+    # gap.
+    baseline = set(derived_controls) | set(privacy_controls or [])
     areas = (scope or {}).get("areas")
     criteria = overlay["criteria"]
     covered, partial, uncovered, standalone = [], [], [], []
@@ -190,7 +194,9 @@ def main() -> int:
     args = ap.parse_args()
 
     profile, _ = normalise(yaml.safe_load(args.profile.read_text(encoding="utf-8")))
-    controls = json.loads(args.controls.read_text(encoding="utf-8"))["controls"]
+    derived = json.loads(args.controls.read_text(encoding="utf-8"))
+    controls = derived["controls"]
+    privacy = derived.get("privacy_controls") or []
 
     try:
         overlay = load(args.overlay)
@@ -204,7 +210,7 @@ def main() -> int:
         print("Pass --force to evaluate anyway.")
         return 0
 
-    result = evaluate(overlay, controls, scope)
+    result = evaluate(overlay, controls, scope, privacy)
     print(render(result, reason))
     if args.json:
         args.json.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
