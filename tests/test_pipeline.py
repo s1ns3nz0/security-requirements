@@ -3621,25 +3621,64 @@ def _documents(requirements):
             render_mod.render_responsibility(doc, meta))
 
 
-def test_a_retired_requirement_leaves_a_record_of_why():
-    """The merge preserves retired_reason and previous_status with some care and
-    the published document showed neither, so a requirement vanished between two
-    versions of the deliverable with no account of it. An auditor diffing last
-    quarter's document against this one finds an absence."""
-    reqs, trace, resp = _documents([
+def test_a_retired_requirement_leaves_a_record_without_publishing_the_reason():
+    """Two halves of one problem.
+
+    A retired requirement vanished from every published document, so a reader
+    diffing last quarter's deliverable against this one found an absence and no
+    account of it. But the account itself belongs to the internal record: a
+    retirement reason can name the person who approved an exception, and this
+    file is publishable. The ledger says what was retired; it does not reproduce
+    why.
+    """
+    reqs, trace, _ = _documents([
         _req("REQ-A-B-01"),
-        _req("REQ-C-D-01", human={"status": "retired", "retired_reason": "the store was removed"}),
+        _req("REQ-C-D-01", human={"status": "retired",
+                                  "retired_reason": "exception approved by the CISO closes"}),
         _req("REQ-E-F-01", human={"status": "superseded"}),
     ])
     assert "1 active requirements." in reqs
     assert "No longer required" in reqs
-    assert "the store was removed" in reqs
-    assert "not recorded" in reqs, "a retirement with no reason still has to appear"
+    assert "REQ-C-D-01" in reqs and "REQ-E-F-01" in reqs
+    assert "CISO" not in reqs, "the human record does not cross into the publishable document"
+    assert "recorded internally" in reqs
+    assert "not recorded" in reqs, "a retirement with no reason is distinguishable"
 
-    # And they stay out of the live sections.
-    assert reqs.index("## No longer required") > reqs.index("REQ-A-B-01")
     for retired in ("REQ-C-D-01", "REQ-E-F-01"):
         assert retired not in trace, "a retired requirement is not an answer to a control"
+
+
+def test_one_notion_of_retired_across_the_document():
+    """`active()` normalises case and whitespace and the ledger compared raw, so
+    a status of " RETIRED " fell out of the active sections and out of the
+    ledger as well -- excluded twice and mentioned nowhere."""
+    reqs, _, _ = _documents([
+        _req("REQ-A-B-01"),
+        _req("REQ-C-D-01", human={"status": " RETIRED "}),
+    ])
+    assert "1 active requirements." in reqs
+    assert "REQ-C-D-01" in reqs.split("## No longer required")[1]
+
+
+def test_a_shared_responsibility_publishes_both_halves():
+    """The document exists to say who owns what and it said only "shared". The
+    linter requires both halves to be described; not printing them left the
+    requirement asserting a division it did not publish."""
+    _, _, resp = _documents([
+        _req("REQ-C-D-01", responsibility="shared", evidence="provider attestation",
+             csp_part="Operates the key management service.",
+             team_part="Selects the key and enables encryption."),
+    ])
+    assert "Operates the key management service." in resp
+    assert "Selects the key and enables encryption." in resp
+
+
+def test_a_blank_half_is_not_a_described_one():
+    """`csp_part: " "` and `evidence: [""]` are truthy and render as empty
+    cells, which defeats the guarantee these rules exist to make."""
+    blank = _doc(responsibility="shared", evidence=[""], csp_part=" ", team_part="\t")
+    rules = _rules(lint_mod.lint(blank, "en", None))
+    assert {"no-evidence", "no-csp-part", "no-team-part"} <= rules
 
 
 def test_every_document_carries_its_provenance():
@@ -3691,3 +3730,72 @@ def test_an_unverified_inheritance_is_marked_where_it_is_claimed():
         _req("REQ-A-B-01", responsibility="csp_claimed", evidence="SOC 2", unverified=True),
     ])
     assert "unverified" in resp
+
+
+# --- the golden evaluator, at 32% ---------------------------------------------
+
+def test_an_expectation_file_that_cannot_fail_is_reported():
+    """Recall is computed over the topics marked must_cover, so a file with none
+    scores 1.0 whatever the document says. This module's own docstring says
+    widening hints until a failing run passes is how a suite stops measuring
+    anything; requiring nothing is the same end by a shorter road."""
+    problems = eval_mod.check_expectation(
+        {"topics": [{"id": "t", "description": "d", "match_any": ["x"]}]})
+    assert any("cannot fail" in p for p in problems)
+
+    ok = eval_mod.check_expectation(
+        {"topics": [{"id": "t", "description": "d", "match_any": ["x"], "must_cover": True}]})
+    assert not ok
+
+
+def test_the_fields_read_only_on_the_failing_path_are_checked_up_front():
+    """A topic with no `description` scored fine and raised KeyError the moment
+    it was reported as missed; a must_not_cover rule with no `why` did the same
+    when it fired. The suite worked while it passed and broke while it failed."""
+    problems = eval_mod.check_expectation({"topics": [
+        {"id": "t", "match_any": ["x"], "must_cover": True}]})
+    assert any("no description" in p for p in problems)
+
+    problems = eval_mod.check_expectation({
+        "topics": [{"id": "t", "description": "d", "match_any": ["x"], "must_cover": True}],
+        "must_not_cover": [{"id": "r", "match_any": ["y"]}]})
+    assert any("no `why`" in p for p in problems)
+
+
+def test_a_hint_list_that_can_never_match_is_reported():
+    """An empty match_any leaves the topic permanently missed, which reads as a
+    gap in the derivation rather than a gap in the expectation."""
+    problems = eval_mod.check_expectation({"topics": [
+        {"id": "t", "description": "d", "match_any": [], "must_cover": True}]})
+    assert any("never be covered" in p for p in problems)
+
+    scalar = eval_mod.check_expectation({"topics": [
+        {"id": "t", "description": "d", "match_any": "tenant", "must_cover": True}]})
+    assert any("character by character" in p for p in scalar)
+
+
+@pytest.mark.parametrize("case", sorted(p.name for p in GOLDEN_ROOT.iterdir() if p.is_dir()))
+def test_every_golden_expectation_is_scoreable(case):
+    """The four shipped files are complete. Nothing checked that, so the fifth
+    would not have been."""
+    expected = yaml.safe_load((GOLDEN_ROOT / case / "expected-coverage.yaml").read_text(encoding="utf-8"))
+    assert not eval_mod.check_expectation(expected)
+
+
+def test_the_golden_draft_scores_against_its_own_expectation():
+    """The evaluator had never been run. It scores the shipped draft at full
+    recall with no excluded subject appearing, which is the property a
+    regression in the model stage would break."""
+    expected = yaml.safe_load((GOLDEN / "expected-coverage.yaml").read_text(encoding="utf-8"))
+    draft = json.loads((GOLDEN / "draft.json").read_text(encoding="utf-8"))["requirements"]
+    doc = {"requirements": [
+        {"id": merge.issue_id(item["slug"], {"issued": {}}), "managed": item["managed"], "human": {}}
+        for item in draft]}
+    result = eval_mod.score(expected, doc)
+    assert result["recall"] == 1.0
+    assert not result["violations"]
+    assert not result["critical_missing"]
+
+    # A retired requirement is not evidence of coverage.
+    doc["requirements"][0]["human"] = {"status": "retired"}
+    assert eval_mod.score(expected, doc)["total_requirements"] == len(draft) - 1

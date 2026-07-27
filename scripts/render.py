@@ -201,18 +201,28 @@ def render_requirements(doc: dict, titles: dict, meta: dict) -> str:
     # deliverable, which is the one place a reader is entitled to an
     # explanation. An auditor diffing last quarter's document against this one
     # finds an absence and no account of it.
-    retired = [r for r in doc.get("requirements", []) or []
-               if (r.get("human") or {}).get("status") in ("retired", "superseded")]
+    # The same normalisation `active()` uses. Compared raw, a status of
+    # " RETIRED " fell out of the active sections and out of this ledger too --
+    # excluded from the document twice and mentioned nowhere.
+    retired = [r for r in doc.get("requirements", []) or [] if not active(r)]
     if retired:
         out += ["## No longer required", "",
                 "These were in an earlier version of this document. They are listed so that",
-                "their absence is an answer rather than a gap.", "",
-                "| Requirement | Was | Reason |", "|---|---|---|"]
+                "their absence is an answer rather than a gap. The reason each was retired is",
+                "part of the internal record and is not reproduced here.", "",
+                "| Requirement | Was | Status |", "|---|---|---|"]
         for req in sorted(retired, key=lambda r: r["id"]):
             human = req.get("human") or {}
             statement = (req.get("managed") or {}).get("statement", "").replace("|", "\\|")
-            reason = str(human.get("retired_reason") or "not recorded").replace("|", "\\|")
-            out.append(f"| {req['id']} | {statement} | {reason} |")
+            # Not human.retired_reason. This file is publishable and `human` is
+            # the internal record: a retirement reason can name the person who
+            # approved an exception, and printing it verbatim moved governance
+            # metadata across the boundary the repository is arranged around.
+            # The fact of the retirement is public; the account of it stays where
+            # the rest of the human decisions live.
+            state = str(human.get("status") or "retired")
+            recorded = "recorded internally" if human.get("retired_reason") else "not recorded"
+            out.append(f"| {req['id']} | {statement} | {state}; reason {recorded} |")
         out.append("")
 
     out.append(provenance(meta))
@@ -259,7 +269,17 @@ def render_responsibility(doc: dict, meta: dict) -> str:
                 evidence = "; ".join(evidence)
             marker = " ⚠ unverified" if managed.get("unverified") else ""
             statement = managed.get("statement", "").replace("|", "\\|")
-            out.append(f"| {req['id']}{marker} | {statement} | {evidence} |")
+            # The document exists to say who owns what, and it said only
+            # "shared". The linter now requires both halves to be described; not
+            # printing them left the requirement asserting a division it did not
+            # publish.
+            halves = " ".join(
+                f"**{who}:** {managed.get(key, '').strip()}"
+                for who, key in (("provider", "csp_part"), ("team", "team_part"))
+                if (managed.get(key) or "").strip()
+            ).replace("|", "\\|")
+            cell = f"{statement}<br>{halves}" if halves else statement
+            out.append(f"| {req['id']}{marker} | {cell} | {evidence} |")
         out.append("")
 
     out.append(provenance(meta))

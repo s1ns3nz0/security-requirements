@@ -343,7 +343,13 @@ def lint(doc: dict, locale: str, threats: dict | None) -> list[Finding]:
         # a provider claim for its csp_part. A shared requirement with no
         # evidence rendered into that document with an empty cell under a
         # sentence promising the opposite.
-        if managed.get("responsibility") in ("csp_claimed", "shared") and not managed.get("evidence"):
+        # Stripped. `evidence: [""]`, `csp_part: " "` are truthy and render as
+        # empty cells, which defeats the guarantee these rules exist to make.
+        evidence_given = managed.get("evidence")
+        if isinstance(evidence_given, str):
+            evidence_given = [evidence_given]
+        has_evidence = any(str(e).strip() for e in evidence_given or [])
+        if managed.get("responsibility") in ("csp_claimed", "shared") and not has_evidence:
             findings.append(Finding("ERROR", req_id, "no-evidence",
                                     "inheritance is a claim; state the evidence needed to "
                                     "substantiate it"))
@@ -352,7 +358,7 @@ def lint(doc: dict, locale: str, threats: dict | None) -> list[Finding]:
         # asserts a division it cannot describe.
         if managed.get("responsibility") == "shared":
             for half, whose in (("csp_part", "the provider's"), ("team_part", "the team's")):
-                if not managed.get(half):
+                if not (managed.get(half) or "").strip():
                     findings.append(Finding(
                         "ERROR", req_id, f"no-{half.replace('_', '-')}",
                         f"responsibility is shared but {half} does not say what {whose} half is"))

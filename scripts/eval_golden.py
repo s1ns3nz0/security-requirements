@@ -55,6 +55,51 @@ def matches(text: str, hints) -> bool:
     return any(str(hint).strip().lower() in text for hint in hints or [])
 
 
+def check_expectation(expected: dict) -> list[str]:
+    """Problems in the expectation file itself, before anything is scored.
+
+    Two of these only bite on the failing path, which is the worst place for a
+    crash: a topic with no `description` scores fine and raises KeyError the
+    moment it is reported as missed, and so does a must_not_cover rule with no
+    `why`. The suite worked while it passed and broke while it failed.
+
+    The third is quieter. Recall is computed over the topics marked
+    `must_cover`, so a file with none has recall 1.0 whatever the document says
+    -- a golden case that cannot fail. This module's own docstring says
+    widening hints until a failing run passes is how a suite stops measuring
+    anything; having nothing required is the same end by a shorter road.
+    """
+    problems = []
+    topics = expected.get("topics") or []
+    for topic in topics:
+        tid = topic.get("id", "<unnamed>")
+        if not topic.get("id"):
+            problems.append("a topic has no id")
+        if not topic.get("description"):
+            problems.append(f"topic {tid}: no description -- it is printed when the topic "
+                            f"is missed, which is the only time anyone reads it")
+        hints = topic.get("match_any")
+        if hints is None:
+            problems.append(f"topic {tid}: no match_any hints")
+        elif isinstance(hints, str):
+            problems.append(f"topic {tid}: match_any is a single string, which would be "
+                            f"matched character by character")
+        elif not hints:
+            problems.append(f"topic {tid}: match_any is empty, so the topic can never be "
+                            f"covered by anything")
+    for rule in expected.get("must_not_cover") or []:
+        rid = rule.get("id", "<unnamed>")
+        if not rule.get("match_any"):
+            problems.append(f"must_not_cover {rid}: no match_any hints")
+        if not rule.get("why"):
+            problems.append(f"must_not_cover {rid}: no `why` -- it is printed when the rule "
+                            f"fires, which is the only time anyone reads it")
+    if topics and not [t for t in topics if t.get("must_cover")]:
+        problems.append("no topic is marked must_cover, so recall is 1.0 whatever the "
+                        "document contains and this case cannot fail")
+    return problems
+
+
 def score(expected: dict, doc: dict) -> dict:
     reqs = [
         r for r in (doc.get("requirements") or [])
@@ -100,6 +145,13 @@ def main() -> int:
 
     expected = yaml.safe_load((args.golden_dir / "expected-coverage.yaml").read_text(encoding="utf-8"))
     doc = yaml.safe_load(args.requirements.read_text(encoding="utf-8")) or {}
+    problems = check_expectation(expected)
+    if problems:
+        print("The expectation file cannot be scored against:", file=sys.stderr)
+        for problem in problems:
+            print(f"  ! {problem}", file=sys.stderr)
+        return 2
+
     result = score(expected, doc)
 
     scoring = expected.get("scoring", {})
