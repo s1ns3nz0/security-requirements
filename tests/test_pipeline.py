@@ -627,6 +627,78 @@ def test_human_edits_are_never_overwritten(draft):
     assert updated["pending_review"]["managed"]["statement"].startswith("A completely rewritten")
 
 
+def test_retirement_preserves_an_accepted_risk(draft):
+    """Found by exercising refresh against a real requirement set.
+
+    A requirement carrying an approved exception was retired by a re-derivation,
+    and `status` was overwritten with `retired`. The approval record survived,
+    but every report that asks "which risks are accepted and when do they
+    expire?" queries `status == exception` -- so the accepted risk silently left
+    that list while leaving behind an approval that contradicted the retirement.
+    """
+    state = {"issued": {}}
+    first = merge.apply_merge(draft, [], state)
+    existing = first["requirements"]
+
+    slug = draft[0]["slug"]
+    target_id = merge.issue_id(slug, state)
+    next(r for r in existing if r["id"] == target_id)["human"] = {
+        "status": "exception",
+        "exception": {"approver": "CISO", "expires": "2026-12-31", "reason": "revisit next quarter"},
+    }
+
+    reduced = [item for item in draft if item["slug"] != slug]
+    second = merge.apply_merge(reduced, existing, state)
+    retired = next(r for r in second["requirements"] if r["id"] == target_id)
+
+    assert retired["human"]["status"] == "retired"
+    assert retired["human"]["previous_status"] == "exception"
+    assert retired["human"]["exception"]["approver"] == "CISO"
+    assert "CISO" in retired["human"]["retired_reason"]
+
+
+def test_a_returning_requirement_is_reopened(draft):
+    """A retired requirement that derives again is live work. Leaving it retired
+    drops it on the floor; reinstating its exception silently would restore an
+    accepted risk nobody re-approved."""
+    state = {"issued": {}}
+    first = merge.apply_merge(draft, [], state)
+    existing = first["requirements"]
+    slug = draft[0]["slug"]
+    target_id = merge.issue_id(slug, state)
+    next(r for r in existing if r["id"] == target_id)["human"] = {
+        "status": "exception",
+        "exception": {"approver": "CISO", "expires": "2026-12-31", "reason": "..."},
+    }
+
+    reduced = [item for item in draft if item["slug"] != slug]
+    second = merge.apply_merge(reduced, existing, state)
+    third = merge.apply_merge(draft, second["requirements"], state)
+
+    assert target_id in third["reopened"]
+    back = next(r for r in third["requirements"] if r["id"] == target_id)
+    assert back["human"]["status"] == "active"
+    assert back["human"]["exception"]["approver"] == "CISO"   # kept, for re-affirmation
+
+
+def test_in_place_rewrite_is_reported_as_updated(draft):
+    """Found by exercising refresh: a requirement whose text was replaced in
+    place was counted in both `added` and `unchanged`, so the report described a
+    silent rewrite as no change at all."""
+    state = {"issued": {}}
+    first = merge.apply_merge(draft, [], state)
+
+    changed = copy.deepcopy(draft)
+    changed[0]["managed"]["statement"] = "A completely different obligation."
+    second = merge.apply_merge(changed, first["requirements"], state)
+
+    target = merge.issue_id(draft[0]["slug"], state)
+    assert target in second["updated"]
+    assert target not in second["added"]
+    assert target not in second["unchanged"]
+    assert not (set(second["added"]) & set(second["unchanged"]))
+
+
 def test_requirements_are_retired_not_deleted(draft):
     state = {"issued": {}}
     first = merge.apply_merge(draft, [], state)

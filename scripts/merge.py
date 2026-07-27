@@ -170,10 +170,36 @@ def issue_id(slug: str, state: dict) -> str:
     return new_id
 
 
+TERMINAL_STATUSES = ("retired", "superseded")
+
+
+def retire(record: dict, reason: str) -> None:
+    """Move a requirement out of the active set without destroying its history.
+
+    The prior status is preserved. Overwriting it loses the fact that a risk was
+    formally accepted: a report of exceptions approaching expiry queries
+    `status == exception`, and a retirement that clobbers the field silently
+    removes an approved exception from that list while leaving the approval
+    record behind to contradict it.
+    """
+    human = record.setdefault("human", {})
+    previous = human.get("status")
+    if previous in TERMINAL_STATUSES:
+        return
+    if previous:
+        human["previous_status"] = previous
+    human["status"] = "retired"
+    if previous == "exception":
+        approver = (human.get("exception") or {}).get("approver", "unrecorded")
+        reason = (f"{reason}. The exception approved by {approver} is closed by this "
+                  f"retirement rather than by expiry, and is retained above.")
+    human.setdefault("retired_reason", reason)
+
+
 def apply_merge(draft: list[dict], existing: list[dict], state: dict) -> dict:
     by_id = {r["id"]: r for r in existing}
     seen = set()
-    added, proposed, unchanged = [], [], []
+    added, proposed, unchanged, updated, reopened = [], [], [], [], []
 
     for item in draft:
         slug = item.get("slug")
@@ -188,11 +214,23 @@ def apply_merge(draft: list[dict], existing: list[dict], state: dict) -> dict:
             continue
 
         current = by_id[req_id]
+
+        # A requirement that was retired and now derives again is back in scope.
+        # Leaving it retired would drop live work on the floor, so the return is
+        # recorded rather than assumed either way.
+        human = current.setdefault("human", {})
+        if human.get("status") in TERMINAL_STATUSES:
+            human["previous_status"] = human.get("status")
+            human["status"] = "active"
+            human.pop("retired_reason", None)
+            human["reinstated_reason"] = "derives again from the current profile"
+            reopened.append(req_id)
+
         if current["managed"] == item["managed"]:
             unchanged.append(req_id)
             continue
 
-        if current.get("human"):
+        if human:
             # A person has touched this requirement. Propose, do not overwrite.
             current["pending_review"] = {
                 "managed": item["managed"],
@@ -200,30 +238,29 @@ def apply_merge(draft: list[dict], existing: list[dict], state: dict) -> dict:
             }
             proposed.append(req_id)
         else:
+            # Nobody has touched it, so applying the new text destroys nothing.
+            # It is still reported: a silently rewritten requirement counted as
+            # "unchanged" is the opposite of what a reviewer needs to see.
             current["managed"] = item["managed"]
-            added.append(req_id) if req_id not in added else None
-            unchanged.append(req_id)
+            updated.append(req_id)
 
-    superseded = []
+    retired = []
     for req_id, record in by_id.items():
         if req_id in seen:
             continue
-        human = record.setdefault("human", {})
-        if human.get("status") in ("retired", "superseded"):
+        if (record.get("human") or {}).get("status") in TERMINAL_STATUSES:
             continue
-        human["status"] = "retired"
-        human.setdefault(
-            "retired_reason",
-            "no longer derived from the current profile; retained for audit history",
-        )
-        superseded.append(req_id)
+        retire(record, "no longer derived from the current profile; retained for audit history")
+        retired.append(req_id)
 
     return {
         "requirements": sorted(by_id.values(), key=lambda r: r["id"]),
         "added": added,
+        "updated": updated,
         "proposed": proposed,
         "unchanged": unchanged,
-        "retired": superseded,
+        "retired": retired,
+        "reopened": reopened,
     }
 
 
@@ -292,11 +329,35 @@ def main() -> int:
 
     print("Merge result\n")
     print(f"  added       {len(result['added']):>4}")
+    print(f"  updated     {len(result['updated']):>4}   text replaced in place (no human edits to protect)")
     print(f"  proposed    {len(result['proposed']):>4}   pending_review, awaiting your decision")
     print(f"  unchanged   {len(result['unchanged']):>4}")
     print(f"  retired     {len(result['retired']):>4}")
+    if result["reopened"]:
+        print(f"  reopened    {len(result['reopened']):>4}   previously retired, derives again")
     for req_id in result["proposed"]:
         print(f"    ? {req_id} has human edits; the re-derived text is in pending_review")
+    for req_id in result["reopened"]:
+        record = next(r for r in result["requirements"] if r["id"] == req_id)
+        print(f"    ! {req_id} was retired and is back in scope")
+        if (record.get("human") or {}).get("exception"):
+            # Reinstating an accepted risk is a decision for the approver, not
+            # for a re-derivation. The record is left active with the prior
+            # approval attached so the choice is visible rather than assumed.
+            print(f"      it carries an exception closed by the earlier retirement;"
+                  f" re-affirm or withdraw it")
+
+    expiring = []
+    for record in result["requirements"]:
+        human = record.get("human") or {}
+        exception = human.get("exception") or {}
+        if exception.get("expires"):
+            expiring.append((record["id"], exception["expires"], human.get("status", "")))
+    if expiring:
+        print("\n  accepted risks on record")
+        for req_id, expires, status in sorted(expiring, key=lambda x: x[1]):
+            note = "" if status == "exception" else f"  (status now: {status})"
+            print(f"    {req_id}  expires {expires}{note}")
     return 0
 
 
