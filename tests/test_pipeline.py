@@ -4383,3 +4383,101 @@ def test_a_refresh_is_byte_for_byte_idempotent(tmp_path):
     assert _run_cli(*args).returncode == 0
     assert (work / "requirements.yaml").read_bytes() == after_first
     assert (work / "state.yaml").read_bytes() == state_first
+
+
+# --- the overlay validator's own assertions, never exercised -------------------
+#
+# Every one of the six shipped overlays passes, so each guard was untested. The
+# same lesson as the catalog build: a clean fixture proves the data, not the
+# check.
+
+import validate_overlays as vo  # noqa: E402
+
+
+def _broken_overlay(tmp_path, monkeypatch, *, meta_change=None, mapping_change=None):
+    """A copy of a real overlay with one thing wrong with it."""
+    import shutil
+    work = tmp_path / "overlays"
+    shutil.copytree(REPO_ROOT / "overlays", work)
+    source = work / "gdpr"
+
+    if meta_change:
+        meta = yaml.safe_load((source / "meta.yaml").read_text(encoding="utf-8"))
+        meta_change(meta)
+        (source / "meta.yaml").write_text(yaml.safe_dump(meta, allow_unicode=True,
+                                                         sort_keys=False), encoding="utf-8")
+    if mapping_change:
+        rows = [json.loads(line) for line in
+                (source / "mappings.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+        mapping_change(rows)
+        (source / "mappings.jsonl").write_text(
+            "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")
+
+    monkeypatch.setattr(overlay_mod, "OVERLAYS", work)
+    monkeypatch.setattr(vo, "REPO_ROOT", tmp_path)
+    captured = []
+    monkeypatch.setattr(vo, "print", lambda *a, **k: captured.append(" ".join(map(str, a))),
+                        raising=False)
+    code = vo.main([])
+    return code, captured
+
+
+def test_an_authored_mapping_presented_as_anything_else_is_refused(tmp_path, monkeypatch):
+    """The failure this repository exists to prevent: a reading offered as a
+    published crosswalk."""
+    code, out = _broken_overlay(tmp_path, monkeypatch,
+                                meta_change=lambda m: m["mapping"].update({"authored": False}))
+    assert code == 1
+    assert any("mapping.authored must be true" in line for line in out)
+
+
+def test_an_overlay_without_a_disclaimer_is_refused(tmp_path, monkeypatch):
+    code, out = _broken_overlay(tmp_path, monkeypatch,
+                                meta_change=lambda m: m.update({"disclaimer": "  "}))
+    assert code == 1
+    assert any("no disclaimer" in line for line in out)
+
+
+def test_a_depth_block_that_does_not_state_its_limit_is_refused(tmp_path, monkeypatch):
+    """An overlay that stops above the assessed clause must say so, or a
+    coverage count reads as compliance."""
+    code, out = _broken_overlay(
+        tmp_path, monkeypatch,
+        meta_change=lambda m: m.update({"depth": {"level": "articles",
+                                                  "sub_requirements_enumerated": True}}))
+    assert code == 1
+    assert any("does not state the limit" in line for line in out)
+
+
+def test_a_standalone_flag_that_disagrees_with_its_controls_is_refused(tmp_path, monkeypatch):
+    def break_one(rows):
+        row = next(r for r in rows if r["controls"])
+        row["standalone"] = True
+    code, out = _broken_overlay(tmp_path, monkeypatch, mapping_change=break_one)
+    assert code == 1
+    assert any("standalone disagrees" in line for line in out)
+
+
+def test_an_unknown_responsibility_hint_is_refused(tmp_path, monkeypatch):
+    def break_one(rows):
+        rows[0]["responsibility_hint"] = "somebody"
+    code, out = _broken_overlay(tmp_path, monkeypatch, mapping_change=break_one)
+    assert code == 1
+    assert any("unknown responsibility_hint" in line for line in out)
+
+
+def test_a_clause_citing_the_same_control_twice_is_refused(tmp_path, monkeypatch):
+    def break_one(rows):
+        row = next(r for r in rows if r["controls"])
+        row["controls"] = row["controls"] + [row["controls"][0]]
+    code, out = _broken_overlay(tmp_path, monkeypatch, mapping_change=break_one)
+    assert code == 1
+    assert any("duplicate controls" in line for line in out)
+
+
+def test_an_overlay_that_will_not_load_is_reported_rather_than_crashing(tmp_path, monkeypatch):
+    """A malformed overlay must be named, not raise out of the validator."""
+    code, out = _broken_overlay(tmp_path, monkeypatch,
+                                meta_change=lambda m: m.update({"criteria_count": 999}))
+    assert code == 1
+    assert any("gdpr" in line and "criteria_count" in line for line in out)
