@@ -62,6 +62,46 @@ class ClassifyError(Exception):
     pass
 
 
+# Providers whose shared responsibility model this repository can reason about.
+KNOWN_PROVIDERS = {"aws", "azure", "gcp", "oci", "alibaba", "ibm", "tencent"}
+
+# Ways a person writes "there is no cloud provider". The first version of the
+# no-provider rule matched the literal string "none" and nothing else, so every
+# other spelling silently restored inheritance claims against a provider that
+# does not exist -- the bug it had just been written to fix.
+NO_PROVIDER = {
+    "", "none", "no", "n/a", "na", "null", "nil", "-",
+    "self-hosted", "selfhosted", "onprem", "on-prem", "on-premise",
+    "on-premises", "bare-metal", "baremetal", "colo", "datacenter",
+}
+
+
+def resolve_csp(raw) -> tuple[str | None, list[str], str]:
+    """Normalise the declared provider.
+
+    Returns (provider, providers, status) where status is one of `single`,
+    `multiple`, `none`, or `unrecognised`.
+
+    An unrecognised value is treated as no provider rather than as a valid one.
+    The rule elsewhere is that a claim needs a claimant: if the provider cannot
+    be identified, no evidence can be named for it, so no inheritance can be
+    asserted.
+    """
+    if raw is None:
+        return None, [], "none"
+    values = raw if isinstance(raw, (list, tuple)) else [raw]
+    cleaned = [str(v).strip().lower() for v in values if str(v).strip() != ""]
+    named = [v for v in cleaned if v not in NO_PROVIDER]
+    if not named:
+        return None, [], "none"
+    unknown = [v for v in named if v not in KNOWN_PROVIDERS]
+    if unknown:
+        return None, named, "unrecognised"
+    if len(named) > 1:
+        return named[0], named, "multiple"
+    return named[0], named, "single"
+
+
 def load_services(profile: dict) -> tuple[dict, list[str], list[str]]:
     """Return (service specs, curated ids, uncurated ids)."""
     declared = (profile.get("inferred") or {}).get("managed_services", []) or []
@@ -139,7 +179,7 @@ def resolve_layer(control_id: str, layers: dict, deployment_model: str | None) -
 def classify(profile: dict, controls: list[str]) -> dict:
     layers = yaml.safe_load(LAYERS.read_text(encoding="utf-8"))
     deployment_model = (profile.get("inferred") or {}).get("deployment_model")
-    csp = (profile.get("inferred") or {}).get("csp")
+    csp, providers, csp_status = resolve_csp((profile.get("inferred") or {}).get("csp"))
 
     specs, curated, uncurated = load_services(profile)
     org_controls = set((profile.get("declared") or {}).get("existing_org_controls", []) or [])
@@ -193,7 +233,7 @@ def classify(profile: dict, controls: list[str]) -> dict:
         # profile: fifteen controls were assigned to a provider that does not
         # exist, because the onprem override list enumerated some PE/MP
         # controls and missed the rest. A structural rule beats a longer list.
-        if entry["responsibility"] == "csp_claimed" and csp in (None, "", "none"):
+        if entry["responsibility"] == "csp_claimed" and csp is None:
             entry["responsibility"] = "org"
             entry["source"] = f"{entry['source']}+no-csp"
 
@@ -216,12 +256,14 @@ def classify(profile: dict, controls: list[str]) -> dict:
     # profile that said saas with csp: none and produced 156 organisational
     # controls without comment.
     PROVIDER_MODELS = {"serverless", "paas", "saas", "kubernetes"}
-    inconsistent = (deployment_model in PROVIDER_MODELS and csp in (None, "", "none"))
+    inconsistent = (deployment_model in PROVIDER_MODELS and csp is None)
 
     return {
         "deployment_model": deployment_model,
         "deployment_model_recognised": not unknown_model,
         "csp": csp,
+        "csp_status": csp_status,
+        "csp_declared": providers,
         "csp_model_inconsistent": inconsistent,
         "known_deployment_models": sorted(known_models),
         "services_curated": sorted(curated),
@@ -235,6 +277,20 @@ def render(result: dict) -> str:
     counts = result["counts"]
     total = sum(counts.values())
     out = ["Responsibility split", ""]
+    if result.get("csp_status") == "unrecognised":
+        out += [
+            f"  WARNING: provider {', '.join(result['csp_declared'])!r} is not one this repository",
+            f"  reasons about ({', '.join(sorted(KNOWN_PROVIDERS))}). No inheritance was claimed,",
+            f"  because a claim with no identifiable claimant carries no evidence.",
+            "",
+        ]
+    elif result.get("csp_status") == "multiple":
+        out += [
+            f"  WARNING: several providers declared ({', '.join(result['csp_declared'])}).",
+            f"  The split below reflects {result['csp']} only. Shared responsibility differs",
+            f"  per provider, so derive once per provider rather than reading this as covering all.",
+            "",
+        ]
     if result.get("csp_model_inconsistent"):
         out += [
             f"  WARNING: deployment model {result['deployment_model']!r} presumes a cloud provider,",

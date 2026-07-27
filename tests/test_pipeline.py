@@ -452,6 +452,31 @@ def test_forced_requirements_reach_the_work_list(profile):
     assert crossed["counts"].get("forced_by_data_type", 0) >= 1
 
 
+def test_data_held_for_a_customer_forces_processor_obligations(profile):
+    """Found by sweeping a scanner that ingests customers' Terraform plans.
+
+    Every data type is written from the holder's point of view -- source code is
+    "loss of competitive position" -- so a service holding someone else's data
+    derived as though the harm and the duties were its own. Nothing produced a
+    processing agreement, a deletion-on-instruction, or a notify-the-owner
+    requirement, because no control is keyed on whose data it is.
+    """
+    processor = copy.deepcopy(profile)
+    processor["declared"]["data_types"] = [
+        {"id": "source_code_ip", "modifiers": ["customer_owned"]},
+        {"id": "app_logs"},
+    ]
+    result = sb.run(processor)
+    assert "data_processor_obligations" in {f["id"] for f in result["forced_requirements"]}
+    assert "processor_role" in result["threat_flags"]
+
+    # Holding data for someone else does not make that data more sensitive.
+    own = copy.deepcopy(processor)
+    own["declared"]["data_types"][0].pop("modifiers")
+    assert sb.run(own)["impact"]["confidentiality"]["level"] == \
+        result["impact"]["confidentiality"]["level"]
+
+
 def test_availability_hint_is_gone(profile):
     """config_secrets once carried availability_hint: high. Nothing read it, and
     wiring it would have driven availability to High for every service that
@@ -543,6 +568,49 @@ def test_physical_controls_are_the_team_s_on_an_embedded_system(profile):
     facility["inferred"]["deployment_model"] = "onprem"
     result = classify_resp.classify(facility, ["PE-3", "MA-3"])
     assert all(e["responsibility"] == "org" for e in result["controls"])
+
+
+@pytest.mark.parametrize("value", [
+    "none", "None", "NONE", None, "", "n/a", "-", "self-hosted", "on-prem", "  none  ",
+])
+def test_every_spelling_of_no_provider_blocks_claims(profile, value):
+    """Found by probing the rule added one round earlier.
+
+    It matched the literal string "none" and nothing else, so `None`, `n/a`,
+    `-`, `self-hosted`, and `on-prem` all restored inheritance claims against a
+    provider that does not exist -- reintroducing, through ordinary spellings,
+    exactly the bug the rule had just been written to fix.
+    """
+    p = copy.deepcopy(profile)
+    p["inferred"]["csp"] = value
+    p["inferred"]["deployment_model"] = "onprem"
+    p["inferred"]["managed_services"] = []
+    result = classify_resp.classify(p, ["PE-4", "PE-8", "MP-3", "CP-8(1)", "SI-8(2)"])
+    assert all(e["responsibility"] != "csp_claimed" for e in result["controls"])
+    assert result["csp_status"] == "none"
+
+
+def test_unrecognised_provider_claims_nothing(profile):
+    """A claim needs a claimant. If the provider cannot be identified, no
+    evidence can be named for it, so no inheritance may be asserted."""
+    p = copy.deepcopy(profile)
+    p["inferred"]["csp"] = "amazon"          # not the identifier the repository knows
+    p["inferred"]["deployment_model"] = "iaas"
+    p["inferred"]["managed_services"] = []
+    result = classify_resp.classify(p, ["PE-4", "MP-3"])
+    assert result["csp_status"] == "unrecognised"
+    assert all(e["responsibility"] != "csp_claimed" for e in result["controls"])
+
+
+def test_multiple_providers_are_flagged(profile):
+    """Shared responsibility differs per provider, so one split cannot cover
+    two. Found on a Terraform repository with interchangeable S3 and GCS
+    adapters, where a list-valued csp passed silently."""
+    p = copy.deepcopy(profile)
+    p["inferred"]["csp"] = ["aws", "gcp"]
+    result = classify_resp.classify(p, ["SC-7"])
+    assert result["csp_status"] == "multiple"
+    assert result["csp_declared"] == ["aws", "gcp"]
 
 
 def test_provider_model_without_a_provider_is_flagged(profile):

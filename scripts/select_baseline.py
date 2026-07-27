@@ -121,6 +121,7 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
     # reached by any concrete type, so they are resolved in a second pass.
     concrete_c, concrete_i = [], []
     conf_why, integ_why, flags, triggers = [], [], [], []
+    modifier_forced = []
 
     def evaluate(entry, allow_inherit):
         spec = types[entry["id"]]
@@ -147,6 +148,17 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
                 c = bump(c, effect)
             applied.append(mod["label"])
             flags.extend(mod.get("flags", []) or [])
+            # Modifiers may demand a requirement of their own. `customer_owned`
+            # is the case that motivated it: the level does not move, but the
+            # duties owed to the owner are not reachable from any control keyed
+            # on "we hold data of type X".
+            for req_id in mod.get("forces_requirements", []) or []:
+                modifier_forced.append({
+                    "id": req_id,
+                    "from_data_type": entry["id"],
+                    "label": f"{label} [{mod['label']}]",
+                    "note": (mod.get("note") or "").strip(),
+                })
 
         i = i_raw if i_raw != "inherit_max" else highest(concrete_i)
 
@@ -192,7 +204,7 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
     # are the only path by which system-information types reach the output at
     # all -- having been excluded from the water mark, they would otherwise
     # vanish entirely.
-    forced = []
+    forced = list(modifier_forced)
     for entry in selected:
         spec = types[entry["id"]]
         for req_id in spec.get("forces_requirements", []) or []:

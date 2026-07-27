@@ -85,6 +85,24 @@ modifiers:
       Apply only where there is evidence it does not reach logs, APM traces, or
       error reports.
 
+  customer_owned:
+    label: "belongs to a customer; we hold it on their behalf"
+    effect: {}
+    flags: [processor_role]
+    forces_requirements: [data_processor_obligations]
+    note: |
+      Holding data for someone else does not change how sensitive that data is,
+      so no level moves. It changes who is harmed by its loss and what is owed
+      when that happens: a processing agreement, deletion on the owner's
+      instruction, and notification to the owner rather than only to a
+      regulator. None of that is reachable from a control catalogue keyed on
+      "we hold data of type X".
+
+      It also displaces the jurisdiction question. Regulatory triggers are gated
+      on the regions of *our* users; for data held on a customer's behalf the
+      relevant jurisdiction is that customer's, which this profile does not ask
+      about. Treat any regulatory conclusion as covering our own position only.
+
 # Removed: `availability_hint`
 #
 # config_secrets once carried `availability_hint: high`, on the reasoning that
