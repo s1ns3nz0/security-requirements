@@ -3334,3 +3334,81 @@ def test_an_amplifier_that_can_do_nothing_says_so():
                             "availability.yaml").read_text(encoding="utf-8"))
     solo = [a["id"] for a in table["amplifiers"] if a.get("only_when_alone")]
     assert solo == ["internal_tool_only"]
+
+
+# --- round eight: the threat path, which sixty-nine repositories had skipped --
+
+def _threat(threat_id="T1", **kw):
+    base = {"id": threat_id, "category": "tampering", "boundary": "client -> api",
+            "persona": "an authenticated caller", "scenario": "something happens",
+            "novelty": "generic", "related_controls": [], "affected_assets": []}
+    base.update(kw)
+    return base
+
+
+def _crossed(profile, threats):
+    derived = sb.run(profile)
+    resp = classify_resp.classify(profile, derived["controls"])
+    return merge.cross(derived, resp, {"version": "0.1.0", "threats": threats})
+
+
+def test_a_control_the_baseline_does_not_select_is_not_dropped():
+    """Sixty-nine public repositories were run with an empty threat model, so
+    this stage had only ever seen four synthetic profiles.
+
+    A control the author cited, that exists, and that this baseline does not
+    select was being filtered out without a word -- so a supply-chain threat
+    citing SR-3, SR-11, and CM-14 reported as fully addressed by two, and
+    CM-14, the signed-components control that answers it, was never mentioned.
+    """
+    profile = _onprem(data_types=[{"id": "internal_ops"}])
+    crossed = _crossed(profile, [_threat(related_controls=["SR-3", "SR-11", "CM-14"])])
+
+    outside = crossed["outside_baseline"]
+    assert outside and outside[0]["controls"] == ["CM-14"]
+    assert outside[0]["partly_covered"] is True
+
+    rendered = merge.render_cross(crossed)
+    assert "CM-14" in rendered and "does not select" in rendered
+
+    # A threat whose controls are all outside is a different statement again.
+    only_outside = _crossed(profile, [_threat(related_controls=["CM-14"])])
+    assert only_outside["outside_baseline"][0]["partly_covered"] is False
+
+
+def test_novelty_is_a_vocabulary_not_a_sentence():
+    """It decides whether a threat raises its controls to high priority, and it
+    was compared against one literal with nothing checking the field. A threat
+    carrying a sentence where an enum belongs was read as generic, and the
+    author had written the most specific thing in the document."""
+    profile = _onprem(data_types=[{"id": "internal_ops"}])
+
+    prose = _crossed(profile, [_threat(novelty="no control expresses this at all",
+                                       related_controls=["AC-3"])])
+    assert any("is not one of" in p for p in prose["problems"])
+
+    missing = _crossed(profile, [_threat(related_controls=["AC-3"])])
+    missing["problems"] = [p for p in missing["problems"] if "novelty" in p]
+    absent = _crossed(profile, [{k: v for k, v in _threat(related_controls=["AC-3"]).items()
+                                 if k != "novelty"}])
+    assert any("no novelty" in p for p in absent["problems"])
+
+    # The value that means something still does.
+    specific = _crossed(profile, [_threat(novelty="service_specific", related_controls=["AC-3"])])
+    assert not [p for p in specific["problems"] if "novelty" in p]
+    raised = next(i for i in specific["items"] if i["control"] == "AC-3")
+    assert raised["priority"] == "high"
+
+
+def test_the_threat_model_and_the_profile_are_held_against_each_other():
+    """They are two descriptions of one system and nothing compared them. This
+    repository's own golden threat model names account_credentials as an
+    affected asset, and its golden profile does not declare that data type --
+    which also costs the derivation the credential_storage requirement that
+    declaring it would force."""
+    profile = _onprem(data_types=[{"id": "internal_ops"}])
+    crossed = _crossed(profile, [_threat(affected_assets=["account_credentials"])])
+    assert any("which the profile does not declare" in p for p in crossed["problems"])
+
+    agreed = _crossed(profile, [_threat(affected_assets=["internal_ops"])])
+    assert not [p for p in agreed["problems"] if "does not declare" in p]

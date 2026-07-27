@@ -1167,6 +1167,13 @@ def run(profile: dict) -> dict:
         "privacy_controls": privacy_controls,
         "privacy_baseline_applies": bool(personal),
         "personal_data_types": personal,
+        # Published so the merge can hold the threat model and the profile
+        # against each other. They are two descriptions of one system, and
+        # nothing compared them: this repository's own golden threat model names
+        # an asset its golden profile does not declare.
+        "declared_data_types": sorted(
+            (e["id"] if isinstance(e, dict) else e)
+            for e in (profile.get("declared") or {}).get("data_types", [])),
         "program_controls": program_controls,
         "program_unavailable": program_unavailable,
         "controls_unavailable": unavailable,

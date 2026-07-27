@@ -71,8 +71,16 @@ def load_catalog_ids() -> set[str]:
     return ids
 
 
+# The values `novelty` may take. It decides whether a threat raises a control to
+# high priority, and it was compared against one literal with nothing checking
+# the field -- so a threat carrying a sentence where an enum belongs was quietly
+# treated as generic and its controls stayed at medium. The author had written
+# the most specific thing in the document.
+NOVELTY_VALUES = {"service_specific", "generic", "unknown"}
+
 def cross(controls_doc: dict, responsibility_doc: dict, threats_doc: dict) -> dict:
     baseline = set(controls_doc["controls"])
+    declared_types = set(controls_doc.get("declared_data_types") or [])
     resp = {entry["control"]: entry for entry in responsibility_doc["controls"]}
     threats = threats_doc.get("threats", []) or []
     catalog = load_catalog_ids()
@@ -80,6 +88,7 @@ def cross(controls_doc: dict, responsibility_doc: dict, threats_doc: dict) -> di
     # control -> threats that name it
     by_control: dict[str, list[str]] = {}
     threat_only = []
+    outside_baseline: list[dict] = []
     problems: list[str] = []
 
     for position, threat in enumerate(threats):
@@ -97,6 +106,28 @@ def cross(controls_doc: dict, responsibility_doc: dict, threats_doc: dict) -> di
         # while also losing the priority raise on the control that was meant.
         # The two must be distinguishable, so unmatched identifiers are
         # reported rather than quietly promoted.
+        novelty = threat.get("novelty")
+        if novelty is None:
+            problems.append(
+                f"{threat_id}: no novelty. The threat-modelling schema lists it as "
+                f"required, and its absence reads exactly like `generic` -- so a "
+                f"service-specific risk keeps its controls at medium priority and "
+                f"nothing says why.")
+        elif novelty not in NOVELTY_VALUES:
+            problems.append(
+                f"{threat_id}: novelty {novelty!r} is not one of "
+                f"{', '.join(sorted(NOVELTY_VALUES))}. It decides whether this threat "
+                f"raises its controls to high priority, and an unrecognised value is "
+                f"read as generic -- put the reasoning in `scenario` and the verdict here.")
+
+        for asset in threat.get("affected_assets") or []:
+            if declared_types and asset not in declared_types:
+                problems.append(
+                    f"{threat_id}: affects {asset!r}, which the profile does not declare. "
+                    f"The threat model and the profile describe one system -- either the "
+                    f"service holds it and question one missed it, or the threat names "
+                    f"something it does not.")
+
         related = threat.get("related_controls")
         if related is None:
             related = []
@@ -119,8 +150,18 @@ def cross(controls_doc: dict, responsibility_doc: dict, threats_doc: dict) -> di
             resolved.append(control)
 
         in_baseline = [c for c in resolved if c in baseline]
+        # A control the author cited, that exists, and that this baseline does
+        # not select was being dropped without a word -- so a threat citing
+        # SR-3, SR-11, and CM-14 reported as fully addressed by two, and CM-14,
+        # which is the control for the supply-chain threat that was written, was
+        # never mentioned. The reader could not tell the difference between "we
+        # cover this" and "we cover part of this".
+        outside = [c for c in resolved if c not in baseline]
         for control in in_baseline:
             by_control.setdefault(control, []).append(threat_id)
+        if outside:
+            outside_baseline.append({"threat": threat_id, "controls": outside,
+                                     "partly_covered": bool(in_baseline)})
         if not in_baseline:
             threat_only.append(threat)
 
@@ -191,7 +232,8 @@ def cross(controls_doc: dict, responsibility_doc: dict, threats_doc: dict) -> di
     for item in items:
         counts[item["origin"]] = counts.get(item["origin"], 0) + 1
 
-    return {"counts": counts, "items": items, "problems": problems}
+    return {"counts": counts, "items": items, "problems": problems,
+            "outside_baseline": outside_baseline}
 
 
 def render_cross(result: dict) -> str:
@@ -210,6 +252,15 @@ def render_cross(result: dict) -> str:
         ("baseline_only", "baseline only (retained, lower priority)"),
     ):
         out.append(f"  {counts.get(key, 0):>4}  {label}")
+
+    if result.get("outside_baseline"):
+        out += ["",
+                "  Controls a threat names that this baseline does not select. They are",
+                "  not requirements here, and the threat is less covered than its count",
+                "  suggests:"]
+        for row in result["outside_baseline"]:
+            state = "partly covered without" if row["partly_covered"] else "reaches nothing without"
+            out.append(f"    {row['threat']}: {state} {', '.join(row['controls'])}")
 
     if not counts.get("threat_only"):
         out += [
