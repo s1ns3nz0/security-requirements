@@ -5045,3 +5045,39 @@ def test_an_identifier_that_is_a_running_number_is_refused():
     findings = lint_mod.lint(doc, "en", None)
     assert "id-format" in _rules(findings)
     assert any("never a running number" in str(f) for f in findings)
+
+
+def test_the_reader_gets_the_reasoning_and_a_way_to_check_by_hand():
+    """A rationale explains why the obvious reading of the control is not
+    enough, and a manual fallback is what an auditor uses when the automated
+    check is not available to them. Neither had ever been rendered."""
+    published, _, _ = _documents([_req(
+        "REQ-A-B-01",
+        rationale="Provider-managed keys do not give the organisation custody.",
+        verification={"method": "iac_inspect", "target": "bucket encryption",
+                      "expect": "a customer key",
+                      "fallback_manual": "Console > S3 > Properties > Default encryption"})])
+    assert "do not give the organisation custody" in published
+    assert "iac_inspect: `bucket encryption` — expect a customer key" in published
+    assert "Verify (manual)" in published
+    assert "Console > S3" in published
+
+
+def test_a_requirement_with_no_function_still_reaches_the_reader():
+    """The linter refuses a requirement with no CSF function now, but the
+    renderer must not lose one that arrives anyway -- an unclassified heading is
+    a visible problem and a silently dropped requirement is not."""
+    published, _, _ = _documents([{
+        "id": "REQ-A-B-01", "human": {},
+        "managed": {"statement": "X must be Y.", "sources": ["SC-28"], "responsibility": "team"}}])
+    assert "UNCLASSIFIED" in published
+    assert "REQ-A-B-01" in published
+
+
+def test_a_partial_catalog_says_so_in_every_document():
+    """A rebuild of one family leaves the rest stale, and a document built on it
+    would otherwise read as though the whole catalogue were behind it."""
+    partial = render_mod.provenance({**render_mod.catalog_meta(), "partial": True,
+                                     "families_extracted": ["AC", "SC"]})
+    assert "Partial catalog" in partial
+    assert "AC, SC" in partial
