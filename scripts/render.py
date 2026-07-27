@@ -195,6 +195,26 @@ def render_requirements(doc: dict, titles: dict, meta: dict) -> str:
                 out += ["> A re-run proposes a change to this requirement. "
                         "See `pending_review` in requirements.yaml.", ""]
 
+    # Retired requirements, and why. The merge preserves retired_reason and
+    # previous_status with some care, and the published document showed
+    # neither -- a requirement simply vanished between two versions of the
+    # deliverable, which is the one place a reader is entitled to an
+    # explanation. An auditor diffing last quarter's document against this one
+    # finds an absence and no account of it.
+    retired = [r for r in doc.get("requirements", []) or []
+               if (r.get("human") or {}).get("status") in ("retired", "superseded")]
+    if retired:
+        out += ["## No longer required", "",
+                "These were in an earlier version of this document. They are listed so that",
+                "their absence is an answer rather than a gap.", "",
+                "| Requirement | Was | Reason |", "|---|---|---|"]
+        for req in sorted(retired, key=lambda r: r["id"]):
+            human = req.get("human") or {}
+            statement = (req.get("managed") or {}).get("statement", "").replace("|", "\\|")
+            reason = str(human.get("retired_reason") or "not recorded").replace("|", "\\|")
+            out.append(f"| {req['id']} | {statement} | {reason} |")
+        out.append("")
+
     out.append(provenance(meta))
     return "\n".join(out)
 

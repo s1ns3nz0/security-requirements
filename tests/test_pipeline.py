@@ -3598,3 +3598,96 @@ def test_the_allowlist_covers_what_the_rest_of_the_tool_reads():
     assert read_from_managed, "this test needs to find the reads it is checking"
     assert read_from_managed <= lint_mod.MANAGED_KEYS, \
         f"read but not allowed: {sorted(read_from_managed - lint_mod.MANAGED_KEYS)}"
+
+
+# --- round nine, part two: the documents themselves ---------------------------
+#
+# A coverage measurement put render.py at 20 per cent -- every one of the three
+# document renderers untested, on the script that produces the deliverable.
+
+def _req(req_id, **managed):
+    human = managed.pop("human", {})
+    base = {"statement": "Data at rest must be encrypted with a customer-managed key.",
+            "csf": ["PR.DS-01"], "sources": ["SC-28"], "responsibility": "team"}
+    base.update(managed)
+    return {"id": req_id, "managed": base, "human": human}
+
+
+def _documents(requirements):
+    doc = {"requirements": requirements}
+    titles, meta = render_mod.catalog_titles(), render_mod.catalog_meta()
+    return (render_mod.render_requirements(doc, titles, meta),
+            render_mod.render_traceability(doc, titles, meta),
+            render_mod.render_responsibility(doc, meta))
+
+
+def test_a_retired_requirement_leaves_a_record_of_why():
+    """The merge preserves retired_reason and previous_status with some care and
+    the published document showed neither, so a requirement vanished between two
+    versions of the deliverable with no account of it. An auditor diffing last
+    quarter's document against this one finds an absence."""
+    reqs, trace, resp = _documents([
+        _req("REQ-A-B-01"),
+        _req("REQ-C-D-01", human={"status": "retired", "retired_reason": "the store was removed"}),
+        _req("REQ-E-F-01", human={"status": "superseded"}),
+    ])
+    assert "1 active requirements." in reqs
+    assert "No longer required" in reqs
+    assert "the store was removed" in reqs
+    assert "not recorded" in reqs, "a retirement with no reason still has to appear"
+
+    # And they stay out of the live sections.
+    assert reqs.index("## No longer required") > reqs.index("REQ-A-B-01")
+    for retired in ("REQ-C-D-01", "REQ-E-F-01"):
+        assert retired not in trace, "a retired requirement is not an answer to a control"
+
+
+def test_every_document_carries_its_provenance():
+    """Three documents, three audiences, and each is published on its own."""
+    for document in _documents([_req("REQ-A-B-01")]):
+        assert "NIST SP 800-53 Rev 5" in document
+        assert "does not constitute" in document, "the disclaimer travels with each file"
+        assert "NIST does not endorse this output" in document
+
+
+def test_traceability_answers_the_question_it_says_it_answers():
+    """Control to requirement, including the case where two requirements address
+    one control and the case where one requirement cites several."""
+    _, trace, _ = _documents([
+        _req("REQ-A-B-01", sources=["SC-28", "SC-28(1)"]),
+        _req("REQ-C-D-01", sources=["SC-28"]),
+    ])
+    row = next(line for line in trace.splitlines() if line.startswith("| SC-28 |"))
+    assert "REQ-A-B-01" in row and "REQ-C-D-01" in row
+    assert "Protection of Information at Rest" in row, "the control's title, not just its id"
+    assert any(line.startswith("| SC-28(1) |") for line in trace.splitlines())
+
+
+def test_the_responsibility_document_keeps_the_promise_it_opens_with():
+    """It opens "Inheritance is a claim, not a fact. Every provider-claimed
+    control lists the evidence an auditor will ask for" -- and a shared
+    requirement with no evidence rendered an empty cell underneath it."""
+    _, _, resp = _documents([
+        _req("REQ-A-B-01", responsibility="csp_claimed", evidence="SOC 2 Type II report"),
+        _req("REQ-C-D-01", responsibility="shared", evidence="provider attestation",
+             csp_part="operates the KMS", team_part="supplies the key"),
+        _req("REQ-E-F-01", responsibility="team"),
+    ])
+    for claimed in ("REQ-A-B-01", "REQ-C-D-01"):
+        row = next(line for line in resp.splitlines() if claimed in line)
+        assert row.rstrip().rstrip("|").split("|")[-1].strip(), f"{claimed} has an empty evidence cell"
+
+    # The linter is what stops an empty one reaching here.
+    naked = _doc(responsibility="shared")
+    naked["requirements"][0]["managed"].pop("evidence", None)
+    rules = _rules(lint_mod.lint(naked, "en", None))
+    assert {"no-evidence", "no-csp-part", "no-team-part"} <= rules
+
+
+def test_an_unverified_inheritance_is_marked_where_it_is_claimed():
+    """A service whose curation nobody reviewed is a weaker claim than one that
+    was, and the reader is entitled to see which."""
+    _, _, resp = _documents([
+        _req("REQ-A-B-01", responsibility="csp_claimed", evidence="SOC 2", unverified=True),
+    ])
+    assert "unverified" in resp

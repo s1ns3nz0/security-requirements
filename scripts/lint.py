@@ -337,9 +337,25 @@ def lint(doc: dict, locale: str, threats: dict | None) -> list[Finding]:
                 findings.append(Finding("ERROR", req_id, "verification-method",
                                         f"{method!r} is not one of {sorted(VERIFICATION_METHODS)}"))
 
-        if managed.get("responsibility") == "csp_claimed" and not managed.get("evidence"):
+        # `shared` too. The published responsibility document opens with
+        # "Inheritance is a claim, not a fact. Every provider-claimed control
+        # lists the evidence an auditor will ask for" -- and a shared control is
+        # a provider claim for its csp_part. A shared requirement with no
+        # evidence rendered into that document with an empty cell under a
+        # sentence promising the opposite.
+        if managed.get("responsibility") in ("csp_claimed", "shared") and not managed.get("evidence"):
             findings.append(Finding("ERROR", req_id, "no-evidence",
-                                    "inheritance is a claim; state the evidence needed to substantiate it"))
+                                    "inheritance is a claim; state the evidence needed to "
+                                    "substantiate it"))
+
+        # And a shared control has to say which half is whose, or the document
+        # asserts a division it cannot describe.
+        if managed.get("responsibility") == "shared":
+            for half, whose in (("csp_part", "the provider's"), ("team_part", "the team's")):
+                if not managed.get(half):
+                    findings.append(Finding(
+                        "ERROR", req_id, f"no-{half.replace('_', '-')}",
+                        f"responsibility is shared but {half} does not say what {whose} half is"))
 
         # A requirement derived purely from the threat model legitimately cites
         # no control -- that is what the threat-only bucket means, and those are
