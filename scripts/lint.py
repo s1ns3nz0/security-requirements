@@ -266,9 +266,11 @@ def script_of(text: str) -> str | None:
 # naming the production bucket answers "where the data lives", which the README
 # puts on the other side of the line.
 INSTANCE_FORMS = (
-    (re.compile(r"\barn:[a-z0-9-]*:"), "an ARN"),
-    (re.compile(r"https?://"), "a URL"),
-    (re.compile(r"\b[a-z0-9-]+\.(?:internal|local|corp|intranet)\b"), "an internal hostname"),
+    # Case-insensitive: ARN:AWS: and HTTPS:// are the same disclosure.
+    (re.compile(r"\barn:[a-z0-9-]*:", re.IGNORECASE), "an ARN"),
+    (re.compile(r"https?://", re.IGNORECASE), "a URL"),
+    (re.compile(r"\b[a-z0-9-]+\.(?:internal|local|corp|intranet)\b", re.IGNORECASE),
+     "an internal hostname"),
 )
 # Two more were here and are gone. A dotted quad matches an IP address and also
 # matches an agent version (1.24.3.1) and a certificate policy OID
@@ -283,13 +285,21 @@ def check_public_safety(req_id: str, managed: dict) -> list[Finding]:
     """Fields that reach docs/security/ and could name one particular thing."""
     findings = []
     verification = managed.get("verification")
+    # Every field that reaches a published document as free text. The first
+    # version listed four and the style guide repeated the number; `statement`,
+    # `rationale`, and `verification.expect` are published too, so
+    # "expect: the endpoint equals https://prod.internal/..." walked straight
+    # past a rule written to catch exactly that.
     fields = {
+        "statement": managed.get("statement"),
+        "rationale": managed.get("rationale"),
         "evidence": managed.get("evidence"),
         "csp_part": managed.get("csp_part"),
         "team_part": managed.get("team_part"),
     }
     if isinstance(verification, dict):
         fields["verification.target"] = verification.get("target")
+        fields["verification.expect"] = verification.get("expect")
         fields["verification.fallback_manual"] = verification.get("fallback_manual")
 
     for name, value in fields.items():

@@ -135,6 +135,7 @@ def cell(value) -> str:
     table entirely.
     """
     text = "; ".join(str(v) for v in value) if isinstance(value, (list, tuple)) else str(value or "")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     return text.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
 
 
@@ -231,7 +232,7 @@ def render_requirements(doc: dict, titles: dict, meta: dict) -> str:
                 "| Requirement | Was | Status |", "|---|---|---|"]
         for req in sorted(retired, key=lambda r: r["id"]):
             human = req.get("human") or {}
-            statement = (req.get("managed") or {}).get("statement", "").replace("|", "\\|")
+            statement = (req.get("managed") or {}).get("statement", "")
             # Not human.retired_reason. This file is publishable and `human` is
             # the internal record: a retirement reason can name the person who
             # approved an exception, and printing it verbatim moved governance
@@ -259,7 +260,8 @@ def render_traceability(doc: dict, titles: dict, meta: dict) -> str:
            "", "| Control | Title | Requirements |", "|---|---|---|"]
     for control in sorted(by_control, key=lambda c: (c.split("-")[0], c)):
         title = titles.get(control, "")
-        out.append(f"| {control} | {title} | {', '.join(sorted(by_control[control]))} |")
+        out.append(f"| {cell(control)} | {cell(title)} | "
+                   f"{cell(', '.join(sorted(by_control[control])))} |")
 
     # Requirements no control produced. This document is the auditor's, and it
     # listed only what a control maps to -- so a threat-only requirement, which
@@ -285,7 +287,7 @@ def render_traceability(doc: dict, titles: dict, meta: dict) -> str:
                 "| Requirement | Statement | Basis |", "|---|---|---|"]
         for req in sorted(unsourced, key=lambda r: r["id"]):
             managed = req.get("managed") or {}
-            statement = managed.get("statement", "").replace("|", "\\|")
+            statement = managed.get("statement", "")
             basis = "threat model" if managed.get("threat_refs") else "not recorded"
             out.append(f"| {cell(req['id'])} | {cell(statement)} | {cell(basis)} |")
 
@@ -315,7 +317,7 @@ def render_responsibility(doc: dict, meta: dict) -> str:
             if isinstance(evidence, list):
                 evidence = "; ".join(evidence)
             marker = " ⚠ unverified" if managed.get("unverified") else ""
-            statement = managed.get("statement", "").replace("|", "\\|")
+            statement = managed.get("statement", "")
             # The document exists to say who owns what, and it said only
             # "shared". The linter now requires both halves to be described; not
             # printing them left the requirement asserting a division it did not

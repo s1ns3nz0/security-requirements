@@ -29,8 +29,8 @@ Some steps are lookups. Never perform those with judgement — call the script.
 | 7. Cross and prioritise | script | `scripts/merge.py` |
 | 8. Write requirements | model | `references/requirement-style.md` |
 | 9. Merge with existing | script | `scripts/merge.py` |
-| 10. Render | script | `scripts/render.py` |
-| 11. Lint and link-check | script | `scripts/lint.py` |
+| 10. Lint and link-check | script | `scripts/lint.py --strict` |
+| 11. Render | script | `scripts/render.py` |
 
 "Which controls are in the Moderate baseline" is a table lookup. Answering it
 from memory is slower, non-reproducible, and invents identifiers. The catalogs

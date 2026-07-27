@@ -5292,3 +5292,50 @@ def test_a_shape_that_is_not_an_instance_is_left_alone(value):
     an instance. Half its probe set was a false positive."""
     assert not [f for f in lint_mod.lint(_doc(team_part=value), "en", None)
                 if f.rule == "names-an-instance"], value
+
+
+def test_the_documented_order_lints_before_it_publishes():
+    """`docs/security/` is the publishable output. Rendering before checking
+    means a requirement naming a production bucket is in the file by the time
+    anyone is told about it, and the build succeeds -- the disclosure guard
+    emits warnings and warnings pass without --strict."""
+    build = (REPO_ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
+    assert build.index("scripts/lint.py") < build.index("scripts/render.py"), \
+        "lint runs before the publishable files are written"
+    invocation = next(line for line in build.splitlines()
+                      if line.strip().startswith("python3 scripts/lint.py"))
+    assert "--strict" in invocation, \
+        "a warning about what leaves the building has to fail the build"
+
+    skill = (REPO_ROOT / "skills" / "deriving-security-requirements" /
+             "SKILL.md").read_text(encoding="utf-8")
+    assert skill.index("scripts/lint.py") < skill.index("scripts/render.py")
+
+
+@pytest.mark.parametrize("raw,rendered", [
+    ("a|b", "a\\|b"),
+    ("a\nb", "a<br>b"),
+    ("a\r\nb", "a<br>b"),
+    ("a\\b", "a\\\\b"),
+    (["x|y", "z"], "x\\|y; z"),
+    (None, ""),
+])
+def test_a_cell_is_escaped_once(raw, rendered):
+    """Callers used to pre-escape and then pass the result through, so a raw
+    `a|b` came out `a\\\\\\|b` with a visible backslash. One escaper, applied
+    once, at the point the cell is written."""
+    assert render_mod.cell(raw) == rendered
+
+
+def test_every_table_row_goes_through_the_escaper():
+    """The traceability table interpolated its cells directly, so the claim
+    that one escaper covered every cell was untrue -- a catalogue title
+    containing a pipe produced four columns in a three-column table."""
+    import re as _re
+    source = (REPO_ROOT / "scripts" / "render.py").read_text(encoding="utf-8")
+    rows = _re.findall(r'out\.append\(f"\| ([^\n]*)', source)
+    assert rows, "this test needs to find the rows it is checking"
+    for row in rows:
+        for interpolation in _re.findall(r"\{([^}]+)\}", row):
+            assert interpolation.startswith("cell(") or interpolation in ("body", "marker"), \
+                f"a table cell that does not go through cell(): {interpolation}"
