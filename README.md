@@ -8,8 +8,8 @@ before or independently of any code existing. That is the artefact a compliance
 or design stage actually needs, and it is the one nothing produces.
 
 > **Status: pre-release.** The pipeline runs end to end with the full SP 800-53
-> Rev 5 catalog, CSF 2.0, ASVS 5.0, eleven curated services, and one regulatory
-> overlay (ISMS-P). Exercised against a dozen real repositories; see
+> Rev 5 catalog, CSF 2.0, ASVS 5.0, eleven curated services, and two regulatory
+> overlays (ISMS-P, HIPAA). Exercised against a dozen real repositories; see
 > [DESIGN.md](DESIGN.md) for what that turned up.
 
 ## What it produces
@@ -109,6 +109,7 @@ and better for being read.
 | Responsibility layers | Family defaults and control overrides for five deployment models | Apache-2.0 |
 | Service curation | S3, RDS, Lambda, API Gateway, Cognito, DynamoDB, ECS, SQS, CloudFront, ALB, Azure Blob | Apache-2.0 |
 | ISMS-P overlay | 101 certification criteria with an authored control mapping | Korean notice, outside copyright (Article 7) |
+| HIPAA overlay | 22 standards and 46 implementation specifications, rebuildable from the eCFR API | US Government work, public domain |
 
 CIS Benchmarks, PCI DSS, ISO/IEC 27001 Annex A, and SOC 2 criteria are **not**
 bundled — their terms do not permit redistribution. Provider guidance is

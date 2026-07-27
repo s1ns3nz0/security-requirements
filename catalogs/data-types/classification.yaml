@@ -358,6 +358,7 @@ regulatory_triggers:
     message: "Raw cardholder data detected. PCI DSS appears to apply and is not supported by this tool."
 
   hipaa:
+    overlay: hipaa-security-rule
     label: "HIPAA Security Rule"
     covered: false
     applies_when: {user_regions_any: [US]}

@@ -1,0 +1,19 @@
+{
+  "source": "https://www.ecfr.gov/api/versioner/v1/full/{date}/title-45.xml?part=164",
+  "point_in_time": "2026-01-01",
+  "publication": "45 CFR Part 164 Subpart C -- HIPAA Security Rule",
+  "license": "US Government work, public domain",
+  "standards": 22,
+  "implementation_specifications": 46,
+  "designations": {
+    "Required": 24,
+    "Addressable": 22
+  },
+  "standards_per_section": {
+    "164.308": 9,
+    "164.310": 4,
+    "164.312": 5,
+    "164.314": 2,
+    "164.316": 2
+  }
+}

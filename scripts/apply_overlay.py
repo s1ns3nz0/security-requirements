@@ -91,14 +91,25 @@ def applies(overlay: dict, profile: dict) -> tuple[bool, str, dict]:
     if wanted_regions and regions and not (wanted_regions & regions):
         return False, f"no user region in {sorted(wanted_regions)}", {}
 
-    selector = meta.get("scope_selector") or {}
+    wanted_types = set(condition.get("data_types_any") or [])
+    if wanted_types and not (wanted_types & types):
+        return False, "no declared data type this regime covers", {}
+
+    # Only regimes that certify at more than one scope declare a selector.
+    # Defaulting to one when none is declared put a Korean certification scope
+    # on a US health regulation, because the default carried the first
+    # overlay's vocabulary.
+    selector = meta.get("scope_selector")
+    if not selector:
+        return True, "region and declared data types match", {"scope": "full", "areas": None}
+
     personal = set(selector.get("personal_data_types") or [])
     if personal & types:
-        scope = selector.get("with_personal_data") or {"scope": "ISMS-P", "areas": None}
-        reason = "Korean users, and personal data is processed"
+        scope = selector.get("with_personal_data") or {"scope": "full", "areas": None}
+        reason = "region matches, and personal data is processed"
     else:
-        scope = selector.get("without_personal_data") or {"scope": "ISMS", "areas": None}
-        reason = "Korean users; no personal data declared, so the personal data area is out of scope"
+        scope = selector.get("without_personal_data") or {"scope": "full", "areas": None}
+        reason = "region matches; no personal data declared, so that area is out of scope"
     return True, reason, scope
 
 
@@ -143,8 +154,9 @@ def evaluate(overlay: dict, derived_controls: list[str], scope: dict | None = No
 
 
 def render(result: dict, reason: str) -> str:
-    out = [f"{result['name']} ({result['version']})",
-           f"  scope: {result['scope']} -- {reason}", ""]
+    scope = result["scope"]
+    heading = f"  {reason}" if scope == "full" else f"  scope: {scope} -- {reason}"
+    out = [f"{result['name']} ({result['version']})", heading, ""]
     out.append(f"  {len(result['covered']):>4}  fully covered by the derived baseline")
     out.append(f"  {len(result['partial']):>4}  partly covered -- some mapped controls are outside it")
     out.append(f"  {len(result['uncovered']):>4}  mapped, but no mapped control is in the baseline")

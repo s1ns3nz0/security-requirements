@@ -2,9 +2,9 @@
 
 An overlay adds a regulation's requirements on top of the core derivation.
 
-**One ships: `pipa-isms-p`.** It was chosen on the two grounds this file set
-out -- the source is bundleable, and the audience is real. See that directory
-for a worked example of every rule below.
+**Two ship: `pipa-isms-p` and `hipaa-security-rule`.** Both were chosen on the
+grounds this file set out -- the source is bundleable, and the audience is real.
+See either directory for a worked example of every rule below.
 
 Until an overlay exists for a regulation, detection produces a declaration:
 

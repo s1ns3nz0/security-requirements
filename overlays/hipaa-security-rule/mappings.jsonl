@@ -1,0 +1,68 @@
+{"clause": "164.308(a)(1)(i)", "title": "Security management process", "controls": ["PM-9", "RA-1"], "standalone": false, "responsibility_hint": "org", "designation": null}
+{"clause": "164.308(a)(1)(ii)(A)", "title": "Risk analysis", "controls": ["RA-3"], "standalone": false, "responsibility_hint": "org", "designation": "Required"}
+{"clause": "164.308(a)(1)(ii)(B)", "title": "Risk management", "controls": ["RA-7", "PM-9"], "standalone": false, "responsibility_hint": "org", "designation": "Required"}
+{"clause": "164.308(a)(1)(ii)(C)", "title": "Sanction policy", "controls": ["PS-8"], "standalone": false, "responsibility_hint": "org", "designation": "Required"}
+{"clause": "164.308(a)(1)(ii)(D)", "title": "Information system activity review", "controls": ["AU-6", "AU-6(1)"], "standalone": false, "responsibility_hint": "shared", "designation": "Required"}
+{"clause": "164.308(a)(2)", "title": "Assigned security responsibility", "controls": ["PM-2"], "standalone": false, "responsibility_hint": "org", "designation": null}
+{"clause": "164.308(a)(3)(i)", "title": "Workforce security", "controls": ["PS-1"], "standalone": false, "responsibility_hint": "org", "designation": null}
+{"clause": "164.308(a)(3)(ii)(A)", "title": "Authorization and/or supervision", "controls": ["PS-2", "AC-2"], "standalone": false, "responsibility_hint": "org", "designation": "Addressable"}
+{"clause": "164.308(a)(3)(ii)(B)", "title": "Workforce clearance procedure", "controls": ["PS-3"], "standalone": false, "responsibility_hint": "org", "designation": "Addressable"}
+{"clause": "164.308(a)(3)(ii)(C)", "title": "Termination procedures", "controls": ["PS-4", "AC-2(3)"], "standalone": false, "responsibility_hint": "org", "designation": "Addressable"}
+{"clause": "164.308(a)(4)(i)", "title": "Information access management", "controls": ["AC-1"], "standalone": false, "responsibility_hint": "org", "designation": null}
+{"clause": "164.308(a)(4)(ii)(A)", "title": "Isolating health care clearinghouse functions", "controls": ["AC-4", "SC-7"], "standalone": false, "responsibility_hint": "team", "designation": "Required", "notes": "Clearinghouse isolation is a segregation duty specific to one entity type; the flow controls are the nearest technical expression."}
+{"clause": "164.308(a)(4)(ii)(B)", "title": "Access authorization", "controls": ["AC-2", "AC-3"], "standalone": false, "responsibility_hint": "team", "designation": "Addressable"}
+{"clause": "164.308(a)(4)(ii)(C)", "title": "Access establishment and modification", "controls": ["AC-2", "AC-2(4)"], "standalone": false, "responsibility_hint": "team", "designation": "Addressable"}
+{"clause": "164.308(a)(5)(i)", "title": "Security awareness and training", "controls": ["AT-1", "AT-2"], "standalone": false, "responsibility_hint": "org", "designation": null}
+{"clause": "164.308(a)(5)(ii)(A)", "title": "Security reminders", "controls": ["AT-2"], "standalone": false, "responsibility_hint": "org", "designation": "Addressable"}
+{"clause": "164.308(a)(5)(ii)(B)", "title": "Protection from malicious software", "controls": ["SI-3"], "standalone": false, "responsibility_hint": "shared", "designation": "Addressable"}
+{"clause": "164.308(a)(5)(ii)(C)", "title": "Log-in monitoring", "controls": ["AC-7", "AU-6"], "standalone": false, "responsibility_hint": "shared", "designation": "Addressable"}
+{"clause": "164.308(a)(5)(ii)(D)", "title": "Password management", "controls": ["IA-5", "IA-5(1)"], "standalone": false, "responsibility_hint": "team", "designation": "Addressable"}
+{"clause": "164.308(a)(6)(i)", "title": "Security incident procedures", "controls": ["IR-1"], "standalone": false, "responsibility_hint": "org", "designation": null}
+{"clause": "164.308(a)(6)(ii)", "title": "Response and reporting", "controls": ["IR-4", "IR-6"], "standalone": false, "responsibility_hint": "org", "designation": "Required"}
+{"clause": "164.308(a)(7)(i)", "title": "Contingency plan", "controls": ["CP-1", "CP-2"], "standalone": false, "responsibility_hint": "org", "designation": null}
+{"clause": "164.308(a)(7)(ii)(A)", "title": "Data backup plan", "controls": ["CP-9"], "standalone": false, "responsibility_hint": "shared", "designation": "Required"}
+{"clause": "164.308(a)(7)(ii)(B)", "title": "Disaster recovery plan", "controls": ["CP-10"], "standalone": false, "responsibility_hint": "shared", "designation": "Required"}
+{"clause": "164.308(a)(7)(ii)(C)", "title": "Emergency mode operation plan", "controls": ["CP-2"], "standalone": false, "responsibility_hint": "org", "designation": "Required"}
+{"clause": "164.308(a)(7)(ii)(D)", "title": "Testing and revision procedures", "controls": ["CP-4"], "standalone": false, "responsibility_hint": "org", "designation": "Addressable"}
+{"clause": "164.308(a)(7)(ii)(E)", "title": "Applications and data criticality analysis", "controls": ["RA-9", "CP-2(8)"], "standalone": false, "responsibility_hint": "team", "designation": "Addressable"}
+{"clause": "164.308(a)(8)", "title": "Evaluation", "controls": ["CA-2", "CA-7"], "standalone": false, "responsibility_hint": "org", "designation": null}
+{"clause": "164.308(b)(1)", "title": "Business associate contracts and other arrangements", "controls": ["SA-9"], "standalone": false, "responsibility_hint": "org", "designation": null}
+{"clause": "164.308(b)(3)", "title": "Written contract or other arrangement", "controls": ["SA-4", "SA-9"], "standalone": false, "responsibility_hint": "org", "designation": "Required"}
+{"clause": "164.310(a)(1)", "title": "Facility access controls", "controls": ["PE-1", "PE-3"], "standalone": false, "responsibility_hint": "csp_claimed", "designation": null}
+{"clause": "164.310(a)(2)(i)", "title": "Contingency operations", "controls": ["PE-3", "CP-2"], "standalone": false, "responsibility_hint": "csp_claimed", "designation": "Addressable"}
+{"clause": "164.310(a)(2)(ii)", "title": "Facility security plan", "controls": ["PE-3"], "standalone": false, "responsibility_hint": "csp_claimed", "designation": "Addressable"}
+{"clause": "164.310(a)(2)(iii)", "title": "Access control and validation procedures", "controls": ["PE-2", "PE-3", "PE-6"], "standalone": false, "responsibility_hint": "csp_claimed", "designation": "Addressable"}
+{"clause": "164.310(a)(2)(iv)", "title": "Maintenance records", "controls": ["MA-2"], "standalone": false, "responsibility_hint": "csp_claimed", "designation": "Addressable"}
+{"clause": "164.310(b)", "title": "Workstation use", "controls": ["PL-4", "CM-11"], "standalone": false, "responsibility_hint": "org", "designation": null}
+{"clause": "164.310(c)", "title": "Workstation security", "controls": ["PE-5", "AC-11"], "standalone": false, "responsibility_hint": "org", "designation": null}
+{"clause": "164.310(d)(1)", "title": "Device and media controls", "controls": ["MP-1"], "standalone": false, "responsibility_hint": "org", "designation": null}
+{"clause": "164.310(d)(2)(i)", "title": "Disposal", "controls": ["MP-6"], "standalone": false, "responsibility_hint": "shared", "designation": "Required"}
+{"clause": "164.310(d)(2)(ii)", "title": "Media re-use", "controls": ["MP-6"], "standalone": false, "responsibility_hint": "shared", "designation": "Required"}
+{"clause": "164.310(d)(2)(iii)", "title": "Accountability", "controls": ["MP-2", "MP-5"], "standalone": false, "responsibility_hint": "org", "designation": "Addressable"}
+{"clause": "164.310(d)(2)(iv)", "title": "Data backup and storage", "controls": ["CP-9"], "standalone": false, "responsibility_hint": "shared", "designation": "Addressable"}
+{"clause": "164.312(a)(1)", "title": "Access control", "controls": ["AC-3"], "standalone": false, "responsibility_hint": "team", "designation": null}
+{"clause": "164.312(a)(2)(i)", "title": "Unique user identification", "controls": ["IA-2", "IA-4"], "standalone": false, "responsibility_hint": "team", "designation": "Required", "notes": "A shared account defeats this outright, and it is the most common way a service fails it."}
+{"clause": "164.312(a)(2)(ii)", "title": "Emergency access procedure", "controls": ["CP-2", "AC-2"], "standalone": false, "responsibility_hint": "team", "designation": "Required"}
+{"clause": "164.312(a)(2)(iii)", "title": "Automatic logoff", "controls": ["AC-11", "AC-12"], "standalone": false, "responsibility_hint": "team", "designation": "Addressable"}
+{"clause": "164.312(a)(2)(iv)", "title": "Encryption and decryption", "controls": ["SC-28", "SC-28(1)"], "standalone": false, "responsibility_hint": "shared", "designation": "Addressable", "notes": "Addressable, not optional: where it is not implemented the regulation requires a documented reason and an equivalent measure."}
+{"clause": "164.312(b)", "title": "Audit controls", "controls": ["AU-2", "AU-3", "AU-12"], "standalone": false, "responsibility_hint": "shared", "designation": null}
+{"clause": "164.312(c)(1)", "title": "Integrity", "controls": ["SI-7"], "standalone": false, "responsibility_hint": "team", "designation": null}
+{"clause": "164.312(c)(2)", "title": "Mechanism to authenticate electronic protected health information", "controls": ["SI-7", "SI-7(1)"], "standalone": false, "responsibility_hint": "team", "designation": "Addressable"}
+{"clause": "164.312(d)", "title": "Person or entity authentication", "controls": ["IA-2", "IA-8"], "standalone": false, "responsibility_hint": "team", "designation": null}
+{"clause": "164.312(e)(1)", "title": "Transmission security", "controls": ["SC-8"], "standalone": false, "responsibility_hint": "shared", "designation": null}
+{"clause": "164.312(e)(2)(i)", "title": "Integrity controls", "controls": ["SC-8(1)"], "standalone": false, "responsibility_hint": "shared", "designation": "Addressable"}
+{"clause": "164.312(e)(2)(ii)", "title": "Encryption", "controls": ["SC-8", "SC-13"], "standalone": false, "responsibility_hint": "shared", "designation": "Addressable"}
+{"clause": "164.314(a)(1)", "title": "Business associate contracts or other arrangements", "controls": ["SA-9"], "standalone": false, "responsibility_hint": "org", "designation": null}
+{"clause": "164.314(a)(2)(i)", "title": "Business associate contracts", "controls": ["SA-4", "SA-9"], "standalone": false, "responsibility_hint": "org", "designation": "Required"}
+{"clause": "164.314(a)(2)(ii)", "title": "Other arrangements", "controls": ["SA-9"], "standalone": false, "responsibility_hint": "org", "designation": "Required"}
+{"clause": "164.314(a)(2)(iii)", "title": "Business associate contracts with subcontractors", "controls": ["SR-3", "SA-9"], "standalone": false, "responsibility_hint": "org", "designation": "Required", "notes": "Flow-down to subcontractors. The customer_owned modifier marks the mirror case, where we are the business associate."}
+{"clause": "164.314(b)(1)", "title": "Requirements for group health plans", "controls": ["SA-9"], "standalone": false, "responsibility_hint": "org", "designation": null}
+{"clause": "164.314(b)(2)(i)", "title": "Implement administrative, physical, and technical safeguards", "controls": ["SA-9"], "standalone": false, "responsibility_hint": "org", "designation": "Required"}
+{"clause": "164.314(b)(2)(ii)", "title": "Ensure that the adequate separation required by § 164.504(f)", "controls": ["AC-4", "SA-9"], "standalone": false, "responsibility_hint": "org", "designation": "Required"}
+{"clause": "164.314(b)(2)(iii)", "title": "Ensure that any agent to whom it provides this information a", "controls": ["SA-9", "SR-3"], "standalone": false, "responsibility_hint": "org", "designation": "Required"}
+{"clause": "164.314(b)(2)(iv)", "title": "Report to the group health plan any security incident of whi", "controls": ["IR-6"], "standalone": false, "responsibility_hint": "org", "designation": "Required"}
+{"clause": "164.316(a)", "title": "Policies and procedures", "controls": ["PL-1", "PM-1"], "standalone": false, "responsibility_hint": "org", "designation": null}
+{"clause": "164.316(b)(1)", "title": "Documentation", "controls": ["PL-2", "CM-9"], "standalone": false, "responsibility_hint": "org", "designation": null}
+{"clause": "164.316(b)(2)(i)", "title": "Time limit", "controls": ["SI-12", "AU-11"], "standalone": false, "responsibility_hint": "team", "designation": "Required", "notes": "Six years from creation or last effective date -- a fixed statutory period, not the organisational choice AU-11 leaves open."}
+{"clause": "164.316(b)(2)(ii)", "title": "Availability", "controls": ["PL-2"], "standalone": false, "responsibility_hint": "org", "designation": "Required"}
+{"clause": "164.316(b)(2)(iii)", "title": "Updates", "controls": ["PL-2", "CA-5"], "standalone": false, "responsibility_hint": "org", "designation": "Required"}

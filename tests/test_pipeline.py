@@ -1215,15 +1215,33 @@ def test_catalog_provenance_records_what_is_on_disk():
 import apply_overlay as overlay_mod  # noqa: E402
 
 
-def test_overlay_cites_only_controls_that_exist():
-    """The mapping is authored, not published. An overlay citing a control that
-    does not exist would launder a fabricated identifier into the deliverable
-    through a side door the catalog check does not watch."""
-    loaded = overlay_mod.load("pipa-isms-p")
-    known = overlay_mod.catalog_ids()
+ALL_OVERLAYS = ["pipa-isms-p", "hipaa-security-rule"]
+
+
+@pytest.mark.parametrize("overlay_id", ALL_OVERLAYS)
+def test_overlay_cites_only_controls_that_exist(overlay_id):
+    """The mappings are authored, not published. An overlay citing a control
+    that does not exist would launder a fabricated identifier into the
+    deliverable through a side door the catalog check does not watch."""
+    loaded = overlay_mod.load(overlay_id)
     cited = {c for m in loaded["mappings"] for c in m["controls"]}
     assert cited
-    assert cited <= known
+    assert cited <= overlay_mod.catalog_ids()
+
+
+@pytest.mark.parametrize("overlay_id", ALL_OVERLAYS)
+def test_overlay_maps_every_clause_it_bundles(overlay_id):
+    loaded = overlay_mod.load(overlay_id)
+    assert {m["clause"] for m in loaded["mappings"]} == set(loaded["criteria"])
+
+
+@pytest.mark.parametrize("overlay_id", ALL_OVERLAYS)
+def test_overlay_states_that_its_mapping_is_authored(overlay_id):
+    """Presenting an authored reading as a published crosswalk is the failure
+    this repository exists to avoid."""
+    meta = overlay_mod.load(overlay_id)["meta"]
+    assert meta["mapping"]["authored"] is True
+    assert meta["disclaimer"].strip()
 
 
 def test_overlay_covers_every_clause_it_bundles():
@@ -1304,3 +1322,53 @@ def test_a_regulation_with_an_overlay_is_no_longer_declared_uncovered(profile):
     uncovered = {t["id"] for t in result["uncovered_regulations"]}
     assert "pipa_general" not in uncovered
     assert "pci_dss" in uncovered      # no overlay exists, so still declared
+
+
+def test_hipaa_matches_the_published_rule_shape():
+    """Nine administrative standards, four physical, five technical. The
+    extractor asserts this too; the test guards the committed artefact."""
+    src = json.loads(
+        (REPO_ROOT / "overlays" / "hipaa-security-rule" / "source.json").read_text(encoding="utf-8"))
+    assert src["standards_per_section"] == {
+        "164.308": 9, "164.310": 4, "164.312": 5, "164.314": 2, "164.316": 2}
+    assert src["designations"] == {"Required": 24, "Addressable": 22}
+
+
+def test_addressable_specifications_are_carried():
+    """Addressable is not optional -- where it is not implemented the rule
+    requires a documented reason and an equivalent measure. Dropping the
+    addressable half would understate the obligation by nearly half."""
+    loaded = overlay_mod.load("hipaa-security-rule")
+    designations = {c.get("designation") for c in loaded["criteria"].values()}
+    assert "Addressable" in designations and "Required" in designations
+
+
+def test_an_overlay_without_scopes_does_not_borrow_anothers(profile):
+    """Found on the second overlay. `applies()` defaulted to the ISMS-P scope
+    selector, so a US health regulation was reported as certifying at a Korean
+    scope: one overlay's vocabulary leaked into another."""
+    loaded = overlay_mod.load("hipaa-security-rule")
+    p = copy.deepcopy(profile)
+    p["declared"]["user_regions"] = ["US"]
+    p["declared"]["data_types"] = [{"id": "health_records"}]
+    ok, reason, scope = overlay_mod.applies(loaded, p)
+    assert ok and scope["scope"] == "full"
+    assert "ISMS" not in reason
+
+
+def test_hipaa_does_not_apply_without_health_data(profile):
+    loaded = overlay_mod.load("hipaa-security-rule")
+    p = copy.deepcopy(profile)
+    p["declared"]["user_regions"] = ["US"]
+    p["declared"]["data_types"] = [{"id": "basic_contact"}]
+    ok, reason, _ = overlay_mod.applies(loaded, p)
+    assert ok is False and "data type" in reason
+
+
+def test_hipaa_trigger_routes_to_its_overlay(profile):
+    p = copy.deepcopy(profile)
+    p["declared"]["user_regions"] = ["US"]
+    p["declared"]["data_types"] = [{"id": "health_records"}]
+    result = sb.run(p)
+    assert "hipaa-security-rule" in result["applicable_overlays"]
+    assert "hipaa" not in {t["id"] for t in result["uncovered_regulations"]}
