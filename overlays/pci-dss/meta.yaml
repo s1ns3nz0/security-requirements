@@ -34,7 +34,9 @@ depth:
     self-assessment.
 
 applies_when:
-  data_types_any: [payment_card_raw, payment_token, bank_account]
+  # bank_account is deliberately absent, for the reason recorded against the
+  # type: a bank account number is not cardholder data.
+  data_types_any: [payment_card_raw, payment_token]
 
 # Scope is the first question PCI asks and the one that changes everything.
 # Whether the primary account number ever enters the system decides how much of

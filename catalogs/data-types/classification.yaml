@@ -260,9 +260,17 @@ types:
 
   - id: bank_account
     label: "bank account numbers and holder names"
+    # An account number travels with the name of the person it belongs to, which
+    # the label has said all along. Unflagged, a European service holding only
+    # bank details was told GDPR did not reach it.
+    personal_data: true
     confidentiality: high
     integrity: high
-    regulatory_triggers: [pci_dss]
+    # Not PCI. The standard is scoped to cardholder data -- the primary account
+    # number and what travels with it -- and a bank account number is not that.
+    # A business that takes only transfers is outside the standard entirely, and
+    # telling it otherwise is the false claim this repository exists to avoid.
+    # It fired on every ERP, invoicing, and payroll shape.
     rationale: "A direct route to fraudulent transfer."
 
   - id: transaction_history

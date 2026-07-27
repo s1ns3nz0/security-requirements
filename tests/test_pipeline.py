@@ -2809,3 +2809,64 @@ def test_the_declaration_matcher_exists_once():
             for oid in ("iso-27001", "soc2"))
         assert via_derivation is expected, declaration
         assert via_overlay is expected, declaration
+
+
+# --- round four: five more authoritative repositories -------------------------
+
+def test_a_bank_account_is_not_cardholder_data():
+    """PCI DSS is scoped to cardholder data -- the primary account number and
+    what travels with it. A bank account number is not that, and a business
+    taking only transfers is outside the standard entirely. The trigger fired on
+    every ERP, invoicing, and payroll shape."""
+    accounts = _onprem(data_types=[{"id": "bank_account"}], user_regions=["US"])
+    assert sb.run(accounts)["applicable_overlays"] == []
+
+    for in_scope in ("payment_card_raw", "payment_token"):
+        cards = _onprem(data_types=[{"id": in_scope}], user_regions=["US"])
+        assert "pci-dss" in sb.run(cards)["applicable_overlays"], in_scope
+
+
+def test_a_bank_account_carries_a_name():
+    """The label has said "bank account numbers and holder names" all along.
+    Unflagged, a European service holding only bank details was told the
+    Regulation did not reach it."""
+    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+                            "classification.yaml").read_text(encoding="utf-8"))
+    assert {t["id"]: t for t in table["types"]}["bank_account"].get("personal_data") is True
+
+    european = _onprem(data_types=[{"id": "bank_account"}], user_regions=["DE"])
+    assert "gdpr" in sb.run(european)["applicable_overlays"]
+
+
+def test_low_is_not_the_answer_when_there_is_no_answer():
+    """`highest([])` returns low, so a profile whose every declared type either
+    inherits its level or is kept out of the water mark derived LOW with the
+    same confidence as one that had been reasoned about.
+
+    A Kubernetes backup tool is exactly that profile, and its whole job is
+    holding copies of everything.
+    """
+    backup_tool = _onprem(data_types=[{"id": "backups"}, {"id": "config_secrets"},
+                                      {"id": "audit_logs"}])
+    result = sb.run(backup_tool)
+    assert result["impact"]["confidentiality"]["from_types"] == 0
+    assert result["impact"]["integrity"]["from_types"] == 0
+    assert any("absence of an answer" in w for w in result["consistency_warnings"])
+
+    # Say what is being copied and the question is answerable again.
+    backup_tool["declared"]["data_types"].append({"id": "health_records"})
+    answered = sb.run(backup_tool)
+    assert answered["impact"]["confidentiality"]["level"] == "high"
+    assert not any("absence of an answer" in w for w in answered["consistency_warnings"])
+
+
+def test_the_snapshot_an_inheriting_type_writes_is_not_evidence():
+    """The deferred pass writes a categorisation snapshot into the pool for the
+    axis that inherits. Counting the pool's length therefore made an empty water
+    mark look like a reasoned one -- the backup profile reported two
+    contributing types when neither had a level of its own."""
+    only_inheriting = _onprem(data_types=[{"id": "backups"}, {"id": "audit_logs"}])
+    assert sb.run(only_inheriting)["impact"]["confidentiality"]["from_types"] == 0
+
+    mixed = _onprem(data_types=[{"id": "backups"}, {"id": "internal_ops"}])
+    assert sb.run(mixed)["impact"]["confidentiality"]["from_types"] == 1

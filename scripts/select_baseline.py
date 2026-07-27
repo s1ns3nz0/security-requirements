@@ -192,6 +192,11 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
     # inherit_max types (backups, ML training data) take the highest level
     # reached by any concrete type, so they are resolved in a second pass.
     concrete_c, concrete_i = [], []
+    # Counted apart from the pools, because the deferred pass writes a
+    # categorisation *snapshot* into them for an inheriting axis. A snapshot
+    # is a placeholder, not evidence, and counting it made an empty water
+    # mark look like a reasoned one.
+    evidence_c = evidence_i = 0
     conf_why, integ_why, flags, triggers = [], [], [], []
     modifier_forced = []
 
@@ -340,6 +345,7 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
             if spec["integrity"] != "inherit_max":
                 concrete_i.append(spec["integrity"])
                 content_i.append(spec["integrity"])
+                evidence_i += 1
             if spec["confidentiality"] != "inherit_max":
                 raise ProfileError(
                     f"{entry['id']}: a type that inherits on integrity alone needs the "
@@ -351,6 +357,8 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
             continue
         concrete_c.append(result[0])
         concrete_i.append(result[1])
+        evidence_c += 1
+        evidence_i += 1
         content_c.append(result[0])
         content_i.append(result[1])
 
@@ -441,8 +449,15 @@ def derive_confidentiality_integrity(profile: dict, table: dict) -> tuple[dict, 
                 "note": (spec.get("note") or spec.get("rationale") or "").strip(),
             })
 
-    confidentiality = {"level": highest(concrete_c), "because": conf_why}
-    integrity = {"level": highest(concrete_i), "because": integ_why}
+    # How many declared types the water mark is actually a mark of. `highest([])`
+    # returns low, so a profile whose every type either inherits its level or is
+    # excluded from categorisation derived LOW with the same confidence as one
+    # that had been reasoned about -- and a Kubernetes backup tool, whose whole
+    # job is holding copies of everything, is exactly that profile.
+    confidentiality = {"level": highest(concrete_c), "because": conf_why,
+                       "from_types": evidence_c}
+    integrity = {"level": highest(concrete_i), "because": integ_why,
+                 "from_types": evidence_i}
     return confidentiality, integrity, sorted(set(flags)), sorted(set(triggers)), forced
 
 
@@ -868,6 +883,17 @@ def run(profile: dict) -> dict:
                     meta["id"] not in {o["id"] for o in overlays}:
                 overlays.append({"id": meta["id"], "trigger": "declared",
                                  "label": meta.get("name", meta["id"])})
+
+    if not confidentiality["from_types"] and not integrity["from_types"]:
+        declared_ids = ", ".join(
+            sorted(e["id"] if isinstance(e, dict) else str(e)
+                   for e in (profile.get("declared") or {}).get("data_types", []))) or "nothing"
+        consistency.append(
+            f"nothing declared here has a categorisation level of its own. {declared_ids} "
+            f"either inherit theirs from content, or are system information kept out of "
+            f"the water mark, so LOW below is the absence of an answer rather than an "
+            f"answer. A backup of a High system is a High system. Declare what is being "
+            f"held or copied and re-run.")
 
     # `auth_mechanism` was gathered by the interview, given a rule of its own in
     # the schema so that `none` would survive normalisation -- "the service has
