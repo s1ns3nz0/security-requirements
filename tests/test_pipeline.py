@@ -3586,6 +3586,26 @@ def test_the_refusal_happens_at_the_command_line_and_before_the_write(tmp_path):
     assert existing_path.read_bytes() != before_doc
 
 
+def test_the_allowlist_holds_nothing_nobody_reads():
+    """The list exists so that a key nothing reads is an error, and two entries
+    were added to it on the strength of a guess -- `asvs` and `overlay_refs`,
+    neither in the record shape, neither in any golden draft, neither read by
+    anything. Widening it on a hunch is the failure it exists to prevent, made
+    by the person maintaining it."""
+    import re as _re
+    read_from_managed = set()
+    for script in ("render.py", "merge.py", "lint.py"):
+        source = (REPO_ROOT / "scripts" / script).read_text(encoding="utf-8")
+        read_from_managed |= set(_re.findall(r'managed(?:\.get\(|\[)"([a-z_]+)"', source))
+
+    schema = (REPO_ROOT / "skills" / "deriving-security-requirements" / "references" /
+              "requirement-style.md").read_text(encoding="utf-8")
+    documented = {k for k in lint_mod.MANAGED_KEYS if f"{k}:" in schema}
+
+    unread = lint_mod.MANAGED_KEYS - read_from_managed - documented
+    assert not unread, f"allowed but nothing reads it and the schema does not define it: {sorted(unread)}"
+
+
 def test_the_allowlist_covers_what_the_rest_of_the_tool_reads():
     """`unverified` is produced by the responsibility split and printed by the
     renderer. Left out of the allowlist, it would have made any document that

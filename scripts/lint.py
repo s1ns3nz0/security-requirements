@@ -51,10 +51,17 @@ MANAGED_KEYS = {
     # of this list, which would have rejected any document that preserved it:
     # an allowlist has to cover what the rest of the tool reads, not what one
     # fixture happens to carry.
-    "unverified", "services", "org_control_declared",
-    # Written by the model where an overlay or ASVS requirement is the source.
-    "asvs", "overlay_refs", "note",
+    # `unverified` only. `services` and `org_control_declared` are fields of a
+    # crossed item, not of a requirement, and nothing reads them from `managed`
+    # -- they were added here on the same guess as the two removed below.
+    "unverified",
 }
+# `asvs` and `overlay_refs` were here on the strength of a guess. Neither is in
+# the record shape, neither appears in any golden draft, and nothing reads
+# either -- and the whole point of this list is that a key nothing reads is an
+# error. Widening it on a hunch is the failure it exists to prevent, made by the
+# person maintaining it. If a requirement needs to cite an overlay clause, the
+# field arrives with the consumer that reads it.
 NIST_RE = re.compile(r"^[A-Z]{2}-\d+(?:\(\d+\))?$")
 CSF_RE = re.compile(r"^[A-Z]{2}\.[A-Z]{2}-\d{2}$")
 ASVS_RE = re.compile(r"^ASVS-V\d+(?:\.\d+)*$")
