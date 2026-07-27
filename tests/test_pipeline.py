@@ -4653,3 +4653,55 @@ def test_the_catalog_is_the_one_the_build_produces():
             record = json.loads(line)
             assert record["id"] and record["family"] and "statement" in record
             assert "{{" not in json.dumps(record), f"{record['id']} carries a placeholder"
+
+
+def test_a_parameter_reference_that_does_not_settle_is_refused():
+    """Substituting a cycle terminates: three passes leave text with no
+    placeholder in it and every level of nesting still there, and nothing
+    downstream can tell that from a legitimate label. It would ship as the
+    reader's decision point."""
+    with pytest.raises(SystemExit) as exc:
+        rebuild_mod.resolve_map({"p1": "{{ insert: param, p2 }}",
+                                 "p2": "{{ insert: param, p1 }}"})
+    assert "does not" in str(exc.value) or "still refer" in str(exc.value)
+
+    with pytest.raises(SystemExit):
+        rebuild_mod.resolve_map({"p1": "{{ insert: param, p1 }}"})
+
+    # The message does not claim to know which it is. A chain deeper than three
+    # looks identical from here.
+    with pytest.raises(SystemExit) as exc:
+        rebuild_mod.resolve_map({f"p{i}": (f"{{{{ insert: param, p{i - 1} }}}} s" if i else "base")
+                                 for i in range(20)})
+    assert "Either they form a cycle or the chain is deeper" in str(exc.value)
+
+    # A chain the catalogue actually uses settles.
+    settled = rebuild_mod.resolve_map({"p1": "one", "p2": "{{ insert: param, p1 }} two",
+                                       "p3": "{{ insert: param, p2 }} three"})
+    assert not any("{{" in v for v in settled.values())
+
+
+def test_a_build_does_not_inherit_the_previous_build_s_failures(tmp_path, monkeypatch):
+    """UNRESOLVED is module state. A second build in one process was refusing
+    for a reason that was no longer true, and the tests were clearing it by hand
+    -- which is the tell."""
+    rebuild_mod.UNRESOLVED.add("left-over-from-somewhere")
+
+    catalog = {"catalog": {"groups": [{"id": "zz", "controls": [
+        {"id": "zz-1", "title": "Fine",
+         "params": [{"id": "zz-1_odp.01", "label": "a documented period"}],
+         "parts": [{"name": "statement", "prose": "Do it {{ insert: param, zz-1_odp.01 }}."}]}]}]}}
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / rebuild_mod.CATALOG_FILE).write_text(json.dumps(catalog), encoding="utf-8")
+    for name in rebuild_mod.BASELINE_FILES.values():
+        (source / name).write_text(json.dumps({"profile": {"imports": []}}), encoding="utf-8")
+    monkeypatch.setattr(rebuild_mod, "OUT_DIR", tmp_path / "out")
+
+    # The synthetic release has no PM family, so the build fails later on for a
+    # different and correct reason. What matters here is that it did not fail on
+    # the leftover, and that the leftover is gone.
+    with pytest.raises(SystemExit) as exc:
+        rebuild_mod.build_nist(source, {"zz"})
+    assert "left-over-from-somewhere" not in str(exc.value)
+    assert not rebuild_mod.UNRESOLVED

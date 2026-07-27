@@ -190,9 +190,25 @@ def resolve_map(params: dict[str, str]) -> dict[str, str]:
     decision should be.
     """
     for _ in range(3):
-        if not any(PARAM_RE.search(v) for v in params.values()):
-            break
+        remaining = {k for k, v in params.items() if PARAM_RE.search(v)}
+        if not remaining:
+            return params
         params = {k: resolve_params(v, params) for k, v in params.items()}
+
+    # Three passes and something still refers to something else. That is either
+    # a cycle -- p1 naming p2 and p2 naming p1 -- or a chain deeper than the
+    # catalogue has ever used; the two look identical from here and the message
+    # does not guess between them. Either way, substituting further terminates
+    # with no placeholder left and every level of nesting still in the text, and
+    # nothing downstream can tell that from a legitimate label.
+    still = sorted(k for k, v in params.items() if PARAM_RE.search(v))
+    if still:
+        raise SystemExit(
+            f"{len(still)} parameter label(s) still refer to other parameters after three "
+            f"passes: {', '.join(still[:6])}{' ...' if len(still) > 6 else ''}. Either they "
+            f"form a cycle or the chain is deeper than three, and substituting either "
+            f"produces text that looks like a label and means nothing."
+        )
     return params
 
 
@@ -518,6 +534,11 @@ def build_nist(src_dir: Path | None, wanted: set[str] | None) -> int:
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     global_params = build_global_params(catalog)
+
+    # Cleared here rather than by the caller. A second build in one process
+    # otherwise inherits the first one's failures and refuses for a reason that
+    # is no longer true.
+    UNRESOLVED.clear()
 
     counts = {}
     extracted: dict[str, list[dict]] = {}
