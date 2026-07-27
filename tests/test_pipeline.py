@@ -24,6 +24,7 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 import classify_resp  # noqa: E402
 import lint as lint_mod  # noqa: E402
 import merge  # noqa: E402
+import profile_schema  # noqa: E402
 import select_baseline as sb  # noqa: E402
 
 GOLDEN = REPO_ROOT / "golden" / "b2b-saas-aws"
@@ -418,6 +419,79 @@ def test_service_entry_can_be_conditional_on_deployment_model(profile):
     ec2 = classify_resp.classify(on_ecs, ["SC-39"])["controls"][0]
     assert ec2["responsibility"] == "team"
     assert ec2["source"] == "layers.yaml:iaas"
+
+
+# ---------------------------------------------------------------------------
+# profile normalisation
+#
+# Every rule downstream compares a user-authored string against a fixed set, and
+# each comparison was written as an exact match. Probing the value space found
+# five failures at once, three of them silent and in the direction that
+# suppresses findings. These tests hold the whole class shut rather than the
+# five instances.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("written,expected", [
+    ("serverless", "serverless"), ("Serverless", "serverless"),
+    ("SERVERLESS", "serverless"), ("  iaas  ", "iaas"), ("IaaS", "iaas"),
+    ("k8s", "kubernetes"), ("K8s", "kubernetes"), ("eks", "kubernetes"),
+    ("on-prem", "onprem"), ("On-Premises", "onprem"), ("iot", "embedded"),
+])
+def test_deployment_model_spelling_is_normalised(profile, written, expected):
+    p = copy.deepcopy(profile)
+    p["inferred"]["deployment_model"] = written
+    result = classify_resp.classify(p, ["SC-39"])
+    assert result["deployment_model"] == expected
+    assert result["deployment_model_recognised"] is True
+
+
+def test_a_scalar_where_a_list_belongs_is_coerced_and_reported(profile):
+    """`entrypoints: "http: api"` iterated as characters, so the shape detector
+    read an HTTP API as not-a-service and suppressed the ASVS level."""
+    p = copy.deepcopy(profile)
+    p["inferred"]["entrypoints"] = "http: api"
+    result = sb.run(p)
+    assert result["shape"]["shape"] == "service"
+    assert result["asvs_level"] is not None
+    assert any("entrypoints" in w for w in result["schema_warnings"])
+
+
+def test_scalar_user_regions_do_not_suppress_triggers(profile):
+    """`user_regions: "KR"` became {"K", "R"}, matched no jurisdiction, and
+    silenced every regulatory trigger -- a failure in the direction that hides
+    findings."""
+    p = copy.deepcopy(profile)
+    p["declared"]["user_regions"] = "KR"
+    ids = {t["id"] for t in sb.run(p)["uncovered_regulations"]}
+    assert "pipa_general" in ids
+
+
+@pytest.mark.parametrize("written", ["ap-northeast-2", "AP-NORTHEAST-2", " ap-northeast-2 "])
+def test_region_spelling_does_not_lose_cross_border(profile, written):
+    p = copy.deepcopy(profile)
+    p["inferred"]["region_storage"] = written
+    assert sb.run(p)["cross_border"]["storage_country"] == "KR"
+
+
+@pytest.mark.parametrize("written", [["sso"], ["SSO"], "sso", [" SSO "]])
+def test_org_control_spelling_keeps_its_annotations(profile, written):
+    p = copy.deepcopy(profile)
+    p["declared"]["existing_org_controls"] = written
+    result = classify_resp.classify(p, ["AC-2", "AU-6"])
+    assert any(e.get("org_control_declared") for e in result["controls"])
+
+
+@pytest.mark.parametrize("value,field", [
+    ([123], "data_types"),
+    ([None, "KR"], "user_regions"),
+])
+def test_unrescuable_values_raise_rather_than_drop(profile, value, field):
+    """Dropping a malformed data type silently changes the derivation, and the
+    reader would never learn that it had."""
+    p = copy.deepcopy(profile)
+    p["declared"][field] = value
+    with pytest.raises(profile_schema.SchemaError):
+        sb.run(p)
 
 
 def test_forced_requirements_are_produced(profile):
@@ -896,6 +970,38 @@ def test_threat_derived_requirement_may_cite_no_control():
 def test_requirement_with_no_basis_at_all_is_flagged():
     findings = lint_mod.lint(_doc(sources=[], threat_refs=[]), "en", None)
     assert "no-basis" in _rules(findings)
+
+
+@pytest.mark.parametrize("written", ["SC-28", "sc-28", " SC-28 ", "Sc-28"])
+def test_control_identifier_spelling_is_accepted(written):
+    """The question is whether the cited control exists, not whether it was
+    typed in capitals. The profile loader canonicalises; this did not, so a
+    lower-case citation failed the format check."""
+    findings = lint_mod.lint(_doc(sources=[written]), "en", None)
+    assert not [f for f in findings if f.level == "ERROR"]
+
+
+@pytest.mark.parametrize("field,value", [("sources", "SC-28"), ("csf", "PR.DS-01")])
+def test_a_scalar_identifier_field_says_so_once(field, value):
+    """A string is iterable, so a scalar was checked character by character and
+    produced one identical format error per letter. Five errors about 'S', 'C',
+    and '-' do not tell the reader a pair of brackets is missing."""
+    findings = lint_mod.lint(_doc(**{field: value}), "en", None)
+    matching = [f for f in findings if f.rule == f"{field}-format"]
+    assert len(matching) == 1
+    assert "list" in matching[0].message
+
+
+def test_verification_method_spelling_is_accepted():
+    findings = lint_mod.lint(
+        _doc(verification={"method": " IaC_Inspect ", "expect": "ok"}), "en", None)
+    assert not [f for f in findings if f.rule == "verification-method"]
+
+
+def test_invented_identifier_survives_canonicalisation():
+    """Normalising spelling must not normalise away the integrity check."""
+    findings = lint_mod.lint(_doc(sources=["sc-28(4)"]), "en", None)
+    assert any(f.level == "ERROR" and f.rule == "source-unknown" for f in findings)
 
 
 def test_invented_asvs_identifier_is_blocked():

@@ -203,8 +203,16 @@ def apply_merge(draft: list[dict], existing: list[dict], state: dict) -> dict:
 
     for item in draft:
         slug = item.get("slug")
+        if isinstance(slug, str):
+            slug = slug.strip().upper().replace(" ", "-").replace("_", "-")
         if not slug or not SLUG_RE.match(slug):
-            raise ValueError(f"draft item has an invalid slug: {slug!r}")
+            raise ValueError(
+                f"draft item has an invalid slug: {item.get('slug')!r}. "
+                f"Expected upper-case words joined by hyphens, derived from the "
+                f"requirement's subject."
+            )
+        if "managed" not in item:
+            raise ValueError(f"draft item {slug!r} has no `managed` block")
         req_id = issue_id(slug, state)
         seen.add(req_id)
 

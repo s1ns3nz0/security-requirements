@@ -35,6 +35,8 @@ from pathlib import Path
 
 import yaml
 
+from profile_schema import normalise
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LAYERS = REPO_ROOT / "responsibility" / "layers.yaml"
 SERVICES_DIR = REPO_ROOT / "responsibility" / "services"
@@ -177,6 +179,7 @@ def resolve_layer(control_id: str, layers: dict, deployment_model: str | None) -
 
 
 def classify(profile: dict, controls: list[str]) -> dict:
+    profile, _ = normalise(profile)
     layers = yaml.safe_load(LAYERS.read_text(encoding="utf-8"))
     deployment_model = (profile.get("inferred") or {}).get("deployment_model")
     csp, providers, csp_status = resolve_csp((profile.get("inferred") or {}).get("csp"))

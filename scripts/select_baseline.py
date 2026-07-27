@@ -29,6 +29,8 @@ from pathlib import Path
 
 import yaml
 
+from profile_schema import SchemaError, normalise
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CATALOG_DIR = REPO_ROOT / "catalogs" / "nist-800-53r5"
 DATA_TYPES = REPO_ROOT / "catalogs" / "data-types" / "classification.yaml"
@@ -396,6 +398,7 @@ def resolve_baseline(baseline: str, catalog: dict) -> tuple[list[dict], list[str
 # --------------------------------------------------------------------------
 
 def run(profile: dict) -> dict:
+    profile, schema_warnings = normalise(profile)
     types_table = yaml.safe_load(DATA_TYPES.read_text(encoding="utf-8"))
     avail_table = yaml.safe_load(AVAILABILITY.read_text(encoding="utf-8"))
 
@@ -461,6 +464,7 @@ def run(profile: dict) -> dict:
         "asvs_level": ASVS_FOR_IMPACT[system] if shape["app_surface"] else None,
         "threat_flags": flags,
         "forced_requirements": forced,
+        "schema_warnings": schema_warnings,
         "regulatory_flags": triggers,
         "uncovered_regulations": uncovered,
         "cross_border": cross_border,
@@ -472,7 +476,12 @@ def run(profile: dict) -> dict:
 
 def render_gate(result: dict) -> str:
     imp = result["impact"]
-    out = ["Impact derivation", ""]
+    out = []
+    for warning in result.get("schema_warnings", []):
+        out.append(f"  NOTE: {warning}")
+    if out:
+        out.append("")
+    out += ["Impact derivation", ""]
     for axis, key in (("Confidentiality", "confidentiality"), ("Integrity", "integrity"), ("Availability", "availability")):
         out.append(f"  {axis:<16}{imp[key]['level'].upper()}")
         for reason in imp[key]["because"]:
@@ -553,7 +562,7 @@ def main() -> int:
     profile = yaml.safe_load(args.profile.read_text(encoding="utf-8"))
     try:
         result = run(profile)
-    except ProfileError as exc:
+    except (ProfileError, SchemaError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

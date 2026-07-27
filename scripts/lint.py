@@ -126,16 +126,44 @@ def load_ids(directory: Path, pattern: str = "*.jsonl") -> set[str]:
     return ids
 
 
+def as_list(req_id: str, field: str, value) -> tuple[list, list[Finding]]:
+    """Coerce a field that must be a list, saying so once.
+
+    A string is iterable, so a scalar `sources: "SC-28"` was checked character
+    by character and produced one identical format error per letter. Five
+    errors about 'S', 'C', and '-' do not tell the reader that the real problem
+    is a missing pair of brackets.
+    """
+    if value is None:
+        return [], []
+    if isinstance(value, list):
+        return value, []
+    return [value], [Finding("ERROR", req_id, f"{field}-format",
+                             f"{field} must be a list; a single value was given")]
+
+
+def canonical_source(value: str) -> str:
+    """NIST and OWASP write their identifiers in a fixed case. Accept the
+    spelling and canonicalise it, as the profile loader does -- the question is
+    whether the cited control exists, not whether it was typed in capitals."""
+    return value.strip().upper().replace("ASVS-V", "ASVS-V")
+
+
 def check_sources(
     req_id: str,
-    sources: list[str],
+    sources,
     catalog: set[str],
     bundled: set[str],
     known: set[str],
 ) -> list[Finding]:
-    findings = []
+    sources, findings = as_list(req_id, "sources", sources)
     asvs_ids = load_ids(ASVS_DIR)
     for source in sources:
+        if not isinstance(source, str):
+            findings.append(Finding("ERROR", req_id, "source-format",
+                                    f"{source!r} is not a control identifier"))
+            continue
+        source = canonical_source(source)
         if source.startswith("ASVS-"):
             if not ASVS_RE.match(source):
                 findings.append(Finding("ERROR", req_id, "source-format",
@@ -216,8 +244,11 @@ def lint(doc: dict, locale: str, threats: dict | None) -> list[Finding]:
         findings += check_statement(req_id, statement, locale)
         findings += check_sources(req_id, managed.get("sources", []) or [], catalog, bundled, known)
 
-        for csf_id in managed.get("csf", []) or []:
-            if not CSF_RE.match(csf_id):
+        csf_ids_declared, csf_findings = as_list(req_id, "csf", managed.get("csf"))
+        findings += csf_findings
+        for csf_id in csf_ids_declared:
+            csf_id = csf_id.strip().upper() if isinstance(csf_id, str) else csf_id
+            if not isinstance(csf_id, str) or not CSF_RE.match(csf_id):
                 findings.append(Finding("ERROR", req_id, "csf-format",
                                         f"{csf_id!r} is not a CSF 2.0 subcategory identifier"))
             elif csf_ids and csf_id not in csf_ids:
@@ -234,6 +265,8 @@ def lint(doc: dict, locale: str, threats: dict | None) -> list[Finding]:
                     findings.append(Finding("ERROR", req_id, "verification-incomplete",
                                             f"verification.{field} is missing"))
             method = verification.get("method")
+            if isinstance(method, str):
+                method = method.strip().lower()
             if method and method not in VERIFICATION_METHODS:
                 findings.append(Finding("ERROR", req_id, "verification-method",
                                         f"{method!r} is not one of {sorted(VERIFICATION_METHODS)}"))
