@@ -7,3 +7,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Coverage measurement output, not part of the repository.
+.coverage
+htmlcov/

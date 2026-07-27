@@ -3932,3 +3932,73 @@ def test_a_malformed_threat_list_reaches_the_command_line_as_a_sentence(tmp_path
     assert r.returncode == 2
     assert "Traceback" not in r.stderr
     assert "must be a list" in r.stderr
+
+
+# --- the catalog build, at 0% -------------------------------------------------
+#
+# It needs the network, so it had never been exercised at all -- including the
+# transformations that decide what a requirement's text says.
+
+import rebuild_catalogs as rebuild_mod  # noqa: E402
+
+
+@pytest.mark.parametrize("oscal,expected", [
+    ("ac-2", "AC-2"), ("ac-2.1", "AC-2(1)"), ("sc-28.1", "SC-28(1)"),
+    ("pm-5.1", "PM-5(1)"), ("AC-2", "AC-2"),
+])
+def test_the_identifier_form_matches_the_one_auditors_use(oscal, expected):
+    assert rebuild_mod.display_id(oscal) == expected
+
+
+@pytest.mark.parametrize("param,expected", [
+    ({"id": "x", "label": "a documented period"}, "a documented period"),
+    ({"id": "x", "select": {"choice": ["a", "b"], "how-many": "one"}}, "a or b"),
+    ({"id": "x", "select": {"choice": ["a", "b"], "how-many": "one-or-more"}}, "a and/or b"),
+    ({"id": "x", "guidelines": [{"prose": "define a period;"}]}, "define a period"),
+])
+def test_every_parameter_shape_upstream_uses_becomes_readable(param, expected):
+    """Three shapes appear in the OSCAL source and all three must be handled, or
+    raw internal ids leak into requirement text."""
+    assert rebuild_mod.param_label(param) == expected
+
+
+def test_no_raw_parameter_identifier_ships_in_the_catalog():
+    """`[assignment: ac-07_odp.04]` reads like a decision the organisation is
+    meant to make. The bundled catalogue is clean; the build now refuses rather
+    than relying on anyone noticing."""
+    leaked = []
+    for path in sorted((REPO_ROOT / "catalogs" / "nist-800-53r5").glob("*.jsonl")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            for field in ("statement", "guidance", "title"):
+                leaked += [m.group(1) for m in
+                           rebuild_mod.LEAKED_PARAM_RE.finditer(str(record.get(field) or ""))]
+    assert not leaked, leaked[:10]
+
+    # And the check would see one.
+    assert rebuild_mod.LEAKED_PARAM_RE.search("Review accounts [assignment: ac-07_odp.04].")
+    assert not rebuild_mod.LEAKED_PARAM_RE.search("Review accounts [assignment: a period].")
+
+
+def test_an_unfilled_assignment_stays_visible():
+    """These are the points where an organisation must decide something. A
+    requirement derived from a control with an unfilled assignment is incomplete
+    by construction and the reader has to be able to see that."""
+    resolved = rebuild_mod.resolve_params(
+        "Review accounts {{ insert: param, ac-2_odp.01 }}.",
+        {"ac-2_odp.01": "a documented period"})
+    assert resolved == "Review accounts [assignment: a documented period]."
+    assert "{{" not in resolved
+
+
+def test_the_baseline_parser_reads_every_import():
+    """A profile carries the identifiers across several imports, and reading
+    only the first would silently shorten a baseline."""
+    profile = {"profile": {"imports": [
+        {"include-controls": [{"with-ids": ["ac-2", "ac-2.1"]}]},
+        {"include-controls": [{"with-ids": ["sc-28"]}]},
+    ]}}
+    assert rebuild_mod.parse_baseline(profile) == ["AC-2", "AC-2(1)", "SC-28"]
+    assert rebuild_mod.parse_baseline({"profile": {}}) == []

@@ -119,6 +119,9 @@ def load_json(name: str, source_dir: Path | None, base: str = UPSTREAM) -> dict:
 # parsing
 # --------------------------------------------------------------------------
 
+LEAKED_PARAM_RE = re.compile(r"\[assignment: ([a-z]{2}-\d+[._][a-z0-9_.]*)\]")
+
+
 def param_label(param: dict) -> str:
     """Human-readable text for an organisation-defined parameter.
 
@@ -499,6 +502,25 @@ def build_nist(src_dir: Path | None, wanted: set[str] | None) -> int:
         with path.open("w", encoding="utf-8") as fh:
             for record in records:
                 fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        # A parameter the global map does not know falls back to its own
+        # identifier, so `[assignment: ac-07_odp.04]` ships into a compliance
+        # document looking like a decision the reader is meant to make. The
+        # bundled catalogue is clean today; this is what keeps it clean when
+        # upstream adds a parameter shape nobody here has seen.
+        leaked = sorted({
+            match.group(1)
+            for record in records
+            for field in ("statement", "guidance", "title")
+            for match in LEAKED_PARAM_RE.finditer(str(record.get(field) or ""))
+        })
+        if leaked:
+            raise SystemExit(
+                f"{family.upper()}: {len(leaked)} unresolved parameter(s) would ship as raw "
+                f"identifiers -- {', '.join(leaked[:6])}"
+                f"{' ...' if len(leaked) > 6 else ''}. param_label does not handle the shape "
+                f"upstream used; add it rather than letting the id through."
+            )
+
         counts[family.upper()] = len(records)
         print(f"  {family.upper():<4} {len(records):>4} controls -> {path.name}", file=sys.stderr)
 
