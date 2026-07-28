@@ -7018,6 +7018,158 @@ def test_a_hint_that_is_not_an_impact_level_stops_the_derivation(monkeypatch):
     assert "medium" in str(excinfo.value)
 
 
+# --- the answerability funnel --------------------------------------------------
+#
+# Everything the overlay report said before this was about the derivation:
+# whether a control exists, whether the tailoring selected it. None of it said
+# anything had been written down, and an assessor asking how a clause is
+# satisfied cannot be answered with a control identifier.
+
+@pytest.fixture()
+def b2b_funnel_inputs():
+    profile, _ = profile_schema.normalise(
+        yaml.safe_load((GOLDEN_ROOT / "b2b-saas-aws" / "profile.yaml").read_text(encoding="utf-8")))
+    derived = sb.run(profile)
+    split = classify_resp.classify(profile, derived["controls"])
+    threats = yaml.safe_load((GOLDEN_ROOT / "b2b-saas-aws" / "threats.yaml").read_text(encoding="utf-8"))
+    work = merge.cross(derived, split, threats)
+    draft = json.loads((GOLDEN / "draft.json").read_text(encoding="utf-8"))["requirements"]
+    merged = merge.apply_merge(draft, [], {"issued": {}})
+    overlay = overlay_mod.load("pipa-isms-p")
+    _, _, scope = overlay_mod.applies(overlay, profile, derived)
+    result = overlay_mod.evaluate(overlay, derived["controls"], scope, profile)
+    return {"result": result, "requirements": {"requirements": merged["requirements"]},
+            "work": work, "profile": profile, "derived": derived}
+
+
+def test_the_funnel_rows_are_each_a_subset_of_the_row_above(b2b_funnel_inputs):
+    """The property the whole report rests on. A row lifted out on its own still
+    carries its own ceiling, so "8 answered" cannot be quoted into meaning what
+    "94 of 101 reached" was quoted into meaning."""
+    result = b2b_funnel_inputs["result"]
+    answers = overlay_mod.answerability(result, b2b_funnel_inputs["requirements"],
+                                        b2b_funnel_inputs["work"])
+    assessed = result["clause_count"]
+    expressible = assessed - len(result["standalone"])
+    reached = answers["reached"]
+    answered = len(answers["answered"])
+
+    assert answered <= reached <= expressible <= assessed, \
+        (answered, reached, expressible, assessed)
+    assert reached == len(result["covered"]) + len(result["partial"])
+    assert answered + len(answers["deferred"]) + len(answers["gap"]) == reached, \
+        "the three outcomes have to partition the reached set, or a clause is counted twice"
+
+
+def test_the_answered_row_counts_clauses_and_not_requirements(b2b_funnel_inputs):
+    """One requirement can answer several clauses -- tenant isolation answers
+    five of the ISMS-P access criteria -- so counting requirements would report
+    a different quantity under the same name."""
+    answers = overlay_mod.answerability(b2b_funnel_inputs["result"],
+                                        b2b_funnel_inputs["requirements"],
+                                        b2b_funnel_inputs["work"])
+    clauses = {row["clause"] for row in answers["answered"]}
+    requirements = {rid for row in answers["answered"] for rid in row["requirements"]}
+    assert len(clauses) == len(answers["answered"])
+    assert len(requirements) < len(clauses), \
+        "the golden draft answers more clauses than it has requirements; that is the point"
+
+
+def test_a_requirement_with_no_way_to_check_it_answers_nothing(b2b_funnel_inputs):
+    """A requirement without verification is a sentiment. It may sit in the
+    document and it does not close a clause."""
+    stripped = copy.deepcopy(b2b_funnel_inputs["requirements"])
+    for requirement in stripped["requirements"]:
+        requirement["managed"].pop("verification", None)
+    answers = overlay_mod.answerability(b2b_funnel_inputs["result"], stripped,
+                                        b2b_funnel_inputs["work"])
+    assert answers["answered"] == []
+
+
+def test_a_retired_requirement_answers_nothing(b2b_funnel_inputs):
+    """It is kept in the file so last quarter's audit stays answerable, and it
+    is not current work."""
+    live = overlay_mod.answerability(b2b_funnel_inputs["result"],
+                                     b2b_funnel_inputs["requirements"],
+                                     b2b_funnel_inputs["work"])
+    retired = copy.deepcopy(b2b_funnel_inputs["requirements"])
+    for requirement in retired["requirements"]:
+        requirement.setdefault("human", {})["status"] = "retired"
+    after = overlay_mod.answerability(b2b_funnel_inputs["result"], retired,
+                                      b2b_funnel_inputs["work"])
+    assert live["answered"] and after["answered"] == []
+
+
+def test_deferred_is_not_a_gap(b2b_funnel_inputs):
+    """The distinction the whole increment exists for. 342 of the 354 work items
+    for this case come out of the cross step at low priority -- the baseline
+    selected them and no threat reached them -- and collapsing them into the gap
+    would report a correct document as nine per cent complete."""
+    answers = overlay_mod.answerability(b2b_funnel_inputs["result"],
+                                        b2b_funnel_inputs["requirements"],
+                                        b2b_funnel_inputs["work"])
+    assert answers["deferred"], "this case has deferred clauses or the fixture is wrong"
+    assert answers["gap"] == [], \
+        "every prioritised item in the golden case is written up; a gap here is a regression"
+
+
+def test_without_a_cross_file_nothing_is_called_deferred(b2b_funnel_inputs):
+    """There is no prioritisation to consult, so calling anything deferred would
+    be a guess. Everything unanswered is a gap and the report says which of the
+    two it is looking at."""
+    answers = overlay_mod.answerability(b2b_funnel_inputs["result"],
+                                        b2b_funnel_inputs["requirements"], None)
+    assert answers["prioritisation_supplied"] is False
+    assert answers["deferred"] == []
+    assert len(answers["gap"]) == answers["reached"] - len(answers["answered"])
+
+
+def test_a_prioritised_control_with_nothing_written_is_a_gap(b2b_funnel_inputs):
+    """The row that is meant to be actionable. Drop the requirement that answers
+    the tenant-isolation criteria and those clauses move out of `answered` --
+    into `gap`, because AC-3 is high priority, not into `deferred`."""
+    thinned = copy.deepcopy(b2b_funnel_inputs["requirements"])
+    thinned["requirements"] = [r for r in thinned["requirements"]
+                               if r["id"] != "REQ-TENANT-ISOLATION-01"]
+    answers = overlay_mod.answerability(b2b_funnel_inputs["result"], thinned,
+                                        b2b_funnel_inputs["work"])
+    assert answers["gap"], "AC-3 is prioritised by T-01, so its clauses are a gap"
+    gap_clauses = {row["clause"] for row in answers["gap"]}
+    assert "2.6.1" in gap_clauses
+
+
+def test_the_overlay_command_line_prints_the_funnel(tmp_path, capsys, monkeypatch,
+                                                    b2b_funnel_inputs):
+    """End to end, because this is a new pair of arguments on a command line
+    that has been broken by a signature change before."""
+    controls = tmp_path / "controls.json"
+    controls.write_text(json.dumps(b2b_funnel_inputs["derived"]), encoding="utf-8")
+    work = tmp_path / "cross.json"
+    work.write_text(json.dumps(b2b_funnel_inputs["work"]), encoding="utf-8")
+    requirements = tmp_path / "requirements.yaml"
+    requirements.write_text(yaml.safe_dump(b2b_funnel_inputs["requirements"],
+                                           sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    monkeypatch.setattr(sys, "argv", [
+        "apply_overlay.py", "pipa-isms-p",
+        str(GOLDEN_ROOT / "b2b-saas-aws" / "profile.yaml"), str(controls),
+        "--requirements", str(requirements), "--cross", str(work)])
+    assert overlay_mod.main() == 0
+    printed = capsys.readouterr().out
+    assert "assessed criteria" in printed
+    assert "a written requirement answers it" in printed
+    assert "deferred" in printed and "the tailoring working, not a gap" in printed
+
+    # Without the requirements file the funnel is not printed at all: reporting
+    # a document nobody has written as nought per cent complete would be a
+    # statement about the reader rather than about the service.
+    monkeypatch.setattr(sys, "argv", [
+        "apply_overlay.py", "pipa-isms-p",
+        str(GOLDEN_ROOT / "b2b-saas-aws" / "profile.yaml"), str(controls)])
+    assert overlay_mod.main() == 0
+    assert "assessed criteria" not in capsys.readouterr().out
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and

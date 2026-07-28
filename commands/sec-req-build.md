@@ -111,6 +111,40 @@ A failure here is a blocker, not a warning. In particular, a cited control
 identifier that is absent from the catalog means the requirement was invented,
 and one invented identifier discredits the whole document.
 
+## 7b. Re-run each overlay against what was written
+
+Step 3 ran the overlays before any requirement existed, so it could only say
+which controls the tailoring selected. Now that `requirements.yaml` is written,
+run each applicable overlay again with the document and the work list:
+
+```
+python3 scripts/apply_overlay.py pipa-isms-p \
+    .security-requirements/profile.yaml \
+    .security-requirements/controls.json \
+    --requirements .security-requirements/requirements.yaml \
+    --cross .security-requirements/cross.json
+```
+
+This adds the funnel, and the funnel is the only part of the report that is
+about the document rather than about the derivation:
+
+```
+101  assessed criteria
+ 95  a control in the catalogue expresses it
+ 94  a selected control addresses it
+  8  a written requirement answers it, with a way to check it
+```
+
+Read the last row against the two below it, never on its own. Most of the
+difference will be **deferred** — the baseline selected a control and no threat
+reached it, so it came out of the cross step at low priority. That is the
+tailoring working. What matters is the **gap** row: a control a threat or a
+data type prioritised, with nothing written against it. A gap is work; a
+deferral is a decision the derivation already made.
+
+Without `--cross` there is no prioritisation to consult, so nothing can be
+called deferred and every unanswered clause is reported as a gap. Pass it.
+
 ## 8. Report
 
 State plainly:
@@ -119,5 +153,7 @@ State plainly:
 - which services were unverified
 - which regulatory overlays applied, at what scope, and which of their
   clauses no control reaches
+- for each overlay, how many clauses a written requirement answers, and how
+  many are a gap rather than a deferral. Never the answered count alone
 - which detected regulations have no overlay at all
 - what remains UNDETERMINED and what it cost

@@ -399,6 +399,77 @@ def evaluate(overlay: dict, derived_controls: list[str], scope: dict | None = No
     }
 
 
+def _live(requirement: dict) -> bool:
+    status = ((requirement.get("human") or {}).get("status") or "")
+    return status.strip().lower() not in ("retired", "superseded")
+
+
+def answerability(result: dict, requirements: dict | None,
+                  work: dict | None = None) -> dict:
+    """Which of the reached clauses a written requirement actually answers.
+
+    Everything above this in the report is about the derivation: whether a
+    control exists, whether the tailoring selected it. None of it says anything
+    was written down, and an assessor asking how a clause is satisfied cannot be
+    answered with a control identifier. This is the row that was missing --
+    `apply_overlay` had never seen a requirements file.
+
+    Three outcomes, and the distinction between the second and third is the
+    whole point:
+
+      answered   a control the clause maps to carries a requirement, and that
+                 requirement says how it is checked. A requirement with no
+                 verification is a sentiment and does not count here.
+      deferred   every control reaching the clause came out of the cross step at
+                 low priority -- the baseline selected it and no threat reached
+                 it. That is the tailoring working, not a gap. 342 of this
+                 repository's 354 work items for the b2b case are in this state
+                 by design.
+      gap        a control the threat model or the data types prioritised, with
+                 nothing written against it.
+
+    Collapsing the last two would make a correct document read as 4% complete,
+    and the reader would conclude the tool had not run.
+
+    Without a cross file there is no prioritisation to consult, so nothing can
+    be called deferred and every unanswered clause is reported as a gap. The
+    report says which of the two it is looking at.
+    """
+    answered_by: dict[str, list[str]] = {}
+    for requirement in (requirements or {}).get("requirements") or []:
+        if not _live(requirement):
+            continue
+        managed = requirement.get("managed") or {}
+        verification = managed.get("verification") or {}
+        if not (verification.get("method") and verification.get("expect")):
+            continue
+        for source in managed.get("sources") or []:
+            answered_by.setdefault(source, []).append(requirement["id"])
+
+    priority = {item["control"]: item.get("priority")
+                for item in (work or {}).get("items") or [] if item.get("control")}
+
+    answered, deferred, gap = [], [], []
+    for row in result["covered"] + result["partial"]:
+        selected = row.get("controls_in_baseline") or []
+        hits = sorted({rid for c in selected for rid in answered_by.get(c, [])})
+        if hits:
+            answered.append({**row, "requirements": hits})
+        elif priority and selected and all(priority.get(c) == "low" for c in selected):
+            deferred.append(row)
+        else:
+            gap.append(row)
+
+    return {
+        "answered": answered,
+        "deferred": deferred,
+        "gap": gap,
+        "reached": len(answered) + len(deferred) + len(gap),
+        "prioritisation_supplied": bool(priority),
+        "requirements_supplied": True,
+    }
+
+
 def _wrap(text: str, width: int = 74) -> list[str]:
     words, lines, current = " ".join(text.split()).split(), [], ""
     for word in words:
@@ -473,6 +544,43 @@ def render(result: dict, reason: str) -> str:
     out.append(f"  {'-' * 4}")
     out.append(f"  {result['clause_count']:>4}  clauses")
 
+    # The funnel. Each row is a subset of the one above it, so a line lifted out
+    # on its own still carries its own ceiling -- which is the property the
+    # earlier report did not have. "94 of 101 reached" was quotable and read as
+    # near-compliance; "4 answered, out of 94 reached, out of 95 a control can
+    # express, out of 101 assessed" cannot be quoted into meaning that.
+    answers = result.get("answerability")
+    if answers:
+        expressible = result["clause_count"] - len(result["standalone"])
+        out += ["",
+                "  Of those, narrowing to what is written down:", "",
+                f"  {result['clause_count']:>4}  assessed criteria",
+                f"  {expressible:>4}  a control in the catalogue expresses it",
+                f"  {answers['reached']:>4}  a selected control addresses it",
+                f"  {len(answers['answered']):>4}  a written requirement answers it, with a way to check it"]
+        if answers["prioritisation_supplied"]:
+            out += [
+                "",
+                f"  The other {answers['reached'] - len(answers['answered'])} split two ways, and the split is the point:",
+                f"    {len(answers['deferred']):>4}  deferred -- every control reaching them came out of the cross",
+                "          step at low priority. The baseline selected them and no threat",
+                "          reached them, which is the tailoring working, not a gap.",
+                f"    {len(answers['gap']):>4}  gap -- prioritised by a threat or a data type, nothing written",
+            ]
+            if answers["gap"]:
+                out.append("")
+                out.append("  The gap, clause by clause:")
+                for row in answers["gap"][:12]:
+                    out.append(f"    ! {row['clause']}  {row.get('title', '')[:52]}")
+                if len(answers["gap"]) > 12:
+                    out.append(f"      ... and {len(answers['gap']) - 12} more")
+        else:
+            out += ["",
+                    f"  {len(answers['gap']):>4}  unanswered. No cross file was supplied, so there is no",
+                    "        prioritisation to consult and none of these can be told apart",
+                    "        from work the tailoring deliberately deferred. Pass --cross to",
+                    "        split them."]
+
     if result.get("org_only"):
         n = len(result["org_only"])
         owners = ("the organisation or the provider owns"
@@ -528,6 +636,12 @@ def main() -> int:
     ap.add_argument("controls", type=Path, help="select_baseline.py --json output")
     ap.add_argument("--json", type=Path)
     ap.add_argument("--force", action="store_true", help="evaluate even if the applicability test fails")
+    ap.add_argument("--requirements", type=Path,
+                    help="requirements.yaml -- adds the row saying which clauses "
+                         "a written requirement actually answers")
+    ap.add_argument("--cross", type=Path,
+                    help="merge.py --cross output; supplies the prioritisation that "
+                         "tells a deferred clause from a gap")
     args = ap.parse_args()
 
     profile, _ = normalise(yaml.safe_load(args.profile.read_text(encoding="utf-8")))
@@ -547,6 +661,15 @@ def main() -> int:
         return 0
 
     result = evaluate(overlay, controls, scope, profile)
+
+    # Only when a requirements file is given. Printing the funnel with an empty
+    # bottom row for anyone who has not written any yet would report a document
+    # that does not exist as nought per cent complete.
+    if args.requirements:
+        requirements = yaml.safe_load(args.requirements.read_text(encoding="utf-8")) or {}
+        work = json.loads(args.cross.read_text(encoding="utf-8")) if args.cross else None
+        result["answerability"] = answerability(result, requirements, work)
+
     print(render(result, reason))
     if args.json:
         args.json.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

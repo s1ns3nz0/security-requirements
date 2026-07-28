@@ -31,6 +31,7 @@ Some steps are lookups. Never perform those with judgement — call the script.
 | 9. Merge with existing | script | `scripts/merge.py` |
 | 10. Lint and link-check | script | `scripts/lint.py` |
 | 11. Render | script | `scripts/render.py` |
+| 12. Re-run the overlays | script | `scripts/apply_overlay.py --requirements --cross`, for the funnel |
 
 "Which controls are in the Moderate baseline" is a table lookup. Answering it
 from memory is slower, non-reproducible, and invents identifiers. The catalogs
