@@ -1,0 +1,86 @@
+# Golden case 7 -- expected coverage
+#
+# Scored on whether the derivation understands that there is no facility. Every
+# other case can hand physical security to the organisation; this one cannot,
+# because the product hangs in a corridor of a building the manufacturer does
+# not control and the attacker can hold it.
+
+version: "0.1.0"
+profile: access-terminal
+
+topics:
+
+  - id: template-irreversibility
+    must_cover: true
+    critical: true
+    description: "A stolen template cannot be turned back into the biometric it came from"
+    match_any: [template, irreversib, reconstruct, raw image, enrol, revoke]
+    why: >-
+      The one control that matters most and the one a baseline cannot state. A
+      password that leaks is changed; a fingerprint that leaks is the same
+      fingerprint for life, and the person did not choose to enrol it.
+
+  - id: physical-tamper-evidence
+    must_cover: true
+    critical: true
+    description: "Opening the enclosure is detectable and leaves the device unable to hide it"
+    match_any: [tamper, enclosure, seal, intrusion, chassis, zeroi]
+    why: >-
+      The attacker holds the device. Nothing in the environment protects it, so
+      tamper evidence is engineering work in the product rather than a facility
+      control -- which is exactly what the embedded deployment model exists to
+      express.
+
+  - id: service-port-lockdown
+    must_cover: true
+    critical: true
+    description: "The service port does not expose debug or firmware access in the field"
+    match_any: [debug, JTAG, service port, USB, bootloader, console]
+    why: >-
+      Listed as an entrypoint on purpose. A physical port is the cheapest way
+      into an embedded product and the one most often left enabled because it
+      was needed on the bench.
+
+  - id: firmware-authenticity
+    must_cover: true
+    description: "The device runs only firmware it can prove came from the manufacturer"
+    match_any: [secure boot, signed, signature, firmware, OTA, rollback]
+    why: >-
+      Both an integrity control and the only protection the source_code_ip has
+      once a unit is sold, because the firmware leaves the building on every
+      device.
+
+  - id: entry-record-durability
+    must_cover: true
+    description: "An entry decision survives loss of power or network"
+    match_any: [buffer, offline, queue, durab, retain, spool]
+    why: >-
+      rpo_zero is declared for this reason. The entry record is the only
+      evidence of who went where, and the terminal is frequently offline.
+
+  - id: telemetry-as-evidence
+    must_cover: true
+    description: "Tamper and door telemetry cannot be suppressed by the device that generates it"
+    match_any: [telemetry, alarm, suppress, forward, heartbeat, tamper alert]
+    why: >-
+      security_telemetry is both the product's output and the evidence of its
+      own compromise. A device that can silence its own alarm has neither.
+
+must_not_cover:
+
+  - id: no-datacenter-facility-controls
+    match_any: [data center, datacenter, server room, raised floor, HVAC, badge office]
+    why: >-
+      There is no facility. Producing facility requirements here means the
+      derivation read PE controls without reading the deployment model, and the
+      team cannot act on a single one of them.
+
+  - id: no-web-application-controls
+    match_any: [XSS, CSRF, session cookie, SQL injection, CORS]
+    why: >-
+      The derivation already reports ASVS as not applicable because the
+      entrypoints carry no application surface. Requirements drawn from an
+      application layer that does not exist would contradict its own output.
+
+scoring:
+  recall_threshold: 0.80

@@ -20,6 +20,16 @@ type; it witnesses the HIPAA overlay only if the overlay actually evaluated and
 returned clauses. Recording the declaration instead is the shape of the failure
 above -- the input was there and the code never ran.
 
+Not the same as code coverage
+-----------------------------
+Every catalogue value is swept through the derivation by the test suite, so a
+value reported here as never exercised is not a value whose code has never run.
+It is a value no realistic profile has ever carried, which is the harder and
+more useful question: `minors_data` derives correctly in a two-line synthetic
+profile and has never appeared beside the other types a service holding
+children's data would actually declare. The sweep says the rule works. This says
+nobody has met it in the wild.
+
 Where the witnesses come from
 -----------------------------
 Golden cases are re-derived here, so they need no bookkeeping and cannot drift.
@@ -192,8 +202,11 @@ def main(argv: list[str] | None = None) -> int:
             empty[axis] = missing
 
     if empty:
-        print("\n  An axis value nothing has carried is code nothing has run. Choose the")
-        print("  next repository to carry one, rather than for being well known:")
+        print("\n  These values have never been carried by a realistic profile. The test")
+        print("  suite sweeps every one of them through the derivation, so this is not a")
+        print("  claim that the code has never run -- it is a claim that no shape anyone")
+        print("  would recognise has ever brought them together. Choose the next")
+        print("  repository or golden case to carry one:")
         for axis, missing in empty.items():
             print(f"    {axis}: {', '.join(missing)}")
 

@@ -7447,6 +7447,98 @@ def test_the_two_elective_overlays_reach_a_profile_that_names_them():
     assert "PI1" in scope["scope"] and "C1" in scope["scope"], scope
 
 
+# --- the value sweep --------------------------------------------------------
+#
+# Golden cases are for shapes: a Kubernetes ledger, a Korean payroll layer, a
+# device with no facility. Adding one per catalogue value would bloat the set
+# without saying anything a shape does not. These sweep the values instead --
+# every data type, every modifier, every provider, at least once through the
+# derivation.
+#
+# This is deliberately not what axis_coverage counts. That report is about
+# whether a realistic profile has ever carried a value, which is a different and
+# harder question than whether the code path runs. A value swept here and never
+# carried by a shape is still reported as never exercised, because it is.
+
+def _minimal_profile(**declared):
+    base = {
+        "version": "0.1.0", "locale": "en",
+        "repo": {"visibility": "private", "root": "."},
+        "inferred": {"csp": "none", "deployment_model": "onprem",
+                     "managed_services": [], "stack": ["python"],
+                     "entrypoints": ["GET /health"], "region_storage": "KR"},
+        "declared": {
+            "data_types": [{"id": "internal_ops"}],
+            "availability": {"rto": "rto_day_plus", "rpo": "rpo_hours_plus"},
+            "users": ["internal_staff"], "user_regions": ["KR"],
+            "regulations_declared": [], "existing_org_controls": [],
+        },
+    }
+    base["declared"].update(declared)
+    return base
+
+
+def _every_data_type():
+    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" / "classification.yaml")
+                           .read_text(encoding="utf-8"))
+    return [t["id"] for t in table["types"]]
+
+
+def _every_modifier():
+    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" / "classification.yaml")
+                           .read_text(encoding="utf-8"))
+    return sorted(table.get("modifiers") or {})
+
+
+@pytest.mark.parametrize("data_type", _every_data_type())
+def test_every_data_type_derives(data_type):
+    """A type in the catalogue that no profile can carry is a type nobody has
+    run. `inherit_max` types need a second type to inherit from, which is the
+    one shape this has to set up rather than assume."""
+    types = [{"id": data_type}]
+    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" / "classification.yaml")
+                           .read_text(encoding="utf-8"))
+    spec = next(t for t in table["types"] if t["id"] == data_type)
+    if "inherit" in str(spec.get("confidentiality")) or "inherit" in str(spec.get("integrity")):
+        types.append({"id": "internal_ops"})
+
+    profile, _ = profile_schema.normalise(_minimal_profile(data_types=types))
+    result = sb.run(profile)
+    assert result["impact"]["system"] in sb.LEVELS
+    assert result["controls"], data_type
+    # The reason names the type, or the level cannot be traced back to it.
+    reasons = " ".join(result["impact"]["confidentiality"]["because"])
+    assert spec.get("label", "")[:20] in reasons or "excluded from the water mark" in reasons
+
+
+@pytest.mark.parametrize("modifier", _every_modifier())
+def test_every_modifier_derives(modifier):
+    """A modifier the catalogue offers and nothing applies is a rule nobody has
+    run. Several were added for a case that was never written."""
+    profile, _ = profile_schema.normalise(_minimal_profile(
+        data_types=[{"id": "basic_contact", "modifiers": [modifier]}]))
+    result = sb.run(profile)
+    assert result["impact"]["system"] in sb.LEVELS
+    assert result["controls"], modifier
+
+
+@pytest.mark.parametrize("provider", sorted(classify_resp.KNOWN_PROVIDERS))
+def test_every_provider_splits(provider):
+    """Four providers have no curated service file, so the split falls back to
+    the deployment model layer. That is the honest answer and it has to run
+    rather than crash -- a provider this repository names as known has to be
+    usable."""
+    profile, _ = profile_schema.normalise(_minimal_profile())
+    profile["inferred"]["csp"] = provider
+    profile["inferred"]["deployment_model"] = "iaas"
+    derived = sb.run(profile)
+    split = classify_resp.classify(profile, derived["controls"])
+    assert split["csp"] == provider
+    assert split["csp_status"] == "single"
+    assert sum(split["counts"].values()) == len(derived["controls"])
+    assert not split["counts"].get("undetermined"), provider
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and
@@ -7456,8 +7548,8 @@ def test_the_golden_cases_still_span_the_scale():
         profile = yaml.safe_load((GOLDEN_ROOT / case / "profile.yaml").read_text(encoding="utf-8"))
         levels[case] = sb.run(profile)["baseline"].replace("nist-800-53b-", "")
 
-    assert sorted(levels.values()) == ["high", "high", "low", "moderate", "moderate",
-                                       "moderate"], levels
+    assert sorted(levels.values()) == ["high", "high", "high", "low", "moderate",
+                                       "moderate", "moderate"], levels
     assert levels["internal-admin"] == "low"
     assert levels["commerce-payments"] == "high"
 

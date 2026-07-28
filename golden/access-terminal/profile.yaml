@@ -1,0 +1,91 @@
+# Golden case 7 -- biometric access terminal, a physical product
+#
+# SYNTHETIC. No real organisation or product is described here.
+#
+# The only case where the system is a thing rather than a service. `embedded`
+# was added after a UAV profile put all forty-seven PE, MA, and MP controls in
+# the organisational bucket -- right for a datacenter, wrong for an airframe --
+# and then no golden case ever used it, so the overrides that fix it were
+# carried by nothing.
+#
+# What it reaches that nothing else does
+#
+#   embedded            tamper resistance, debug port lockdown, secure boot, and
+#                       firmware media handling become engineering work rather
+#                       than facilities work
+#   biometric           the highest-consequence personal data in the catalogue,
+#                       and the one type that cannot be reissued after a breach
+#   security_telemetry  door events and tamper alarms, which are the product's
+#                       output and also the evidence of its own compromise
+#   source_code_ip      firmware ships on the device, so the intellectual
+#                       property leaves the building with every unit sold
+#   service_content     the modifier that says what a system exists to hold
+#
+# The point of the case, beyond the axes
+#
+# A door reader is where "the organisation owns physical security" stops being
+# true. Nobody guards each terminal; they hang in corridors of buildings the
+# manufacturer does not control, and the attacker can hold one in their hands.
+# Every physical control has to be engineered into the product because there is
+# no facility to delegate it to.
+#
+# Biometric templates are the reason the confidentiality answer is not
+# negotiable. A password that leaks is changed. A fingerprint that leaks is the
+# same fingerprint for the rest of the person's life, and they did not choose to
+# enrol it -- their employer did.
+
+version: "0.1.0"
+locale: en
+generated_at: "2026-07-28"
+catalog_versions:
+  nist_800_53: r5
+  data_types: "0.2.0"
+
+repo:
+  visibility: private
+  root: "."
+
+inferred:
+  csp: none
+  deployment_model: embedded
+  managed_services: []
+  stack: [c, freertos, mbedtls]
+  auth_mechanism: device_certificate_mtls
+  entrypoints:
+    - "physical: capacitive fingerprint sensor"
+    - "physical: USB-C service port"
+    - "network: mTLS to the enrolment server, outbound only"
+    - "network: OTA firmware channel"
+  external_integrations:
+    - name: enrolment-server
+      purpose: "receives templates on enrolment and returns match decisions to audit"
+      data_sent: [biometric, basic_contact]
+  region_storage: KR
+
+declared:
+  data_types:
+    - id: biometric
+      modifiers: [service_content]
+    - id: security_telemetry
+    - id: source_code_ip
+    - id: basic_contact
+    - id: audit_logs
+    - id: config_secrets
+
+  availability:
+    # A door that fails open is a security incident and a door that fails shut
+    # is a safety one, so neither is an availability answer. What matters is
+    # that the entry record survives: it is the only evidence of who went where.
+    rto: rto_hours
+    rpo: rpo_zero
+    amplifiers: []
+
+  users:
+    - internal_staff
+
+  regulations_declared: []
+
+  existing_org_controls:
+    - security_policy
+
+  user_regions: [KR]

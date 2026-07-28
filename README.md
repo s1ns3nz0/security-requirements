@@ -131,12 +131,12 @@ summarised in our own words with links, never reproduced.
 
 ```
 python3 scripts/rebuild_catalogs.py     # rebuild every catalog from upstream
-python3 -m pytest tests/                # deterministic layer, 672 tests
+python3 -m pytest tests/                # deterministic layer, 712 tests
 python3 scripts/eval_golden.py golden/b2b-saas-aws requirements.yaml
 ```
 
-Six golden cases keep the whole scale reachable — they derive to Low, three
-Moderates, and two Highs. If they all collapse to one level, the tailoring has
+Seven golden cases keep the whole scale reachable — they derive to Low, three
+Moderates, and three Highs. If they all collapse to one level, the tailoring has
 stopped discriminating, so a test asserts the spread rather than leaving it to
 whoever notices.
 
