@@ -89,8 +89,26 @@ def witnesses_of(case: Path) -> dict[str, set[str]]:
     split = classify_resp.classify(profile, derived["controls"])
 
     seen: dict[str, set[str]] = {axis: set() for axis in universe()}
-    seen["locale"].add(raw.get("locale") or "en")
     seen["baseline"].add(derived["baseline"].replace("nist-800-53b-", ""))
+
+    # The locale is witnessed by rules running on text actually written in it,
+    # not by the profile's `locale:` field. The first version of this file read
+    # the field -- a declaration -- which is the exact failure the rest of the
+    # file was written to prevent, made by the file itself. A profile can say
+    # `locale: ko` and carry a document nothing Korean was ever checked against;
+    # that is how the documented build came to block every Korean document while
+    # the axis report called the locale exercised.
+    declared_locale = raw.get("locale") or "en"
+    draft_path = case / "draft.json"
+    if draft_path.exists():
+        import lint
+        statements = [
+            (item.get("managed") or {}).get("statement", "")
+            for item in json.loads(draft_path.read_text(encoding="utf-8"))["requirements"]
+        ]
+        written_in = {lint.script_of(s) for s in statements if s}
+        if declared_locale in written_in:
+            seen["locale"].add(declared_locale)
 
     inferred = profile.get("inferred") or {}
     csp, providers, _ = classify_resp.resolve_csp(inferred.get("csp"))

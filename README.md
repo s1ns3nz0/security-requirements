@@ -131,14 +131,14 @@ summarised in our own words with links, never reproduced.
 
 ```
 python3 scripts/rebuild_catalogs.py     # rebuild every catalog from upstream
-python3 -m pytest tests/                # deterministic layer, 669 tests
+python3 -m pytest tests/                # deterministic layer, 672 tests
 python3 scripts/eval_golden.py golden/b2b-saas-aws requirements.yaml
 ```
 
-Five golden cases keep the whole scale reachable — they derive to Low,
-Moderate, Moderate, Moderate, and High. If they all collapse to one level, the
-tailoring has stopped discriminating, so a test asserts the spread rather than
-leaving it to whoever notices.
+Six golden cases keep the whole scale reachable — they derive to Low, three
+Moderates, and two Highs. If they all collapse to one level, the tailoring has
+stopped discriminating, so a test asserts the spread rather than leaving it to
+whoever notices.
 
 All five are synthetic. A profile describes where the data is and what it is
 worth, and this repository is public, so a real one plus its open requirements
@@ -149,9 +149,19 @@ every declared type is Low on both axes, so it is the only one where the RPO
 integrity hint has anything to do. Both other `rpo_zero` cases were already at
 Moderate integrity from their data types, which is how the hint stayed broken.
 
-Only `b2b-saas-aws` carries a written requirements document, so it is the only
-case `eval_golden.py` can score. The other four exercise the derivation and
-their `expected-coverage.yaml` waits for a draft.
+`b2b-saas-aws` and `payroll-integration` carry written requirements documents,
+so they are the two cases `eval_golden.py` can score. The other four exercise
+the derivation and their `expected-coverage.yaml` waits for a draft.
+
+`payroll-integration` is written in Korean, and it is there because the tool
+maps 101 ISMS-P criteria and had never once put a Korean document through its
+own pipeline. It also carries the two elective overlays — ISO 27001 and SOC 2
+are declared rather than detected, so until a profile named them, a third of
+the bundled overlays had never evaluated against anything.
+
+`scripts/axis_coverage.py` reports which values of which input axes any run has
+ever carried. Adding a repository adds coverage only when it carries one
+nothing has carried before.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Curated service files are the most
 useful contribution: one managed service, one file, one pull request.

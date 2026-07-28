@@ -1,0 +1,136 @@
+{
+  "profile": "payroll-integration",
+  "note": "합성 케이스. 한국어 요구사항이 한국어 규칙으로 검사되는 경로를 밟기 위해 존재한다.",
+  "requirements": [
+    {
+      "slug": "RRN-ENCRYPTION-AT-REST",
+      "managed": {
+        "statement": "주민등록번호는 저장 시 별도의 키로 암호화되어야 한다.",
+        "rationale": "개인정보보호법 제24조의2는 고유식별정보에 대해 다른 개인정보와 구분되는 안전성 확보 조치를 요구한다.",
+        "csf": ["PR.DS-01"],
+        "sources": ["SC-28", "SC-28(1)", "SC-13"],
+        "responsibility": "team",
+        "evidence": ["암호화 설정 통제 시험 기록"],
+        "verification": {
+          "method": "iac_inspect",
+          "target": "급여 데이터베이스의 컬럼 암호화 설정과 키 참조",
+          "expect": "주민등록번호 컬럼이 다른 개인정보와 다른 키로 암호화되어 있음"
+        }
+      }
+    },
+    {
+      "slug": "RRN-RETENTION-LIMIT",
+      "managed": {
+        "statement": "주민등록번호는 원천징수와 4대보험 신고에 필요한 기간이 지나면 파기되어야 한다.",
+        "rationale": "보유 근거가 법정 신고 의무이므로, 그 의무가 끝나면 보유 근거도 함께 사라진다.",
+        "csf": ["PR.DS-01"],
+        "sources": ["SI-12", "SI-12(1)"],
+        "responsibility": "team",
+        "evidence": ["파기 배치 실행 로그"],
+        "verification": {
+          "method": "code_grep",
+          "target": "파기 배치의 대상 조회 조건",
+          "expect": "법정 보유 기간을 지난 레코드가 대상에 포함됨"
+        }
+      }
+    },
+    {
+      "slug": "VENDOR-TRANSFER-SCOPE",
+      "managed": {
+        "statement": "급여 벤더로 전송되는 항목은 계산에 필요한 항목으로 제한되어야 한다.",
+        "rationale": "위탁은 제공과 다르며, 위탁 범위를 넘는 항목은 별도의 동의 근거를 필요로 한다.",
+        "csf": ["PR.DS-02"],
+        "sources": ["AC-4", "SA-9"],
+        "responsibility": "shared",
+        "csp_part": "벤더는 수탁자로서 위탁받은 범위 안에서만 처리한다고 계약상 약정한다.",
+        "team_part": "전송 페이로드를 구성하는 쪽이 범위를 결정하므로, 필요 항목의 목록은 이쪽이 정하고 유지한다.",
+        "evidence": ["위탁 계약서의 처리 범위 조항", "전송 페이로드 스키마"],
+        "verification": {
+          "method": "code_grep",
+          "target": "벤더 전송 페이로드를 구성하는 직렬화 코드",
+          "expect": "전송 항목이 명시적 허용 목록으로 구성됨"
+        }
+      }
+    },
+    {
+      "slug": "VENDOR-WEBHOOK-AUTHENTICITY",
+      "managed": {
+        "statement": "벤더가 보내는 지급 상태 웹훅은 발신자가 검증된 뒤에 처리되어야 한다.",
+        "rationale": "지급 상태는 급여 기록을 확정시키므로, 검증 없는 웹훅은 지급 사실을 위조할 수 있는 경로가 된다.",
+        "csf": ["PR.AA-05"],
+        "sources": ["IA-3", "SC-8", "SC-8(1)"],
+        "responsibility": "team",
+        "evidence": ["웹훅 서명 검증 단위 시험"],
+        "verification": {
+          "method": "test_case",
+          "target": "웹훅 수신 핸들러의 서명 검증 분기",
+          "expect": "서명이 없거나 일치하지 않는 요청이 거부됨"
+        }
+      }
+    },
+    {
+      "slug": "PAYMENT-RECORD-IMMUTABILITY",
+      "managed": {
+        "statement": "확정된 지급 기록은 사후에 수정되지 않고 정정 기록으로만 변경되어야 한다.",
+        "rationale": "지급 기록을 재구성할 상위 원본이 없으므로, 조용히 수정된 기록은 검출되지 않는다.",
+        "csf": ["PR.DS-01"],
+        "sources": ["SI-7", "SI-7(1)", "AU-9"],
+        "responsibility": "team",
+        "evidence": ["정정 이력 조회 화면"],
+        "verification": {
+          "method": "iac_inspect",
+          "target": "지급 테이블의 갱신 권한과 정정 이력 테이블",
+          "expect": "확정 상태 레코드에 갱신 권한이 없고 정정이 별도 레코드로 남음"
+        }
+      }
+    },
+    {
+      "slug": "BANK-ACCOUNT-ACCESS-SEPARATION",
+      "managed": {
+        "statement": "계좌번호 조회 권한은 급여 담당 역할에만 부여되어야 한다.",
+        "rationale": "연동 계층의 운영자는 동기화 실패를 조사하기 위해 접근하지만, 계좌번호 자체를 볼 필요는 없다.",
+        "csf": ["PR.AA-05"],
+        "sources": ["AC-3", "AC-6", "AC-6(1)"],
+        "responsibility": "team",
+        "evidence": ["역할별 권한 정의", "분기 접근 권한 검토 기록"],
+        "verification": {
+          "method": "config_api",
+          "target": "역할과 컬럼 수준 권한의 대응 관계",
+          "expect": "급여 담당 역할 외에는 계좌번호 컬럼 조회 권한이 없음"
+        }
+      }
+    },
+    {
+      "slug": "AUDITLOG-VENDOR-SEPARATION",
+      "managed": {
+        "statement": "벤더 전송 이력은 연동 계층이 수정할 수 없는 저장소에 기록되어야 한다.",
+        "rationale": "무엇이 언제 위탁되었는지는 이 시스템 자신에 대한 질문이므로, 같은 시스템이 고칠 수 있으면 답이 되지 않는다.",
+        "csf": ["PR.PS-04"],
+        "sources": ["AU-9", "AU-9(4)"],
+        "responsibility": "team",
+        "evidence": ["로그 저장소의 쓰기 전용 권한 설정"],
+        "verification": {
+          "method": "iac_inspect",
+          "target": "전송 이력 저장소에 대한 애플리케이션 자격증명의 권한",
+          "expect": "추가만 가능하고 수정과 삭제 권한이 없음"
+        }
+      }
+    },
+    {
+      "slug": "VENDOR-ASSURANCE-EVIDENCE",
+      "managed": {
+        "statement": "벤더의 보안 통제는 계약 갱신 시점에 제출된 감사 보고서로 확인되어야 한다.",
+        "rationale": "배포 형태가 제3자 애플리케이션 소비이므로 통제 대부분이 벤더에게 있고, 이쪽이 가진 것은 벤더 관계뿐이다.",
+        "csf": ["GV.SC-07"],
+        "sources": ["SA-9", "SA-9(2)"],
+        "responsibility": "team",
+        "evidence": ["벤더가 제출한 최신 감사 보고서"],
+        "verification": {
+          "method": "artifact_review",
+          "target": "벤더 감사 보고서의 발행일과 범위",
+          "expect": "보고서 기간이 현재 계약 기간을 포함함"
+        }
+      }
+    }
+  ]
+}

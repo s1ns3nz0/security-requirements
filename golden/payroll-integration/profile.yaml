@@ -1,0 +1,88 @@
+# 골든 케이스 6 — 급여 연동 계층, 제3자 SaaS 소비
+#
+# 합성이다. 실재하는 조직을 설명하지 않는다.
+#
+# 이 도구가 무엇을 위해 만들어졌는지에 가장 가까운 케이스이고, 그래서 가장
+# 늦게 만들어졌다. ISMS-P 인증기준 101개를 매핑하고, lint에 한국어 규칙을
+# 넣고, 설계 문서를 한국어로 쓴 뒤에도 한국어 산출물이 파이프라인을 끝까지
+# 통과한 적이 한 번도 없었다. 축 커버리지 보고서가 그것을 잡았고, 문서화된
+# 빌드가 `--locale`을 전달하지 않아 모든 한국어 요구사항이 locale-mismatch로
+# 빌드를 세운다는 사실이 그 뒤에 나왔다.
+#
+# 이 케이스가 처음으로 밟는 네 가지
+#
+#   locale: ko      한국어 문장이 한국어 규칙으로 검사된다
+#   saas            조직이 제3자 애플리케이션을 소비하는 배포 형태
+#   iso-27001       선언으로 켜지는 선택적 오버레이
+#   soc2            같음. 고객이 요구해서 선언하는 전형적인 경로
+#
+# 왜 급여인가
+#
+# 한국에서 급여를 처리하면 주민등록번호를 피할 수 없다. 소득세 원천징수와
+# 4대보험 신고가 그것을 요구하고, 따라서 `government_id`가 선언이 아니라
+# 사실로 존재하는 몇 안 되는 도메인이다. 계좌번호도 같이 온다. 두 유형이
+# 함께 있는 시스템은 개인정보보호법의 고유식별정보 처리 제한과 안전성 확보
+# 조치가 동시에 걸리는, ISMS-P가 실제로 assess하는 모양이다.
+#
+# 배포 형태가 `saas`인 이유는 이 저장소가 만드는 것이 급여 시스템이 아니라
+# 제3자 급여 SaaS에 붙는 연동 계층이기 때문이다. 통제 대부분이 벤더 관계로
+# 이동하고 SA-9가 일차 통제가 된다 — 다른 다섯 케이스 중 어느 것도 밟지
+# 않는 경로다.
+
+version: "0.1.0"
+locale: ko
+generated_at: "2026-07-28"
+catalog_versions:
+  nist_800_53: r5
+  data_types: "0.2.0"
+
+repo:
+  visibility: private
+  root: "."
+
+inferred:
+  csp: none
+  deployment_model: saas
+  managed_services: []
+  stack: [python, fastapi, postgresql]
+  auth_mechanism: saml_okta
+  entrypoints:
+    - "POST /sync/payroll/monthly"
+    - "GET /employees/{id}/deductions"
+    - "POST /webhooks/vendor/payroll-status"
+  external_integrations:
+    - name: payroll-vendor
+      purpose: "급여 계산과 지급을 수행하는 제3자 SaaS"
+      data_sent: [government_id, bank_account, basic_contact]
+  region_storage: KR
+
+declared:
+  data_types:
+    - id: government_id
+    - id: bank_account
+    - id: basic_contact
+    - id: internal_ops
+    - id: audit_logs
+
+  availability:
+    # 급여는 월 단위다. 하루 멈춰도 마감 전이면 복구되지만, 지급 기록이
+    # 하나 사라지면 재구성할 상위 원본이 없다.
+    rto: rto_day_plus
+    rpo: rpo_zero
+    amplifiers: []
+
+  users:
+    - internal_staff
+
+  # 고객이 SOC 2를 요구하고 회사가 ISO 27001을 보유한 전형적인 형태.
+  # 둘 다 선택적 오버레이라 선언으로만 켜진다.
+  regulations_declared:
+    - "ISO/IEC 27001 인증 보유"
+    - "고객사가 SOC 2 Type II 보고서를 요구함"
+
+  existing_org_controls:
+    - sso
+    - security_policy
+    - access_review
+
+  user_regions: [KR]

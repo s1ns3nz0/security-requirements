@@ -7395,6 +7395,58 @@ def test_the_notice_accounts_for_everything_that_ships():
             assert (REPO_ROOT / "catalogs" / directory / "LICENSE").exists(), directory
 
 
+def test_a_korean_document_survives_the_whole_pipeline():
+    """The tool maps 101 ISMS-P criteria, carries a Korean rule set in lint.py,
+    and has a Korean design document, and until this case no Korean requirement
+    had ever been through the pipeline end to end. The axis report said the
+    locale was never exercised; what it did not say, because nothing had tried,
+    was that the documented build could not publish one at all.
+
+    Scored as much on the linter accepting it as on the coverage: a Korean
+    statement that trips a rule written for English prose is the failure this
+    case exists to catch."""
+    draft = json.loads((GOLDEN_ROOT / "payroll-integration" / "draft.json")
+                       .read_text(encoding="utf-8"))["requirements"]
+    merged = merge.apply_merge(draft, [], {"issued": {}})
+    doc = {"requirements": merged["requirements"]}
+
+    findings = lint_mod.lint(doc, "ko", None)
+    assert not [f for f in findings if f.level == "ERROR"], \
+        [f"{f.rule}: {f.message}" for f in findings if f.level == "ERROR"]
+
+    # Every statement is actually Korean, or the case witnesses nothing.
+    for requirement in doc["requirements"]:
+        statement = requirement["managed"]["statement"]
+        assert lint_mod.script_of(statement) == "ko", statement
+
+    # And the same document under English rules is refused rather than passed,
+    # which is the guard that was doing its job while the build ignored it.
+    english = lint_mod.lint(doc, "en", None)
+    assert [f for f in english if f.rule == "locale-mismatch"]
+
+
+def test_the_two_elective_overlays_reach_a_profile_that_names_them():
+    """ISO 27001 and SOC 2 are declared, not detected: no data type implies
+    them. Until a profile named them, neither had evaluated against anything,
+    and a third of the bundled overlays had never run."""
+    profile, _ = profile_schema.normalise(
+        yaml.safe_load((GOLDEN_ROOT / "payroll-integration" / "profile.yaml")
+                       .read_text(encoding="utf-8")))
+    derived = sb.run(profile)
+    for overlay_id in ("iso-27001", "soc2"):
+        overlay = overlay_mod.load(overlay_id)
+        applies, reason, scope = overlay_mod.applies(overlay, profile, derived)
+        assert applies, f"{overlay_id}: {reason}"
+        result = overlay_mod.evaluate(overlay, derived["controls"], scope, profile)
+        assert result["clause_count"], overlay_id
+
+    # SOC 2 selects its optional categories from the derivation rather than
+    # taking all of them, which is what the selector exists for.
+    overlay = overlay_mod.load("soc2")
+    _, _, scope = overlay_mod.applies(overlay, profile, derived)
+    assert "PI1" in scope["scope"] and "C1" in scope["scope"], scope
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and
@@ -7404,7 +7456,8 @@ def test_the_golden_cases_still_span_the_scale():
         profile = yaml.safe_load((GOLDEN_ROOT / case / "profile.yaml").read_text(encoding="utf-8"))
         levels[case] = sb.run(profile)["baseline"].replace("nist-800-53b-", "")
 
-    assert sorted(levels.values()) == ["high", "low", "moderate", "moderate", "moderate"], levels
+    assert sorted(levels.values()) == ["high", "high", "low", "moderate", "moderate",
+                                       "moderate"], levels
     assert levels["internal-admin"] == "low"
     assert levels["commerce-payments"] == "high"
 
@@ -7443,9 +7496,9 @@ def test_a_golden_case_that_can_be_scored_is_scored(tmp_path):
     can be evaluated. The other three have an expected-coverage file that has
     never been used -- recorded in the README rather than left to imply a
     coverage the suite does not have."""
-    scoreable = [p.name for p in GOLDEN_ROOT.iterdir()
-                 if p.is_dir() and (p / "draft.json").exists()]
-    assert scoreable == ["b2b-saas-aws"], scoreable
+    scoreable = sorted(p.name for p in GOLDEN_ROOT.iterdir()
+                       if p.is_dir() and (p / "draft.json").exists())
+    assert scoreable == ["b2b-saas-aws", "payroll-integration"], scoreable
 
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     assert "waits for a draft" in readme, "the gap is stated where the claim is made"
