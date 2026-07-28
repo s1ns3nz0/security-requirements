@@ -7325,6 +7325,76 @@ def test_a_place_this_tool_cannot_map_stays_undetermined(region):
     assert sb.resolve_storage_country(region) is None
 
 
+def test_the_documented_build_can_publish_a_korean_document(tmp_path, monkeypatch, capsys):
+    """This tool exists for a Korean regime -- 101 ISMS-P criteria, a Korean
+    rule set in the linter, a Korean design document -- and its own documented
+    build blocked every Korean requirement set. The lint step never passed a
+    locale, so `locale-mismatch` fired on every statement and stopped the build.
+
+    The guard was right. Applying English rules to Korean prose and reporting it
+    clean is worse than refusing. What was missing was that the profile records
+    the locale and nothing carried it to the step that needs it."""
+    doc = tmp_path / "requirements.yaml"
+    doc.write_text(yaml.safe_dump({"requirements": [{
+        "id": "REQ-DATA-REST-01",
+        "managed": {
+            "statement": "저장 데이터는 고객 관리형 키로 암호화되어야 한다.",
+            "rationale": "개인정보보호법상 안전성 확보조치 의무.",
+            "csf": ["PR.DS-01"], "sources": ["SC-28"], "responsibility": "team",
+            "evidence": ["통제 시험 2026-Q1"],
+            "verification": {"method": "iac_inspect", "target": "버킷 암호화 설정",
+                             "expect": "고객 관리형 키가 지정되어 있음"}},
+        "human": {}}]}, allow_unicode=True), encoding="utf-8")
+
+    monkeypatch.setattr(sys, "argv", ["lint.py", str(doc), "--locale", "ko"])
+    assert lint_mod.main() == 0, capsys.readouterr().out
+
+    # And without it, the failure is the one that was live: not a weaker check,
+    # a blocked build.
+    monkeypatch.setattr(sys, "argv", ["lint.py", str(doc)])
+    assert lint_mod.main() == 1
+    assert "locale-mismatch" in capsys.readouterr().out
+
+
+def test_the_build_carries_the_locale_to_the_step_that_needs_it():
+    """A documented flow that cannot publish in the language the tool is built
+    for is a defect in the documentation, and the only thing that catches it is
+    reading the documentation as an artefact."""
+    build = (REPO_ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
+    invocation = next(line for line in build.splitlines()
+                      if "scripts/lint.py" in line and line.strip().startswith("python3"))
+    assert "--locale" in invocation, \
+        f"the documented lint step drops the profile's locale: {invocation.strip()}"
+
+    skill = (REPO_ROOT / "skills" / "deriving-security-requirements" /
+             "SKILL.md").read_text(encoding="utf-8")
+    assert "--locale" in skill, "the stage table has to say so too"
+
+
+def test_the_notice_accounts_for_everything_that_ships():
+    """NOTICE said `catalogs/asvs-5/  (planned)` while twenty ASVS files were
+    published under CC BY-SA 4.0, and did not mention csf-2.0 or data-types at
+    all. An attribution obligation described as planned is an attribution
+    obligation that is live and unstated, and it was live on a public
+    repository."""
+    notice = (REPO_ROOT / "NOTICE").read_text(encoding="utf-8")
+    shipped = sorted(p.name for p in (REPO_ROOT / "catalogs").iterdir() if p.is_dir())
+    assert shipped, "this test needs the directories it is checking"
+    for directory in shipped:
+        assert f"catalogs/{directory}/" in notice, \
+            f"catalogs/{directory}/ ships and NOTICE does not account for it"
+        heading = notice.split(f"catalogs/{directory}/", 1)[1].lstrip()
+        assert not heading.startswith("(planned)"), \
+            f"catalogs/{directory}/ ships; NOTICE calls it planned"
+
+    # A directory carrying its own licence has to carry it in fact, not only in
+    # the description.
+    for directory in shipped:
+        described = notice.split(f"catalogs/{directory}/", 1)[1].split("\n\n", 1)[0]
+        if "own LICENSE" in described or "carries its own" in described:
+            assert (REPO_ROOT / "catalogs" / directory / "LICENSE").exists(), directory
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and

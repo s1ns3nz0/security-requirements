@@ -100,8 +100,18 @@ with a clumsy statement is still safe to publish. `--strict` would fail the
 build on a statement of four words, which is a style note wearing a blocker's
 clothes. Run it when editing the draft, not when publishing it.
 
+Pass the profile's `locale`. The linter's rule sets are per language, and it
+refuses to check a document in a language it was not told about rather than
+applying English rules to Korean prose and reporting it clean. Omitting the
+flag on a Korean document does not produce a weaker check -- it produces
+`locale-mismatch` on every requirement and stops the build, which is how a tool
+built for a Korean regime came to be unable to publish a Korean document.
+
 ```
-python3 scripts/lint.py .security-requirements/requirements.yaml
+locale=$(python3 -c "import yaml,sys; print((yaml.safe_load(open(sys.argv[1])) or {}).get('locale','en'))" \
+    .security-requirements/profile.yaml)
+
+python3 scripts/lint.py .security-requirements/requirements.yaml --locale "$locale"
 
 python3 scripts/render.py .security-requirements/requirements.yaml \
     --out docs/security/

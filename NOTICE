@@ -14,12 +14,22 @@ catalogs/nist-800-53r5/
   NIST does not endorse this project. Do not represent derived output as
   NIST-validated.
 
-catalogs/asvs-5/  (planned)
+catalogs/asvs-5/
   Derived from the OWASP Application Security Verification Standard, licensed
   under CC BY-SA 4.0. That directory carries its own LICENSE and NOTICE, and
   its contents remain under CC BY-SA 4.0. It is included as a separate work in
   a collection; the share-alike condition does not extend to the rest of this
   repository.
+
+catalogs/csf-2.0/
+  Derived from the NIST Cybersecurity Framework 2.0 OSCAL release. A work of the
+  United States Government, not subject to copyright protection under
+  17 U.S.C. 105. NIST does not endorse this project.
+
+catalogs/data-types/
+  Written by the authors. The impact contributions, modifiers, availability
+  buckets, and regulatory triggers are this repository's judgement, not a
+  published classification.
 
 catalogs/csp-rules/
   Written by the authors. Cloud provider documentation is summarised in our own
