@@ -1,0 +1,22 @@
+# Mutants that live, and the reason each cannot be killed.
+#
+# `scripts/mutate.py` flips one operator at a time and runs the suite. A mutant
+# that lives means no test distinguishes the behaviour from its opposite. Most
+# of those are findings; some are not, and this is where the difference is
+# recorded rather than re-decided every time.
+#
+# An exemption is a claim that killing the mutant would cost more than it is
+# worth -- an ordering in a message, a label nobody reads, a branch whose two
+# sides produce the same output. It is not a claim that the line is untested,
+# and it is not a place to put a test somebody did not want to write.
+#
+# A recorded exemption whose mutant now dies is stale. The suite asserts against
+# that, so this list cannot outlive the code it excuses.
+#
+# Key: <file>:<line>:<From>-><To>. The line number moves when the file changes,
+# which is deliberate: an exemption that has drifted off its line is an
+# exemption nobody has looked at since.
+
+version: "0.1.0"
+
+exempt: []

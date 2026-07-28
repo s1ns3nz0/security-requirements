@@ -31,6 +31,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import profile_schema  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CATALOG_DIR = REPO_ROOT / "catalogs" / "nist-800-53r5"
 CSF_DIR = REPO_ROOT / "catalogs" / "csf-2.0"
@@ -219,10 +222,10 @@ def as_list(req_id: str, field: str, value) -> tuple[list, list[Finding]]:
 
 
 def canonical_source(value: str) -> str:
-    """NIST and OWASP write their identifiers in a fixed case. Accept the
-    spelling and canonicalise it, as the profile loader does -- the question is
-    whether the cited control exists, not whether it was typed in capitals."""
-    return value.strip().upper().replace("ASVS-V", "ASVS-V")
+    """Delegates. This used to be a second implementation of one decision, and
+    it refused `ac-3.1` -- the OSCAL spelling merge.py accepted and its own
+    comment said a reader copies out of the bundled records."""
+    return profile_schema.canonical_control_id(value)
 
 
 def check_sources(

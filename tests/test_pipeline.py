@@ -7844,6 +7844,133 @@ def test_a_profile_older_than_the_catalogue_is_told_so():
     assert notes and "may not mean what they meant" in notes[0]
 
 
+# --- the tests that prove nothing ---------------------------------------------
+
+def test_every_mutation_exemption_still_names_a_mutant_that_lives():
+    """`scripts/mutate.py` flips one operator and runs the suite. A mutant that
+    lives means no test distinguishes the behaviour from its opposite, and the
+    ones that cannot be killed are recorded with the reason.
+
+    This checks the record rather than re-running the sweep, which takes half an
+    hour. Two things go stale: an exemption whose file or line no longer exists,
+    and an exemption whose mutant a later test now kills. The second is the one
+    worth catching -- a note excusing a gap somebody has since closed reads as a
+    gap that is still open."""
+    import mutate
+
+    exemptions = mutate.load_exemptions()
+    for mutant in sorted(exemptions):
+        name, line, mutation = mutant.split(":", 2)
+        source = REPO_ROOT / "scripts" / name
+        assert source.exists(), f"{mutant} names a script that is gone"
+
+        lines = source.read_text(encoding="utf-8").splitlines()
+        assert int(line) <= len(lines), \
+            f"{mutant} is past the end of {name}, so the file has changed under it"
+
+        operator = mutation.split("->")[0]
+        assert mutate.TEXT[operator] in lines[int(line) - 1], (
+            f"{mutant} records a {operator} that is no longer on that line:\n"
+            f"    {lines[int(line) - 1].strip()}\n"
+            f"  An exemption that has drifted off its line is one nobody has "
+            f"looked at since.")
+
+        assert exemptions[mutant].strip(), \
+            f"{mutant} is exempt with no reason, which is a survivor nobody decided about"
+
+
+def test_the_mutation_tool_never_edits_the_working_tree():
+    """The first version edited sources in place, was interrupted, and left a
+    mutated file behind that read as four real regressions. It copies the tree
+    now, and the property is worth holding: a tool that can corrupt the
+    repository while looking for defects is a defect."""
+    source = (REPO_ROOT / "scripts" / "mutate.py").read_text(encoding="utf-8")
+    assert "copytree" in source
+    # Every write goes to the copy. A write to REPO_ROOT / "scripts" would be
+    # the mistake, and it is spelled distinctly enough to look for.
+    for line in source.splitlines():
+        if ".write_text(" in line and "REPO_ROOT" in line:
+            assert False, f"mutate.py writes into the repository: {line.strip()}"
+
+
+def test_the_gate_scripts_are_the_ones_that_run_every_time():
+    """The scope is a decision and it drifts silently. A script added to the
+    pipeline and left out of the sweep is a script whose tests nobody has
+    checked, and nothing else would say so."""
+    import mutate
+
+    documented = set(mutate.GATE_SCRIPTS)
+    build = (REPO_ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
+    invoked = set(re.findall(r"scripts/(\w+\.py)", build))
+    # The build also runs select_baseline through sec-req-init, and the rebuild
+    # scripts are deliberately outside the scope -- they run offline and refuse
+    # to publish when their own count assertions fail.
+    offline = {"rebuild_catalogs.py", "rebuild_overlay_hipaa.py", "axis_coverage.py",
+               "validate_overlays.py", "eval_golden.py", "mutate.py",
+               "profile_schema.py", "sitecustomize.py"}
+    missing = sorted(invoked - documented - offline)
+    assert not missing, (
+        f"the build runs {missing} and the mutation sweep does not cover them")
+
+
+@pytest.mark.parametrize("spelling,canonical", [
+    ("sc-28", "SC-28"),
+    ("SC-28", "SC-28"),
+    (" sc-28(1) ", "SC-28(1)"),
+    # The OSCAL spelling, which is what a reader copies out of the bundled
+    # records. merge accepted it, lint refused it, and the build stopped on an
+    # identifier the other half of the pipeline had resolved.
+    ("ac-3.1", "AC-3(1)"),
+    # The conversion is a fact about SP 800-53 identifiers and about nothing
+    # else. Applied to ASVS it produced ASVS-V11(1.1), which no catalogue holds,
+    # so a threat citing a real requirement was reported as citing none.
+    ("ASVS-V11.1.1", "ASVS-V11.1.1"),
+    ("asvs-v1.2.3", "ASVS-V1.2.3"),
+])
+def test_one_spelling_for_a_control_identifier(spelling, canonical):
+    """There were two of these and they disagreed in both directions. A
+    repository whose central claim is that a cited identifier is checked cannot
+    have two answers to what the identifier is."""
+    assert profile_schema.canonical_control_id(spelling) == canonical
+    assert lint_mod.canonical_source(spelling) == canonical
+    assert merge.canonical_control(spelling) == canonical
+
+
+def test_a_threat_may_cite_a_requirement_from_the_bundled_asvs_catalogue():
+    """The defect end to end. ASVS-V11.1.1 exists in catalogs/asvs-5, and the
+    cross step reported it as not a control identifier because the normaliser
+    had rewritten it first."""
+    asvs = sorted(lint_mod.load_ids(REPO_ROOT / "catalogs" / "asvs-5"))
+    assert asvs, "this test needs the bundled ASVS catalogue"
+    profile, _ = profile_schema.normalise(
+        yaml.safe_load((GOLDEN_ROOT / "b2b-saas-aws" / "profile.yaml")
+                       .read_text(encoding="utf-8")))
+    derived = sb.run(profile)
+    split = classify_resp.classify(profile, derived["controls"])
+    threats = {"threats": [{"id": "T-99", "title": "t", "novelty": "generic",
+                            "scenario": "x", "related_controls": [asvs[0]]}]}
+    problems = merge.cross(derived, split, threats)["problems"]
+    assert not [p for p in problems if "not a control identifier" in p["message"]], \
+        "an identifier the bundled catalogue holds is not an invented one"
+    # It is still refused, because this step crosses the 800-53 baseline and
+    # ASVS reaches the derivation on its own axis. The refusal has to say which
+    # of the two it is.
+    asvs_note = [p for p in problems if "ASVS requirement" in p["message"]]
+    assert asvs_note, [p["message"] for p in problems]
+    assert "not invented" in asvs_note[0]["message"]
+
+
+def test_neither_script_keeps_its_own_copy_of_the_rule():
+    """Both delegate. A second implementation is how the two answers happened,
+    and the repository has removed this exact shape before -- resolve_layer had
+    three copies and one had already drifted."""
+    for name in ("lint.py", "merge.py"):
+        source = (REPO_ROOT / "scripts" / name).read_text(encoding="utf-8")
+        body = source.split("def canonical_")[1].split("\n\n\n")[0]
+        assert "canonical_control_id" in body, f"{name} does not delegate"
+        assert "partition(" not in body, f"{name} still carries its own conversion"
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and

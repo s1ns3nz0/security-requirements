@@ -35,6 +35,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import profile_schema  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CATALOG_DIR = REPO_ROOT / "catalogs" / "nist-800-53r5"
 
@@ -47,18 +50,9 @@ CONTROL_RE = re.compile(r"^[A-Z]{2}-\d+(?:\(\d+\))?$")
 
 
 def canonical_control(value: str) -> str:
-    """Put a control identifier in the form the catalog uses.
-
-    ``ac-3.1`` is the OSCAL identifier and appears in the bundled records, so it
-    is what someone reading them copies. ``AC-3(1)`` is the form NIST prints and
-    the form the catalog is keyed on. Accepting both costs nothing; accepting
-    only one costs a false finding, see below.
-    """
-    text = value.strip().upper()
-    if "." in text and "(" not in text:
-        base, _, enh = text.partition(".")
-        return f"{base}({enh})"
-    return text
+    """Delegates. This used to be a second implementation of one decision, and
+    it mangled every ASVS identifier into a shape no catalogue holds."""
+    return profile_schema.canonical_control_id(value)
 
 
 def load_catalog_ids() -> set[str]:
@@ -176,6 +170,19 @@ def cross(controls_doc: dict, responsibility_doc: dict, threats_doc: dict) -> di
                 problems.append({"kind": "unresolved", "message": f"{threat_id}: related control {raw!r} is not an identifier"})
                 continue
             control = canonical_control(raw)
+            # An ASVS requirement is an identifier and is not a baseline
+            # control, and the two refusals are different sentences. This said
+            # "is not a control identifier" about ASVS-V11.1.1, which exists in
+            # the bundled catalogue -- so an author who had cited the right
+            # thing was told they had invented it. What this step crosses is the
+            # SP 800-53 baseline against the threat model; ASVS reaches the
+            # derivation on its own axis and not through here.
+            if control.startswith("ASVS-"):
+                problems.append({"kind": "unresolved", "message":
+                    f"{threat_id}: {control} is an ASVS requirement, and this step crosses "
+                    f"the SP 800-53 baseline. It is not invented and it is not counted here; "
+                    f"cite the control the threat needs, or leave the threat control-free."})
+                continue
             if not CONTROL_RE.match(control):
                 problems.append({"kind": "unresolved", "message": f"{threat_id}: {raw!r} is not a control identifier"})
                 continue

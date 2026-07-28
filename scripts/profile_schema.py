@@ -352,3 +352,27 @@ def expand_regions(regions) -> set[str]:
         if alias:
             out.add(alias)
     return out
+
+def canonical_control_id(value: str) -> str:
+    """One spelling for a control identifier, for everything that reads one.
+
+    There were two of these -- `lint.canonical_source` and
+    `merge.canonical_control` -- and they disagreed in both directions. merge
+    applied the OSCAL dotted-to-parenthesised conversion to everything, so
+    `ASVS-V11.1.1`, an identifier that exists in the bundled catalogue, became
+    `ASVS-V11(1.1)` and was reported as not a control identifier. lint refused
+    `ac-3.1`, the OSCAL spelling merge's own comment says a reader copies out of
+    the bundled records. A threat could cite an identifier one script resolved
+    and the other blocked the build over.
+
+    The conversion is a fact about SP 800-53 identifiers and applies to nothing
+    else, which is why the ASVS prefix leaves early rather than being special-
+    cased inside the branch.
+    """
+    text = str(value).strip().upper()
+    if text.startswith("ASVS-"):
+        return text
+    if "." in text and "(" not in text:
+        base, _, enhancement = text.partition(".")
+        return f"{base}({enhancement})"
+    return text
