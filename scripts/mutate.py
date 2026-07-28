@@ -20,6 +20,28 @@ rebuild scripts are deliberately outside it: they run offline, once, and refuse
 to publish when their own count assertions fail, so the failure they can have is
 caught where it happens.
 
+What it is worth, measured
+--------------------------
+Half a sweep of the gate scripts -- 197 of 428 points, half an hour -- produced
+sixteen survivors, of which four were real and twelve were message formatting:
+an "is"/"are" plural, a "those axes"/"that axis". A quarter signal.
+
+The one worth having found is in this file's own subject: the credential check
+in `url_problem` reads `username or password`, and nothing distinguished it from
+`and`, so a mutation would have let `https://:pass@host` into a published
+document. The rule was already right and nothing was holding it.
+
+That is the honest shape of this tool. It is not run by default and it is not
+part of the suite. Run it when a rule has to be right and you want to know
+whether anything is holding it -- a publication guard, an identifier check --
+and not to drive a number to zero. Twelve exemptions recording that a plural is
+a plural would be bookkeeping, and a test pinned to a message is a test that
+blocks the next rewording.
+
+The defects that matter most to the output are not here at all. Two of the
+first eight requirements written for a real repository were rejected by reading
+them, and no mutation of any operator in these files would have found either.
+
 Survivors
 ---------
 Not every survivor is a defect. Some mutations are semantically equivalent, and

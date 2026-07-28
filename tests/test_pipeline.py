@@ -5690,6 +5690,14 @@ def test_an_apostrophe_is_not_a_quotation_mark(statement, expected):
 
 
 @pytest.mark.parametrize("url", [
+    # Userinfo with only one half. The check is `username or password`, and
+    # nothing distinguished it from `and` -- so a mutation flipping it would
+    # have let `https://:pass@host` through, which is a credential in a
+    # published document. Found by the mutation sweep; the rule was already
+    # right and nothing was holding it.
+    "https://user:pass@csrc.nist.gov/x",
+    "https://:pass@csrc.nist.gov/x",
+    "https://user@csrc.nist.gov/x",
     "https://csrc.nist.gov@evil.com/",       # allowlisted host as userinfo
     "https://evil.com\\@csrc.nist.gov/",
     "https://csrc.nist.gov\\.evil.com/",
