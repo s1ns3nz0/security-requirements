@@ -58,7 +58,13 @@ inferred:
     - "network: OTA firmware channel"
   external_integrations:
     - name: enrolment-server
-      purpose: "receives templates on enrolment and returns match decisions to audit"
+      # Matching is on the device. The server enrols and revokes; the terminal
+      # holds the templates for the doors it serves and decides locally, because
+      # a door that stops working when the network does is not a door. That is
+      # why a stolen unit is a template disclosure and not merely a lost reader,
+      # and it is the fact the whole case rests on -- left unstated in the first
+      # version, which made the biometric declaration look incidental.
+      purpose: "enrols and revokes templates; the terminal matches locally and reports the decision"
       data_sent: [biometric, basic_contact]
   region_storage: KR
 
@@ -73,9 +79,15 @@ declared:
     - id: config_secrets
 
   availability:
-    # A door that fails open is a security incident and a door that fails shut
-    # is a safety one, so neither is an availability answer. What matters is
-    # that the entry record survives: it is the only evidence of who went where.
+    # Two different questions, and the first version answered the second one
+    # twice. RTO is how long the door may be unusable: hours, because a failed
+    # terminal is opened by the building's own override and staff still get in.
+    # RPO is how much of the entry record may be lost: none, because the record
+    # is the only evidence of who went where and no upstream can reconstruct it.
+    #
+    # The derivation reads rpo_zero as an integrity floor as well as an
+    # availability contribution, which is the right reading here: a missing
+    # entry is not a slow door, it is a wrong answer to "who went through".
     rto: rto_hours
     rpo: rpo_zero
     amplifiers: []

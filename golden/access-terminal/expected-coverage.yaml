@@ -14,7 +14,7 @@ topics:
     must_cover: true
     critical: true
     description: "A stolen template cannot be turned back into the biometric it came from"
-    match_any: [template, irreversib, reconstruct, raw image, enrol, revoke]
+    match_any: [reconstruct, non-invertible, irreversib]
     why: >-
       The one control that matters most and the one a baseline cannot state. A
       password that leaks is changed; a fingerprint that leaks is the same
@@ -24,7 +24,7 @@ topics:
     must_cover: true
     critical: true
     description: "Opening the enclosure is detectable and leaves the device unable to hide it"
-    match_any: [tamper, enclosure, seal, intrusion, chassis, zeroi]
+    match_any: [tamper alarm, enclosure]
     why: >-
       The attacker holds the device. Nothing in the environment protects it, so
       tamper evidence is engineering work in the product rather than a facility
@@ -35,7 +35,7 @@ topics:
     must_cover: true
     critical: true
     description: "The service port does not expose debug or firmware access in the field"
-    match_any: [debug, JTAG, service port, USB, bootloader, console]
+    match_any: [bootloader, debug interface]
     why: >-
       Listed as an entrypoint on purpose. A physical port is the cheapest way
       into an embedded product and the one most often left enabled because it
@@ -44,7 +44,7 @@ topics:
   - id: firmware-authenticity
     must_cover: true
     description: "The device runs only firmware it can prove came from the manufacturer"
-    match_any: [secure boot, signed, signature, firmware, OTA, rollback]
+    match_any: [signature it can verify, rollback, older than]
     why: >-
       Both an integrity control and the only protection the source_code_ip has
       once a unit is sold, because the firmware leaves the building on every
@@ -53,7 +53,7 @@ topics:
   - id: entry-record-durability
     must_cover: true
     description: "An entry decision survives loss of power or network"
-    match_any: [buffer, offline, queue, durab, retain, spool]
+    match_any: [acknowledg, retained locally, spool]
     why: >-
       rpo_zero is declared for this reason. The entry record is the only
       evidence of who went where, and the terminal is frequently offline.
@@ -61,7 +61,7 @@ topics:
   - id: telemetry-as-evidence
     must_cover: true
     description: "Tamper and door telemetry cannot be suppressed by the device that generates it"
-    match_any: [telemetry, alarm, suppress, forward, heartbeat, tamper alert]
+    match_any: [heartbeat, cannot silence, suppress]
     why: >-
       security_telemetry is both the product's output and the evidence of its
       own compromise. A device that can silence its own alarm has neither.
@@ -81,6 +81,12 @@ must_not_cover:
       The derivation already reports ASVS as not applicable because the
       entrypoints carry no application surface. Requirements drawn from an
       application layer that does not exist would contradict its own output.
+
+# Narrowed after the first pass, where "enrol" and "retain" made the tamper and
+# durability requirements match the irreversibility topic. eval_golden matches on
+# substrings with no sense of polarity, so a hint has to be a phrase a
+# requirement cannot use without addressing the topic -- "firmware" is not one,
+# because a requirement saying unsigned firmware is logged contains it too.
 
 scoring:
   recall_threshold: 0.80

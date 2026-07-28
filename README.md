@@ -131,7 +131,7 @@ summarised in our own words with links, never reproduced.
 
 ```
 python3 scripts/rebuild_catalogs.py     # rebuild every catalog from upstream
-python3 -m pytest tests/                # deterministic layer, 712 tests
+python3 -m pytest tests/                # deterministic layer, 715 tests
 python3 scripts/eval_golden.py golden/b2b-saas-aws requirements.yaml
 ```
 
@@ -149,9 +149,11 @@ every declared type is Low on both axes, so it is the only one where the RPO
 integrity hint has anything to do. Both other `rpo_zero` cases were already at
 Moderate integrity from their data types, which is how the hint stayed broken.
 
-`b2b-saas-aws` and `payroll-integration` carry written requirements documents,
-so they are the two cases `eval_golden.py` can score. The other four exercise
-the derivation and their `expected-coverage.yaml` waits for a draft.
+`b2b-saas-aws`, `payroll-integration`, and `access-terminal` carry written
+requirements documents, so they are the three cases `eval_golden.py` can score.
+The other four exercise the derivation and their `expected-coverage.yaml`
+waits for a draft — an expectation file with no draft beside it is scored by
+nothing, which is a fixture that looks like a check and is not.
 
 `payroll-integration` is written in Korean, and it is there because the tool
 maps 101 ISMS-P criteria and had never once put a Korean document through its

@@ -116,9 +116,21 @@ def witnesses_of(case: Path) -> dict[str, set[str]]:
             (item.get("managed") or {}).get("statement", "")
             for item in json.loads(draft_path.read_text(encoding="utf-8"))["requirements"]
         ]
+        # Every statement, not any. One Korean sentence among seven English ones
+        # would otherwise witness Korean, and the case would report a locale
+        # covered while most of its document had never met that locale's rules.
         written_in = {lint.script_of(s) for s in statements if s}
-        if declared_locale in written_in:
-            seen["locale"].add(declared_locale)
+        if statements and written_in == {declared_locale}:
+            # And the rules have to accept it. A document in the language that
+            # the language's own linter refuses is not a witness for the locale;
+            # it is the defect this axis was added to find.
+            errors = [
+                f for s in statements
+                for f in lint.check_statement("REQ-WITNESS-01", s, declared_locale)
+                if f.level == "ERROR"
+            ]
+            if not errors:
+                seen["locale"].add(declared_locale)
 
     inferred = profile.get("inferred") or {}
     csp, providers, _ = classify_resp.resolve_csp(inferred.get("csp"))

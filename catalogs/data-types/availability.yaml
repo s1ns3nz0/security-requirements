@@ -49,7 +49,10 @@ rto_buckets:
 # ---------------------------------------------------------------------------
 rpo_buckets:
   - id: rpo_zero
-    label: "no committed record may be lost (transactions, settlement)"
+    # The parenthetical used to read "(transactions, settlement)", which is one
+    # domain's example and reads as a mistake in every other. A door terminal
+    # declaring rpo_zero was told its entry log was a settlement record.
+    label: "no committed record may be lost once acknowledged"
     availability: moderate
     integrity_hint: moderate
     note: |

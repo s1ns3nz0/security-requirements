@@ -7512,14 +7512,39 @@ def test_every_data_type_derives(data_type):
 
 
 @pytest.mark.parametrize("modifier", _every_modifier())
-def test_every_modifier_derives(modifier):
-    """A modifier the catalogue offers and nothing applies is a rule nobody has
-    run. Several were added for a case that was never written."""
-    profile, _ = profile_schema.normalise(_minimal_profile(
-        data_types=[{"id": "basic_contact", "modifiers": [modifier]}]))
-    result = sb.run(profile)
-    assert result["impact"]["system"] in sb.LEVELS
-    assert result["controls"], modifier
+def test_every_modifier_does_what_the_catalogue_says_it_does(modifier):
+    """The first version asserted the system level was a level and the baseline
+    had controls -- both true of the unmodified profile, so deleting modifier
+    application entirely would have passed every parametrization. It tested
+    nothing.
+
+    This compares against the same profile without the modifier and holds the
+    result to the effect the catalogue declares: a relative bump moves the axis
+    or is already saturated, an absolute value fixes it, and a modifier with no
+    effect must not move it at all."""
+    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" / "classification.yaml")
+                           .read_text(encoding="utf-8"))
+    effect = (table["modifiers"][modifier].get("effect") or {}).get("confidentiality")
+
+    def level(mods):
+        profile, _ = profile_schema.normalise(_minimal_profile(
+            data_types=[{"id": "basic_contact", **({"modifiers": mods} if mods else {})}]))
+        return sb.run(profile)["impact"]["confidentiality"]["level"]
+
+    plain, modified = level(None), level([modifier])
+
+    if effect is None:
+        assert modified == plain, \
+            f"{modifier} declares no confidentiality effect and moved the level"
+    elif isinstance(effect, str) and effect.startswith("="):
+        assert modified == effect[1:], f"{modifier} fixes the level and did not"
+    else:
+        direction = 1 if effect > 0 else -1
+        moved = sb.LEVELS.index(modified) - sb.LEVELS.index(plain)
+        saturated = (direction > 0 and plain == sb.LEVELS[-1]) or \
+                    (direction < 0 and plain == sb.LEVELS[0])
+        assert (moved and (moved > 0) == (direction > 0)) or saturated, \
+            f"{modifier} declares {effect} and moved {plain} -> {modified}"
 
 
 @pytest.mark.parametrize("provider", sorted(classify_resp.KNOWN_PROVIDERS))
@@ -7537,6 +7562,105 @@ def test_every_provider_splits(provider):
     assert split["csp_status"] == "single"
     assert sum(split["counts"].values()) == len(derived["controls"])
     assert not split["counts"].get("undetermined"), provider
+
+    # The first version stopped there, and every provider produced identical
+    # counts because `managed_services` was empty -- the split fell back to the
+    # deployment layer for all seven, so the test proved only that the name was
+    # echoed back. Curation is what makes a provider more than a label, so the
+    # difference it makes is what has to be asserted.
+    curated = [p.stem for p in (REPO_ROOT / "responsibility" / "services").glob(f"{provider}-*.yaml")]
+    with_service = copy.deepcopy(profile)
+    with_service["inferred"]["managed_services"] = [{"id": curated[0]}] if curated else \
+                                                   [{"id": f"{provider}-imaginary"}]
+    after = classify_resp.classify(with_service, derived["controls"])
+
+    if curated:
+        assert after["services_curated"] == [curated[0]]
+        assert after["counts"] != split["counts"], \
+            f"{curated[0]} is curated and changed nothing about the split"
+        touched = [c for c in after["controls"] if c["services"]]
+        assert touched, "a curated service has to reach at least one control"
+        assert all(s["service"] == curated[0] for c in touched for s in c["services"])
+    else:
+        # A provider this repository names as known and has not curated. The
+        # honest answer is the deployment fallback, said out loud.
+        assert after["services_uncurated"] == [f"{provider}-imaginary"]
+        assert after["counts"] == split["counts"], \
+            "nothing was curated, so nothing may have moved"
+        assert "Unverified services" in classify_resp.render(after)
+
+
+def test_the_locale_witness_needs_the_whole_document(tmp_path):
+    """Three versions of this. The first read the profile's `locale:` field -- a
+    declaration, which is what the file exists to reject. The second accepted a
+    locale if any one statement was in it, so a draft of one Korean sentence and
+    seven English ones would witness Korean while most of the document had never
+    met a Korean rule. This one needs every statement in the locale, and needs
+    the locale's own rules to accept them."""
+    import axis_coverage
+
+    case = tmp_path / "case"
+    case.mkdir()
+    profile = yaml.safe_load((GOLDEN_ROOT / "payroll-integration" / "profile.yaml")
+                             .read_text(encoding="utf-8"))
+    draft = json.loads((GOLDEN_ROOT / "payroll-integration" / "draft.json")
+                       .read_text(encoding="utf-8"))
+
+    def write(requirements):
+        (case / "profile.yaml").write_text(yaml.safe_dump(profile, allow_unicode=True),
+                                           encoding="utf-8")
+        (case / "draft.json").write_text(
+            json.dumps({"requirements": requirements}, ensure_ascii=False), encoding="utf-8")
+        return axis_coverage.witnesses_of(case)["locale"]
+
+    assert write(draft["requirements"]) == {"ko"}
+
+    # One English statement among the Korean ones, and the locale is no longer
+    # witnessed -- the document as a whole was not checked in Korean.
+    mixed = copy.deepcopy(draft["requirements"])
+    mixed[0]["managed"]["statement"] = "Data at rest must be encrypted with a customer-managed key."
+    assert write(mixed) == set()
+
+    # Korean throughout, and refused by the Korean rules. A document its own
+    # language's linter will not accept is not a witness for that language.
+    vague = copy.deepcopy(draft["requirements"])
+    vague[0]["managed"]["statement"] = "저장 데이터는 적절한 방법으로 보호되어야 한다."
+    assert write(vague) == set()
+
+
+@pytest.mark.parametrize("case,alternative", [
+    ("payroll-integration", [
+        "고유식별번호는 다른 개인정보와 분리된 키로 보호되어야 한다.",
+        "보유 기간이 지난 급여 자료는 파기되어야 한다.",
+        "처리 위탁 대상 항목은 허용 목록으로 관리되어야 한다.",
+        "확정 이후의 지급 기록 변경은 정정 기록으로만 남아야 한다.",
+        "위탁사의 감사 보고서는 계약 갱신 시 검토되어야 한다.",
+        "수신 웹훅은 서명 확인 후에 처리되어야 한다.",
+    ]),
+    ("access-terminal", [
+        "A template must not allow the sample to be reconstructed.",
+        "Opening the enclosure raises a tamper alarm the unit cannot clear.",
+        "No bootloader answers on a shipped unit's service port.",
+        "The unit refuses an image older than the one installed.",
+        "Decisions are retained locally until the server acknowledges them.",
+        "A heartbeat the terminal cannot silence carries the tamper state.",
+    ]),
+])
+def test_the_hints_score_a_document_someone_else_wrote(case, alternative):
+    """The hints were narrowed twice, because a broad word let one requirement
+    answer five topics. Narrowing has an opposite failure: hints that only match
+    the requirement already written, so the case scores the author's phrasing
+    rather than the document's content.
+
+    These are the same six answers in someone else's words."""
+    expected = yaml.safe_load((GOLDEN_ROOT / case / "expected-coverage.yaml")
+                              .read_text(encoding="utf-8"))
+    document = {"requirements": [
+        {"id": f"REQ-ALT-{i:02d}", "managed": {"statement": statement}}
+        for i, statement in enumerate(alternative, 1)]}
+    result = eval_mod.score(expected, document)
+    assert result["recall"] == 1.0, [
+        topic["id"] for topic in result["topics"] if not topic.get("covered")]
 
 
 def test_the_golden_cases_still_span_the_scale():
@@ -7590,7 +7714,7 @@ def test_a_golden_case_that_can_be_scored_is_scored(tmp_path):
     coverage the suite does not have."""
     scoreable = sorted(p.name for p in GOLDEN_ROOT.iterdir()
                        if p.is_dir() and (p / "draft.json").exists())
-    assert scoreable == ["b2b-saas-aws", "payroll-integration"], scoreable
+    assert scoreable == ["access-terminal", "b2b-saas-aws", "payroll-integration"], scoreable
 
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     assert "waits for a draft" in readme, "the gap is stated where the claim is made"

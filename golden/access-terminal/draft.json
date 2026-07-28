@@ -1,0 +1,118 @@
+{
+  "profile": "access-terminal",
+  "note": "Synthetic. Written so the expectation file beside it is scored rather than aspirational.",
+  "requirements": [
+    {
+      "slug": "TEMPLATE-IRREVERSIBILITY",
+      "managed": {
+        "statement": "An enrolled template must not permit reconstruction of the biometric sample it was derived from.",
+        "rationale": "A leaked password is changed. A leaked fingerprint is the same fingerprint for the rest of the person's life, and enrolment was their employer's decision rather than theirs.",
+        "csf": ["PR.DS-01"],
+        "sources": ["SC-28", "SC-28(1)"],
+        "responsibility": "team",
+        "evidence": ["template format specification", "vendor algorithm statement"],
+        "verification": {
+          "method": "artifact_review",
+          "target": "the template format and the extraction algorithm's stated properties",
+          "expect": "the format is documented as non-invertible and stores no sample data"
+        }
+      }
+    },
+    {
+      "slug": "TEMPLATE-REVOCATION-ON-LOSS",
+      "managed": {
+        "statement": "Templates held by a terminal reported lost must be revocable without re-enrolling the people they belong to.",
+        "rationale": "Matching is local, so a stolen unit is a template disclosure. If revocation means re-enrolment, the cost falls on people who did nothing.",
+        "csf": ["PR.AA-01"],
+        "sources": ["IA-5", "AC-2"],
+        "responsibility": "team",
+        "evidence": ["revocation runbook", "revocation drill record"],
+        "verification": {
+          "method": "test_case",
+          "target": "the enrolment server's revocation path for a single terminal",
+          "expect": "the terminal's templates stop matching and other terminals are unaffected"
+        }
+      }
+    },
+    {
+      "slug": "ENCLOSURE-TAMPER-EVIDENCE",
+      "managed": {
+        "statement": "Opening the enclosure must raise a tamper alarm that the device cannot clear by itself.",
+        "rationale": "The attacker holds the device and nothing in the environment protects it, so tamper evidence has to be engineered into the product.",
+        "csf": ["PR.PS-01"],
+        "sources": ["PE-3", "PE-6", "SI-7"],
+        "responsibility": "team",
+        "evidence": ["tamper switch design note", "environmental test report"],
+        "verification": {
+          "method": "test_case",
+          "target": "the tamper switch path and the alarm latch",
+          "expect": "the alarm latches until an authorised reset from the enrolment server"
+        }
+      }
+    },
+    {
+      "slug": "SERVICE-PORT-LOCKDOWN",
+      "managed": {
+        "statement": "The USB-C service port must expose no bootloader or debug interface on a device that has left manufacturing.",
+        "rationale": "A physical port is the cheapest way into an embedded product, and it is usually left enabled because it was needed on the bench.",
+        "csf": ["PR.PS-01"],
+        "sources": ["CM-7", "CM-7(1)", "PE-3"],
+        "responsibility": "team",
+        "evidence": ["production fuse-blow step", "port scan of a production unit"],
+        "verification": {
+          "method": "test_case",
+          "target": "a production unit's response on the service port",
+          "expect": "no debug or bootloader interface answers"
+        }
+      }
+    },
+    {
+      "slug": "FIRMWARE-AUTHENTICITY",
+      "managed": {
+        "statement": "The device must run only firmware carrying a signature it can verify, and must refuse an image older than the one installed.",
+        "rationale": "Secure boot is the integrity control and also the only protection the firmware has once a unit is sold, because the intellectual property leaves the building on every device.",
+        "csf": ["PR.PS-02"],
+        "sources": ["SI-7", "SI-7(1)", "CM-14"],
+        "responsibility": "team",
+        "evidence": ["secure boot chain description", "rollback test record"],
+        "verification": {
+          "method": "test_case",
+          "target": "the boot verification path and the OTA version check",
+          "expect": "an unsigned image and an older image are both refused"
+        }
+      }
+    },
+    {
+      "slug": "ENTRY-RECORD-DURABILITY",
+      "managed": {
+        "statement": "An entry decision must be retained locally until the enrolment server acknowledges it.",
+        "rationale": "The terminal is frequently offline and the entry record is the only evidence of who went where, with no upstream able to reconstruct it.",
+        "csf": ["PR.DS-01"],
+        "sources": ["AU-4", "CP-10", "SI-12"],
+        "responsibility": "team",
+        "evidence": ["spool sizing note", "power-loss test record"],
+        "verification": {
+          "method": "test_case",
+          "target": "the local spool across a power cut and a network outage",
+          "expect": "every decision taken while offline is delivered once connectivity returns"
+        }
+      }
+    },
+    {
+      "slug": "TELEMETRY-SUPPRESSION-RESISTANCE",
+      "managed": {
+        "statement": "Tamper and door telemetry must reach the enrolment server on a heartbeat the terminal cannot silence.",
+        "rationale": "The telemetry is both the product's output and the evidence of its own compromise, so a device able to stop sending has neither.",
+        "csf": ["DE.CM-01"],
+        "sources": ["AU-9", "AU-9(4)", "SI-4"],
+        "responsibility": "team",
+        "evidence": ["heartbeat interval specification", "missed-heartbeat alert rule"],
+        "verification": {
+          "method": "config_api",
+          "target": "the server's alerting on a missing heartbeat",
+          "expect": "a terminal that stops reporting raises an alert within the stated interval"
+        }
+      }
+    }
+  ]
+}
