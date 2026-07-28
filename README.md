@@ -131,7 +131,7 @@ summarised in our own words with links, never reproduced.
 
 ```
 python3 scripts/rebuild_catalogs.py     # rebuild every catalog from upstream
-python3 -m pytest tests/                # deterministic layer, 717 tests
+python3 -m pytest tests/                # deterministic layer, 722 tests
 python3 scripts/eval_golden.py golden/b2b-saas-aws requirements.yaml
 ```
 

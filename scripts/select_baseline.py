@@ -29,6 +29,7 @@ from pathlib import Path
 
 import yaml
 
+import profile_schema  # noqa: E402
 from profile_schema import EEA_MEMBERS, SchemaError, expand_regions, normalise
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -710,6 +711,95 @@ def resolve_storage_country(region: str) -> str | None:
     return None
 
 
+def data_leaving_the_boundary(profile: dict, personal: set[str],
+                              declared: set[str]) -> list[dict]:
+    """Which declared data types go to which named third party.
+
+    The profile has recorded this since the first version -- every golden case
+    names its integrations and what it sends them -- and nothing read it. A
+    payroll profile declaring that a resident registration number and a bank
+    account go to a vendor produced no requirement, no report line, and no
+    threat. The field was normalised into a list and dropped.
+
+    Reported rather than turned into a requirement. Which obligation follows
+    depends on whether the recipient is a processor, a controller, or a
+    provider, and the profile does not say -- so the tool says what leaves and
+    to whom, and leaves the reading to the person who knows the contract.
+    """
+    rows = []
+    for entry in (profile.get("inferred") or {}).get("external_integrations") or []:
+        if not isinstance(entry, dict):
+            continue
+        sent = entry.get("data_sent")
+        name = entry.get("name") or "an unnamed integration"
+        if isinstance(sent, str):
+            sent = [sent]
+        if not sent:
+            # A profile that says it does not know. The first version of this
+            # would have skipped it, which reports "nothing leaves" about the
+            # one integration nobody could account for.
+            rows.append({"name": name, "types": [], "personal": [],
+                         "undeclared": [], "undetermined": True})
+            continue
+        types = [str(s) for s in sent if str(s).strip()]
+        if any(str(s).strip().lower() in profile_schema.SENTINELS for s in types):
+            rows.append({"name": name, "types": [], "personal": [],
+                         "undeclared": [], "undetermined": True})
+            continue
+        rows.append({
+            "name": name,
+            "types": types,
+            "personal": sorted(set(types) & personal),
+            # A type sent to a third party that the profile never declared it
+            # holds. Either the integration list is right and question one
+            # missed something, or the integration list names data that is not
+            # there. Both are worth a sentence.
+            "undeclared": sorted(set(types) - declared),
+            "undetermined": False,
+        })
+    return rows
+
+
+def catalogue_drift(profile: dict, types_table: dict) -> list[str]:
+    """Where the profile was derived against a catalogue that has since moved.
+
+    The field has been in every profile since the first version and nothing
+    read it. A profile carries the version it was built against precisely so
+    that a rebuilt catalogue does not silently change what a derivation meant --
+    a data type whose impact contribution was revised, or one that was added
+    after the interview, changes the answer without changing the profile.
+
+    A warning rather than a refusal. The old answer is not wrong, it is old, and
+    the person who knows whether that matters is the one holding the document.
+    """
+    declared = (profile.get("catalog_versions") or {})
+    notes = []
+    bundled_types = types_table.get("version")
+    stated_types = declared.get("data_types")
+    if bundled_types and stated_types and stated_types != bundled_types:
+        notes.append(
+            f"the profile was derived against data-type catalogue {stated_types} and "
+            f"{bundled_types} is bundled. Impact contributions may have been revised "
+            f"and types may have been added; re-run the interview's first question "
+            f"before relying on the levels below.")
+    # The revision, not the OSCAL package version. A profile saying r5 against a
+    # bundled Rev 6 is a profile whose control identifiers may not mean what they
+    # meant, which is a larger problem than a revised impact contribution.
+    stated_nist = str(declared.get("nist_800_53") or "").strip().lower()
+    if stated_nist:
+        meta_path = CATALOG_DIR / "meta.json"
+        publication = ""
+        if meta_path.exists():
+            publication = json.loads(meta_path.read_text(encoding="utf-8")).get("publication", "")
+        revision = stated_nist.lstrip("r")
+        if publication and f"rev {revision}" not in publication.lower():
+            notes.append(
+                f"the profile was derived against SP 800-53 {stated_nist} and the bundled "
+                f"catalogue is {publication!r}. Control identifiers may not mean what they "
+                f"meant; rebuild before citing them.")
+    return notes
+
+
 def applies_in_jurisdiction(spec: dict, user_regions: set[str]) -> bool:
     """Whether a regulatory trigger is in scope for this service's users.
 
@@ -1242,6 +1332,11 @@ def run(profile: dict) -> dict:
         "applicable_overlays": sorted({o["id"] for o in overlays}),
         "overlay_triggers": overlays,
         "cross_border": cross_border,
+        "catalogue_drift": catalogue_drift(profile, types_table),
+        "leaves_the_boundary": data_leaving_the_boundary(
+            profile, set(personal),
+            {(e["id"] if isinstance(e, dict) else e)
+             for e in (profile.get("declared") or {}).get("data_types", [])}),
         # The union, not the impact baseline alone. Written as the baseline
         # alone, the two other layers were computed, printed, and then dropped:
         # a service processing EU users' personal data was told "Privacy
@@ -1350,6 +1445,30 @@ def render_gate(result: dict) -> str:
         out += ["", "Uncovered regulations detected"]
         for item in result["uncovered_regulations"]:
             out.append(f"  ! {item['message']}")
+    for note in result.get("catalogue_drift") or []:
+        out.append(f"  CHECK: {note}")
+    if result.get("catalogue_drift"):
+        out.append("")
+
+    leaving = result.get("leaves_the_boundary") or []
+    if leaving:
+        out += ["", "Data leaving the system boundary"]
+        for row in leaving:
+            if row["undetermined"]:
+                out.append(f"  ? {row['name']}: the profile does not say what is sent. An "
+                           f"integration nobody")
+                out.append("      can account for is the one worth accounting for.")
+                continue
+            marked = ", ".join(
+                f"{t}*" if t in row["personal"] else t for t in row["types"])
+            out.append(f"  -> {row['name']}: {marked}")
+            if row["undeclared"]:
+                out.append(f"      {', '.join(row['undeclared'])} is sent here and not declared "
+                           f"as held. One of the two answers is wrong.")
+        if any(r["personal"] for r in leaving):
+            out += ["  * personal data. What follows depends on whether the recipient is a",
+                    "    processor, a controller, or a provider, which the profile does not say."]
+
     cb = result.get("cross_border")
     if cb:
         out += ["", "Cross-border data transfer"]

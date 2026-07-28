@@ -7716,6 +7716,134 @@ def test_the_style_guide_requires_a_requirement_someone_can_carry_out():
                     f"{name} says {stated} rules and requirement-style.md has {len(headings)}"
 
 
+def test_what_leaves_the_boundary_is_read_rather_than_normalised_and_dropped():
+    """Every golden profile has named its integrations and what it sends them
+    since the first version, and nothing read the field. A payroll profile
+    declaring that a resident registration number and a bank account go to a
+    vendor produced no requirement, no report line, and no threat --
+    profile_schema normalised the list and that was the whole of it.
+
+    Found by sweeping the profile for fields the scripts never name, which is
+    the sweep `existing_org_controls` should have been caught by."""
+    profile, _ = profile_schema.normalise(
+        yaml.safe_load((GOLDEN_ROOT / "payroll-integration" / "profile.yaml")
+                       .read_text(encoding="utf-8")))
+    leaving = sb.run(profile)["leaves_the_boundary"]
+    assert len(leaving) == 1
+    row = leaving[0]
+    assert row["name"] == "payroll-vendor"
+    assert set(row["types"]) == {"government_id", "bank_account", "basic_contact"}
+    assert set(row["personal"]) == set(row["types"]), \
+        "all three are personal data and the report has to mark them"
+
+    report = sb.render_gate(sb.run(profile))
+    assert "Data leaving the system boundary" in report
+    assert "government_id*" in report
+    assert "processor, a controller, or a provider" in report, \
+        "the tool says what leaves; which obligation follows needs the contract"
+
+
+def test_an_integration_that_does_not_say_what_it_sends_is_named():
+    """mobile-backend declares crashlytics with data_sent UNDETERMINED. Skipping
+    it would report "nothing leaves" about the one integration nobody could
+    account for."""
+    profile, _ = profile_schema.normalise(
+        yaml.safe_load((GOLDEN_ROOT / "mobile-backend" / "profile.yaml")
+                       .read_text(encoding="utf-8")))
+    result = sb.run(profile)
+    undetermined = [r for r in result["leaves_the_boundary"] if r["undetermined"]]
+    assert [r["name"] for r in undetermined] == ["crashlytics"]
+    assert "does not say what is sent" in sb.render_gate(result)
+
+
+def test_a_type_sent_away_that_was_never_declared_as_held_is_reported():
+    """Either the integration list is right and question one missed something,
+    or the integration names data that is not there. Both are worth a sentence,
+    and neither was being said."""
+    raw = yaml.safe_load((GOLDEN_ROOT / "internal-admin" / "profile.yaml")
+                         .read_text(encoding="utf-8"))
+    raw["inferred"]["external_integrations"] = [
+        {"name": "analytics-vendor", "purpose": "product analytics",
+         "data_sent": ["internal_ops", "basic_contact"]}]
+    profile, _ = profile_schema.normalise(raw)
+    result = sb.run(profile)
+    row = result["leaves_the_boundary"][0]
+    assert row["undeclared"] == ["basic_contact"], row
+    assert "not declared" in sb.render_gate(result)
+
+
+def test_no_profile_field_is_declared_and_never_read():
+    """The sweep that would have caught `existing_org_controls` before a real
+    repository did. A field the interview asks for and nothing reads is a
+    question whose answer changes nothing, and the author has no way to know."""
+    def walk(node, prefix=""):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                path = f"{prefix}.{key}" if prefix else key
+                yield path, key
+                if isinstance(value, dict):
+                    yield from walk(value, path)
+                elif isinstance(value, list) and value and isinstance(value[0], dict):
+                    yield from walk(value[0], path + "[]")
+
+    declared = {}
+    for case in GOLDEN_ROOT.glob("*/profile.yaml"):
+        for path, leaf in walk(yaml.safe_load(case.read_text(encoding="utf-8"))):
+            declared[path] = leaf
+
+    source = "".join((REPO_ROOT / "scripts" / name).read_text(encoding="utf-8")
+                     for name in sorted(p.name for p in (REPO_ROOT / "scripts").glob("*.py")))
+
+    # Read by the model steps rather than the scripts, and named here so the
+    # exemption is a decision rather than an omission.
+    for_the_model = {"repo.root", "generated_at",
+                     "inferred.external_integrations[].purpose"}
+    # `generated_at` and `repo.root` are the model's; `purpose` is prose for a
+    # human. Everything else a profile states has to reach a script, or the
+    # interview is asking a question whose answer changes nothing and the author
+    # has no way to find that out.
+    unread = sorted(path for path, leaf in declared.items()
+                    if path not in for_the_model
+                    and not re.search(rf'["\']{re.escape(leaf)}["\']', source))
+    assert not unread, (
+        "declared by a profile and named by no script: " + ", ".join(unread))
+
+
+def test_a_profile_older_than_the_catalogue_is_told_so():
+    """`catalog_versions` has been in every profile since the first version and
+    nothing read it. It exists so a rebuilt catalogue does not silently change
+    what a derivation meant -- a data type whose impact contribution was revised,
+    or one added after the interview, changes the answer without changing the
+    profile.
+
+    The sweep for unread fields found b2b-saas-aws declaring 0.1.0 against a
+    bundled 0.2.0. The declaration was stale rather than the derivation, which
+    always uses the bundled table; but nobody could have known that from the
+    output."""
+    raw = yaml.safe_load((GOLDEN_ROOT / "b2b-saas-aws" / "profile.yaml")
+                         .read_text(encoding="utf-8"))
+    current, _ = profile_schema.normalise(copy.deepcopy(raw))
+    assert not sb.run(current)["catalogue_drift"], \
+        "the golden profiles declare the catalogue they are actually derived against"
+
+    raw["catalog_versions"]["data_types"] = "0.1.0"
+    stale, _ = profile_schema.normalise(raw)
+    result = sb.run(stale)
+    assert result["catalogue_drift"], "a profile a version behind has to be told"
+    report = sb.render_gate(result)
+    assert "0.1.0" in report and "0.2.0" in report
+    assert "before relying on the levels below" in report, \
+        "a warning that does not say what to distrust is a warning nobody acts on"
+
+    # The revision as well as the table. A profile against Rev 5 when Rev 6 is
+    # bundled is a profile whose identifiers may not mean what they meant.
+    raw["catalog_versions"]["data_types"] = "0.2.0"
+    raw["catalog_versions"]["nist_800_53"] = "r6"
+    wrong_revision, _ = profile_schema.normalise(raw)
+    notes = sb.run(wrong_revision)["catalogue_drift"]
+    assert notes and "may not mean what they meant" in notes[0]
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and
