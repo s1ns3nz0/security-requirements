@@ -144,9 +144,16 @@ def main(argv: list[str] | None = None) -> int:
         shutil.copytree(REPO_ROOT, work,
                         ignore=shutil.ignore_patterns(".git", "__pycache__",
                                                       ".pytest_cache", "htmlcov"))
+        # Snapshot every source once. The first version re-read the file each
+        # iteration, so editing a script while the sweep ran -- which is exactly
+        # what happens during a working session -- applied old line numbers to
+        # new content. A tool that reports where a mutant survived has to be
+        # reading the file the line numbers came from.
+        snapshot = {name: (REPO_ROOT / "scripts" / name).read_text(encoding="utf-8")
+                    for name in {n for n, _ in points}}
+
         for index, (name, (line, operator)) in enumerate(points, 1):
-            source = REPO_ROOT / "scripts" / name
-            original = source.read_text(encoding="utf-8")
+            original = snapshot[name]
             lines = original.splitlines(keepends=True)
             before, after = TEXT[operator], TEXT[SWAP[operator]]
             if before not in lines[line - 1]:
