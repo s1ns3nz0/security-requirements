@@ -7211,6 +7211,89 @@ def test_the_front_page_says_who_has_used_this():
         "the golden score is self-graded and the page has to say so"
 
 
+# --- which axes of the input space have ever been run -------------------------
+
+def test_an_axis_is_witnessed_by_a_result_and_not_by_a_declaration():
+    """Sixty-nine repositories were run with an empty threats file, so on real
+    input the merge stage had only ever produced baseline_only and
+    forced_by_data_type. The input was counted and the code was not.
+
+    A profile declaring a data type witnesses the data type. It witnesses an
+    overlay only if the overlay evaluated and returned clauses, and an origin
+    only if the cross step emitted an item carrying it."""
+    import axis_coverage
+
+    without = axis_coverage.witnesses_of(GOLDEN_ROOT / "internal-admin")
+    assert not without["origin"] & {"threat_only", "threat_and_baseline"}, \
+        "no threat file, so neither origin that needs one can appear"
+    assert "baseline_only" in without["origin"]
+
+    with_threats = axis_coverage.witnesses_of(GOLDEN_ROOT / "b2b-saas-aws")
+    assert {"threat_only", "threat_and_baseline"} <= with_threats["origin"], \
+        "the two origins this tool exists for appear only where a threat model does"
+
+
+def test_a_declared_type_does_not_witness_an_overlay_that_never_ran():
+    """The distinction the whole file rests on. commerce-payments declares
+    payment data and the PCI overlay evaluates, so both are witnessed; nothing
+    in the golden set reaches HIPAA, and no amount of declaring would."""
+    import axis_coverage
+    seen = axis_coverage.witnesses_of(GOLDEN_ROOT / "commerce-payments")
+    assert "payment_card_raw" in seen["data_type"]
+    assert "pci-dss" in seen["overlay"]
+    assert "hipaa-security-rule" not in seen["overlay"]
+
+
+def test_the_axis_report_names_what_has_never_been_run():
+    """The report is the point: it turns "run more repositories" into "run one
+    that carries this value", which is the difference between the sweep that
+    found a defect per new shape and the sweep that found nothing in
+    sixty-nine."""
+    import axis_coverage
+    monkey = axis_coverage.main([])
+    assert monkey == 0, "advisory without --strict"
+    assert axis_coverage.main(["--strict"]) == 1, \
+        "there are unexercised axis values today; --strict has to say so"
+
+
+def test_the_evidence_manifest_records_axis_values_and_never_a_profile():
+    """A profile says where a system's data lives and which controls are not in
+    place. Publishing one for a third-party project is an assessment of someone
+    else's system that nobody asked for, and their code being public does not
+    make our reading of it theirs to have published."""
+    import axis_coverage
+    doc = yaml.safe_load(axis_coverage.MANIFEST.read_text(encoding="utf-8")) or {}
+    assert "runs" in doc
+    for entry in doc["runs"] or []:
+        assert entry.get("repository") and entry.get("commit"), \
+            "a run nobody can reproduce is not evidence"
+        assert set(entry) <= {"repository", "commit", "run_on", "chosen_for",
+                              "witnessed", "defects", "note"}, \
+            f"unexpected key in {entry.get('repository')}: {sorted(entry)}"
+        for axis in (entry.get("witnessed") or {}):
+            assert axis in axis_coverage.universe(), f"unknown axis {axis!r}"
+    text = axis_coverage.MANIFEST.read_text(encoding="utf-8")
+    for leaked in ("data_types:", "declared:", "inferred:", "region_storage"):
+        assert leaked not in text, \
+            f"{leaked!r} is profile shape; this file records axis values only"
+
+
+def test_the_axis_universe_is_read_from_the_catalogues_not_listed():
+    """A hand-written list of what exists goes stale the day a data type is
+    added, and the report would then say complete while a value nothing has run
+    sits in the catalogue."""
+    import axis_coverage
+    space = axis_coverage.universe()
+    types_table = yaml.safe_load(
+        (REPO_ROOT / "catalogs" / "data-types" / "classification.yaml").read_text(encoding="utf-8"))
+    assert space["data_type"] == {t["id"] for t in types_table["types"]}
+    assert space["overlay"] == {p.name for p in (REPO_ROOT / "overlays").iterdir()
+                                if (p / "meta.yaml").exists()}
+    layers = yaml.safe_load(
+        (REPO_ROOT / "responsibility" / "layers.yaml").read_text(encoding="utf-8"))
+    assert space["deployment_model"] == set(layers["deployment_models"])
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and

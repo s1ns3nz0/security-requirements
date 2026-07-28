@@ -1,0 +1,46 @@
+# External runs, recorded as axis values.
+#
+# Golden cases are not listed here. `scripts/axis_coverage.py` re-derives them,
+# so they need no bookkeeping and cannot drift from what the tool actually does.
+# This file holds only what cannot be re-derived: a run against a repository
+# outside this one.
+#
+# What is deliberately absent
+# ---------------------------
+# The derived profile. A profile says where a system's data lives, what it is
+# worth, and which controls are not in place. Publishing one for a third-party
+# project is an assessment of someone else's system that nobody asked for, and
+# the fact that their code is public does not make our reading of it theirs to
+# have published. Axis values carry the evidence -- "this run witnessed the
+# HIPAA overlay" -- without carrying the assessment.
+#
+# What `witnessed` means
+# ----------------------
+# Not what the profile declared. A run witnesses an axis value only when a
+# result appeared that could not have come from anywhere else:
+#
+#   overlay          the overlay evaluated and returned clauses
+#   origin           merge.cross emitted an item carrying that origin
+#   locale           lint ran with that locale and applied its rules
+#   data_type        the type was declared and reached the derivation
+#   responsibility   a control landed in that bucket
+#
+# Sixty-nine repositories were once run with an empty threats file, so on real
+# input the merge stage had only ever produced `baseline_only` and
+# `forced_by_data_type`. The input was there and the code never ran. Recording
+# declarations rather than witnesses is how that stays invisible.
+#
+# Entry shape
+# -----------
+#   - repository: github.com/owner/name
+#     commit: <sha, so the run is reproducible>
+#     run_on: YYYY-MM-DD
+#     chosen_for: which empty axis this was picked to fill
+#     witnessed:
+#       overlay: [hipaa-security-rule]
+#       data_type: [health_records]
+#     defects: <count found, and the commits that fixed them>
+
+version: "0.1.0"
+
+runs: []
