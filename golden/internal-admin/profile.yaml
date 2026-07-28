@@ -35,6 +35,11 @@ inferred:
     - name: slack
       purpose: notification
       data_sent: [internal_ops]
+  # A city name, deliberately. It is what a person writes for a self-hosted
+  # deployment, it does not resolve to a country, and this is the only golden
+  # case that exercises the undetermined branch of the cross-border check. A
+  # city map would be unbounded and guessing one wrong turns a domestic
+  # deployment into a transfer finding.
   region_storage: onprem-seoul
 
 declared:

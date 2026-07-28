@@ -673,6 +673,43 @@ COUNTRY_CODES = EEA | {
 COUNTRY_ALIASES = {"UK": "GB", "EL": "GR"}
 
 
+# Prefixes a person writes in front of a region because the profile field is
+# called `region_storage` and they are naming where the storage is. Stripped
+# mechanically before the lookup: `gcp-asia-northeast3` is `asia-northeast3`,
+# which the map has held all along.
+#
+# The bare-country-code fix that came before this one handled `region_storage:
+# KR` and stopped there, so every prefixed form still switched cross-border
+# detection off silently. Both golden profiles that name a region wrote a
+# prefixed one -- `onprem-seoul` and `gcp-asia-northeast3` -- so the fixtures
+# demonstrated the vocabulary that does not work.
+STORAGE_PREFIXES = ("aws-", "gcp-", "azure-", "az-", "oci-", "ibm-", "alibaba-",
+                    "onprem-", "on-prem-", "on-premise-", "datacenter-", "dc-",
+                    "colo-", "self-hosted-")
+
+
+def resolve_storage_country(region: str) -> str | None:
+    """The country a storage region is in, or None if this tool cannot say.
+
+    None means undetermined and is reported as such. Guessing would be worse
+    than silence here: a wrong country turns a domestic deployment into a
+    cross-border transfer finding, or hides a real one.
+    """
+    candidates = [region]
+    lowered = region.strip().lower()
+    for prefix in STORAGE_PREFIXES:
+        if lowered.startswith(prefix):
+            candidates.append(region.strip()[len(prefix):])
+            break
+    for candidate in candidates:
+        if candidate in REGION_COUNTRY:
+            return REGION_COUNTRY[candidate]
+        upper = COUNTRY_ALIASES.get(candidate.upper(), candidate.upper())
+        if upper in COUNTRY_CODES:
+            return upper
+    return None
+
+
 def applies_in_jurisdiction(spec: dict, user_regions: set[str]) -> bool:
     """Whether a regulatory trigger is in scope for this service's users.
 
@@ -714,11 +751,7 @@ def detect_cross_border(profile: dict, user_regions: set[str]) -> dict | None:
     # `user_regions` uses two lines further down the same profile -- came back
     # "not in the region map" and switched cross-border detection off. Every
     # on-premise profile tested hit it.
-    country = REGION_COUNTRY.get(region)
-    if not country:
-        candidate = COUNTRY_ALIASES.get(region.upper(), region.upper())
-        if candidate in COUNTRY_CODES:
-            country = candidate
+    country = resolve_storage_country(region)
     if not country:
         return {"storage_region": region, "storage_country": None,
                 "user_regions": sorted(user_regions), "undetermined": True}
@@ -1321,7 +1354,16 @@ def render_gate(result: dict) -> str:
     if cb:
         out += ["", "Cross-border data transfer"]
         if cb["undetermined"]:
-            out.append(f"  ? storage region {cb['storage_region']} not in the region map; country undetermined")
+            # Naming the vocabulary that works, because the alternative is an
+            # author who reads "undetermined", shrugs, and loses cross-border
+            # detection without knowing a two-letter edit would restore it.
+            out += [
+                f"  ? storage region {cb['storage_region']!r} does not resolve to a country,",
+                "    so no transfer question was asked. A provider region code, with or",
+                "    without a provider prefix, resolves (eu-central-1, gcp-asia-northeast3);",
+                "    so does a two-letter country code (KR, DE). A city name does not, and",
+                "    guessing one would turn a domestic deployment into a transfer finding.",
+            ]
         else:
             out.append(
                 f"  ! stored in {cb['storage_country']}"

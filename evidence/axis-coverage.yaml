@@ -43,4 +43,44 @@
 
 version: "0.1.0"
 
-runs: []
+runs:
+
+  - repository: github.com/openemr/openemr
+    commit: 966e6ed
+    run_on: "2026-07-28"
+    chosen_for: "health_records and the HIPAA overlay, neither of which any run had carried"
+    witnessed:
+      overlay: [hipaa-security-rule]
+      data_type: [health_records, government_id, sensitive_attributes,
+                  basic_contact, account_credentials, audit_logs, app_logs]
+      csp: [none]
+      deployment_model: [onprem]
+      baseline: [high]
+      responsibility: [org, team]
+      locale: [en]
+    defects: 1
+    note: >-
+      First HIPAA evaluation of any profile: 68 of 68 specifications reached,
+      31 of them only through controls the organisation owns. The defect was
+      not HIPAA's -- `onprem-us` did not resolve to a country, so the
+      cross-border question was never asked. The region map held bare region
+      codes and every prefixed form failed silently.
+
+  - repository: github.com/Azure-Samples/azure-search-openai-demo
+    commit: 3f4a21f
+    run_on: "2026-07-28"
+    chosen_for: "csp azure, and the customer_owned modifier"
+    witnessed:
+      csp: [azure]
+      deployment_model: [paas]
+      data_type: [user_generated_content, basic_contact, config_secrets, app_logs]
+      modifier: [customer_owned]
+      baseline: [moderate]
+      responsibility: [team, shared, csp_claimed, org]
+      locale: [en]
+    defects: 0
+    note: >-
+      The customer_owned modifier produced the processor_role threat flag and
+      the data_processor_obligations forced requirement, which is the path it
+      exists for. Four Azure services came back unverified -- only azure-blob
+      is curated -- so the split fell back to the deployment model layer.

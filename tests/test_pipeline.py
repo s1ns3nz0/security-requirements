@@ -6958,7 +6958,9 @@ def test_a_storage_region_off_the_map_is_undetermined_not_domestic():
     assert result["cross_border"]["undetermined"] is True
     assert result["cross_border"]["storage_country"] is None
     report = sb.render_gate(result)
-    assert "not in the region map; country undetermined" in report
+    assert "does not resolve to a country" in report
+    assert "A city name does not" in report, \
+        "the message has to name the vocabulary that works, or the author shrugs"
 
 
 def test_a_baseline_control_in_an_unbundled_family_is_reported_unavailable(monkeypatch):
@@ -7292,6 +7294,35 @@ def test_the_axis_universe_is_read_from_the_catalogues_not_listed():
     layers = yaml.safe_load(
         (REPO_ROOT / "responsibility" / "layers.yaml").read_text(encoding="utf-8"))
     assert space["deployment_model"] == set(layers["deployment_models"])
+
+
+@pytest.mark.parametrize("region,country", [
+    # The map held bare region codes, and every profile that named a provider
+    # in front of one lost cross-border detection without saying so. Both
+    # golden profiles naming a region wrote a prefixed form.
+    ("gcp-asia-northeast3", "KR"),
+    ("aws-eu-central-1", "DE"),
+    ("azure-koreacentral", "KR"),
+    ("onprem-us", "US"),
+    ("onprem-kr", "KR"),
+    ("eu-central-1", "DE"),          # unprefixed still works
+    ("KR", "KR"),                    # and a bare country code
+    ("uk", "GB"),                    # through the alias
+])
+def test_a_provider_prefix_does_not_hide_the_country(region, country):
+    """`region_storage` is where the storage is, so people write the provider in
+    front of it. The bare-country-code fix that came before this one handled
+    `KR` and stopped, leaving every prefixed form silently undetermined."""
+    assert sb.resolve_storage_country(region) == country
+
+
+@pytest.mark.parametrize("region", ["onprem-seoul", "datacenter-frankfurt", "mars-west-1",
+                                    "seoul", "our-rack"])
+def test_a_place_this_tool_cannot_map_stays_undetermined(region):
+    """Guessing is worse than silence. A wrong country turns a domestic
+    deployment into a cross-border transfer finding, or hides a real one, and a
+    city map is unbounded."""
+    assert sb.resolve_storage_country(region) is None
 
 
 def test_the_golden_cases_still_span_the_scale():
