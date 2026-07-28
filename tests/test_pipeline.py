@@ -7170,6 +7170,47 @@ def test_the_overlay_command_line_prints_the_funnel(tmp_path, capsys, monkeypatc
     assert "assessed criteria" not in capsys.readouterr().out
 
 
+def test_every_document_this_repository_points_at_exists_and_says_what_is_claimed():
+    """The README cited DESIGN.md for the public-repository rounds and DESIGN.md
+    stopped at the twelve local ones. A tool built to stop unsupported claims had
+    one on its own front page, and it survived because nothing checked that a
+    citation resolves.
+
+    Two things are checked: the file exists, and a section number cited in the
+    prose is a section the file has."""
+    for source in ("README.md", "CONTRIBUTING.md", "DESIGN.md"):
+        path = REPO_ROOT / source
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+
+        for target in re.findall(r"\]\((?!https?://)([^)#]+\.md)[^)]*\)", text):
+            assert (REPO_ROOT / target).exists(), \
+                f"{source} links to {target}, which is not there"
+
+        # "see DESIGN.md §17-18" has to name sections DESIGN.md has.
+        for target, sections in re.findall(
+                r"\[[^\]]*\]\((?!https?://)([^)#]+\.md)\)\s*\u00a7([\d\u2013\-,\s]+)", text):
+            cited = {int(n) for n in re.findall(r"\d+", sections)}
+            body = (REPO_ROOT / target).read_text(encoding="utf-8")
+            present = {int(n) for n in re.findall(r"^##\s*(\d+)\.", body, re.M)}
+            missing = sorted(cited - present)
+            assert not missing, \
+                f"{source} cites {target} sections {missing}, which it does not have"
+
+
+def test_the_front_page_says_who_has_used_this():
+    """Two facts a reader has to have before any number on the page means
+    anything: nobody outside has run it, and the requirement text is written by
+    a model rather than derived. Both were absent while the page carried a
+    catalogue count, a test count, and a coverage figure."""
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "Nobody outside this repository has used it" in readme
+    assert "written by a model" in readme
+    assert "answer key written by the same author" in readme, \
+        "the golden score is self-graded and the page has to say so"
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and

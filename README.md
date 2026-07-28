@@ -8,9 +8,17 @@ before or independently of any code existing. That is the artefact a compliance
 or design stage actually needs, and it is the one nothing produces.
 
 > **Status: pre-release.** The pipeline runs end to end with the full SP 800-53
-> Rev 5 catalog, CSF 2.0, ASVS 5.0, twelve curated services across three providers, and six regulatory
-> overlays (ISMS-P, HIPAA, GDPR, PCI DSS, SOC 2, ISO 27001). Exercised against a dozen local repositories and three public ones
-> (CloudGoat, OWASP WrongSecrets, Online Boutique); see [DESIGN.md](DESIGN.md).
+> Rev 5 catalog, CSF 2.0, ASVS 5.0, twelve curated services across three providers,
+> and six regulatory overlays (ISMS-P, HIPAA, GDPR, PCI DSS, SOC 2, ISO 27001).
+>
+> Exercised against twelve local repositories and four rounds of public ones —
+> CloudGoat, OWASP WrongSecrets, Online Boutique, Airflow, Jaeger, and twenty
+> infrastructure projects run with authored threat models. Every round is
+> recorded in [DESIGN.md](DESIGN.md) §17–18 with the defects it found.
+>
+> **Nobody outside this repository has used it.** The requirement text itself is
+> written by a model, not derived mechanically, and its quality has only ever
+> been scored against an answer key written by the same author.
 
 ## What it produces
 
@@ -123,7 +131,7 @@ summarised in our own words with links, never reproduced.
 
 ```
 python3 scripts/rebuild_catalogs.py     # rebuild every catalog from upstream
-python3 -m pytest tests/                # deterministic layer, 646 tests
+python3 -m pytest tests/                # deterministic layer, 648 tests
 python3 scripts/eval_golden.py golden/b2b-saas-aws requirements.yaml
 ```
 
