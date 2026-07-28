@@ -41,6 +41,25 @@
 #       data_type: [health_records]
 #     defects: <count found, and the commits that fixed them>
 
+# Why the remaining axes are open
+# -------------------------------
+# Four providers (alibaba, ibm, oci, tencent), three data types (minors_data,
+# ml_training_data, public_content), and four modifiers are reported as never
+# exercised, and are deliberately left that way.
+#
+# All of them are swept through the derivation by the test suite, so no code
+# path is unrun. What is missing is a realistic profile carrying them, and the
+# release criteria settled on closing only the axes the next real service will
+# actually hit. Manufacturing a profile to move a counter would produce a
+# fixture nobody would recognise, which is the failure the golden set is
+# supposed to be the opposite of -- and it would make the report say covered
+# about a shape that had still never been seen.
+#
+# The four providers additionally have no curated service file. A profile
+# naming one would witness the axis and add nothing: the split falls back to
+# the deployment layer either way, and that fallback is already tested. What
+# would move them meaningfully is curation, not a profile.
+
 version: "0.1.0"
 
 runs:
