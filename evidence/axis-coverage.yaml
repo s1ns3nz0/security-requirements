@@ -85,6 +85,36 @@ runs:
       cross-border question was never asked. The region map held bare region
       codes and every prefixed form failed silently.
 
+  - repository: github.com/openemr/openemr
+    commit: 966e6ed
+    run_on: "2026-07-28"
+    chosen_for: "the model half of the pipeline, which had never run on real input"
+    witnessed:
+      overlay: [hipaa-security-rule]
+      origin: [threat_only, threat_and_baseline, baseline_only, forced_by_data_type]
+      data_type: [health_records, government_id, sensitive_attributes,
+                  basic_contact, account_credentials, audit_logs, app_logs]
+      csp: [none]
+      deployment_model: [onprem]
+      baseline: [high]
+      responsibility: [org, team]
+      locale: [en]
+    defects: 1
+    note: >-
+      The second run against this repository and the first end to end anywhere.
+      Steps 5 and 8 -- threat model and requirement writing -- had only ever run
+      on synthetic profiles; every external round before this one supplied an
+      empty threats file. The threat model was written from the code rather than
+      the profile, and six threats produced two the baseline could not reach.
+
+      The defect came out of reading the eight requirements as the maintainer
+      would. Two were rejected because they demanded an organisation that does
+      not exist -- a second approver where the profile declares no
+      organisational controls at all, and a multi-facility authorisation model
+      for a single-site deployment. The profile held both answers and nothing
+      read them. Fixed by a fourth rule in the style guide and a note in the
+      responsibility report.
+
   - repository: github.com/Azure-Samples/azure-search-openai-demo
     commit: 3f4a21f
     run_on: "2026-07-28"

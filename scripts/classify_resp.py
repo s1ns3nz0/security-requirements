@@ -521,6 +521,24 @@ def render(result: dict) -> str:
             more = f"  ... and {len(controls) - 14} more" if len(controls) > 14 else ""
             out.append(f"    was {was}: {shown}{more}")
 
+    # An organisation that has declared nothing, holding most of the baseline.
+    # The tool already had both numbers and printed neither, so a derivation
+    # against a three-person clinic produced requirements demanding a second
+    # approver and an approval process, and nothing in the output said the
+    # profile had already answered that there were none. Two of eight
+    # requirements written for a real repository were rejected for exactly that,
+    # and the information that would have caught it was in the profile.
+    org_count = result["counts"].get("org", 0)
+    if org_count and not result.get("org_controls_recognised"):
+        out += ["",
+                f"  NOTE: {org_count} controls are the organisation's, and the profile declares",
+                "  no organisational controls at all. Either the interview did not reach the",
+                "  question, or the organisation genuinely has none -- and in the second case",
+                "  a requirement assuming an approval step, a second approver, or a division",
+                "  of duties cannot be carried out by anyone here. Write what this team can",
+                "  do, and say plainly which controls need an organisation that does not yet",
+                "  exist."]
+
     if result.get("org_controls_unrecognised"):
         out += ["",
                 "  WARNING: these answers to \"what does the organisation already have\"",

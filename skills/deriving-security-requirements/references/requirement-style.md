@@ -6,7 +6,7 @@ Model output drifts toward sentiment unless the rules below are enforced, and
 
 ---
 
-## Three rules
+## Four rules
 
 ### 1. Verifiable
 
@@ -51,6 +51,38 @@ required by a regulation, or a provider setting with no alternative — state it
 and record why in `rationale`.
 
 ---
+
+### 4. Executable by the organisation the profile describes
+
+A requirement nobody in this organisation can carry out is a requirement that
+gets crossed off rather than done, and it takes the credibility of the ones
+beside it with it.
+
+The profile already answers this and the derivation has to read the answer.
+`declared.existing_org_controls` is what the organisation has. An empty list is
+not a gap in the interview to be worked around -- it is the organisation saying
+it has no approval process, no access review, no separately staffed security
+function. The responsibility report prints a note when the organisational bucket
+is large and that list is empty; that note is addressed to this step.
+
+| the organisation declared | do not write |
+|---|---|
+| nothing | "an approval the administrative role cannot grant alone" -- there is one administrator |
+| nothing | "reviewed quarterly by the security function" -- there is no security function |
+| `sso`, `access_review` | nothing is blocked; those exist and can be built on |
+
+The same applies to scale the profile states. A single-facility deployment does
+not need every authorisation decision to carry a facility dimension, and
+demanding it produces a redesign for a risk the deployment does not have. Where
+the control is right at a scale the profile does not describe, say so in the
+requirement rather than leaving the reader to discover it:
+
+> Where more than one facility shares an installation, an authorisation
+> decision for clinical data must take the patient it concerns as an input.
+
+Two of the first eight requirements this tool wrote for a real repository were
+rejected on this, and the profile contained the information that would have
+caught both.
 
 ## Record shape
 

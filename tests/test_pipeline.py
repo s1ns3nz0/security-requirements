@@ -7663,6 +7663,59 @@ def test_the_hints_score_a_document_someone_else_wrote(case, alternative):
         topic["id"] for topic in result["topics"] if not topic.get("covered")]
 
 
+def test_an_organisation_that_declared_nothing_is_told_it_holds_most_of_the_baseline():
+    """The tool had both numbers and printed neither. A derivation against a
+    three-person clinic put 227 controls in the organisational bucket while the
+    profile declared no organisational controls at all, and the report said
+    nothing -- so the requirements written from it demanded a second approver and
+    an approval process that nobody there could perform.
+
+    Two of the first eight requirements this tool wrote for a real repository
+    were rejected on exactly that, and the information that would have caught
+    both was already in the profile."""
+    profile, _ = profile_schema.normalise(_minimal_profile(existing_org_controls=[]))
+    derived = sb.run(profile)
+    split = classify_resp.classify(profile, derived["controls"])
+    assert split["counts"].get("org"), "this test needs an organisational bucket"
+    assert not split["org_controls_recognised"]
+
+    report = classify_resp.render(split)
+    assert "declares" in report and "no organisational controls at all" in report
+    assert "second approver" in report, \
+        "the note has to name what cannot be carried out, or it reads as bookkeeping"
+
+    # And it is not printed when the organisation has said what it has.
+    with_controls, _ = profile_schema.normalise(
+        _minimal_profile(existing_org_controls=["sso", "access_review"]))
+    quiet = classify_resp.classify(with_controls, derived["controls"])
+    assert "no organisational controls at all" not in classify_resp.render(quiet)
+
+
+def test_the_style_guide_requires_a_requirement_someone_can_carry_out():
+    """Step 8 is a model step, so the guidance is the primary control and the
+    report note is the prompt for it. A rule that exists in neither place is a
+    rule the next derivation will break the same way."""
+    guide = (REPO_ROOT / "skills" / "deriving-security-requirements" / "references" /
+             "requirement-style.md").read_text(encoding="utf-8")
+    assert "Executable by the organisation" in guide
+    assert "existing_org_controls" in guide, \
+        "the guidance has to name the field that answers the question"
+
+    # The count, wherever it is stated. The heading said three while there were
+    # four, and so did the skill's pointer at it -- one edit, two stale numbers,
+    # which is the drift this repository keeps finding on its own pages.
+    headings = re.findall(r"^### (\d+)\.", guide, re.M)
+    words = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
+    sources = {"requirement-style.md": guide,
+               "SKILL.md": (REPO_ROOT / "skills" / "deriving-security-requirements" /
+                            "SKILL.md").read_text(encoding="utf-8")}
+    for name, text in sources.items():
+        for stated in re.findall(r"(\w+) rules", text):
+            if stated.lower() in words:
+                assert words[stated.lower()] == len(headings), \
+                    f"{name} says {stated} rules and requirement-style.md has {len(headings)}"
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and

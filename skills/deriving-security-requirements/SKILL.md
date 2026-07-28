@@ -86,7 +86,7 @@ repository, add it to `.gitignore` and say why. Git history survives deletion.
 
 - `references/profile-schema.md` — schema, the seven questions, the gate
 - `references/threat-modeling.md` — DFD, STRIDE, LINDDUN, personas
-- `references/requirement-style.md` — the three rules, record shape, priority
+- `references/requirement-style.md` — the four rules, record shape, priority
 
 ## Disclaimer
 
