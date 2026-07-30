@@ -7186,8 +7186,9 @@ def test_standalone_clause_can_be_semantically_reviewed(b2b_funnel_inputs):
         b2b_funnel_inputs["result"], requirements, b2b_funnel_inputs["work"]
     )
     assert standalone in {
-        row["clause"] for row in assurance["semantically_reviewed"]
+        row["clause"] for row in assurance["standalone_semantically_reviewed"]
     }
+    assert len(assurance["semantically_reviewed"]) <= len(assurance["trace_linked"])
 
 
 def test_overlay_user_output_uses_staged_assurance_language(b2b_funnel_inputs):
@@ -7204,7 +7205,13 @@ def test_overlay_user_output_uses_staged_assurance_language(b2b_funnel_inputs):
         capture_output=True,
         text=True,
     ).stdout.lower()
-    for banned in ("partly covered", "unanswered", "actually answers"):
+    for banned in (
+        "partly covered",
+        "unanswered",
+        "actually answers",
+        "already satisfy",
+        "clauses are covered",
+    ):
         assert banned not in help_text
 
 

@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Attach a regulatory overlay to a derived requirement set.
 
-An overlay answers a question the core derivation cannot: which clauses of a
-named regime the derived controls already satisfy, and which they do not reach
-at all. The second list is the point. A team asked to certify against ISMS-P
-and handed a SP 800-53 derivation has to work out by hand which of the 101
-clauses are covered; the clauses nothing covers are the ones that surprise them
-in an audit.
+An overlay reports which clauses of a named regime are reached by controls in
+the derived set, which are only partly reached, and which no selected control
+reaches. These are mapping and derivation states, not implementation or
+compliance claims. The clauses no control reaches are the ones that otherwise
+surprise a team during an audit.
 
 The mapping is authored, not published -- NIST and KISA publish no crosswalk --
 so every control identifier it cites is link-checked against the bundled
@@ -476,6 +475,7 @@ def answerability(result: dict, requirements: dict | None,
         else:
             gap.append(row)
 
+    standalone_semantically_reviewed = []
     for row in result["standalone"]:
         reviewed_hits = sorted(
             req_id
@@ -485,13 +485,14 @@ def answerability(result: dict, requirements: dict | None,
             )
         )
         if reviewed_hits:
-            semantically_reviewed.append(
+            standalone_semantically_reviewed.append(
                 {**row, "requirements": reviewed_hits}
             )
 
     return {
         "trace_linked": trace_linked,
         "semantically_reviewed": semantically_reviewed,
+        "standalone_semantically_reviewed": standalone_semantically_reviewed,
         "deferred": deferred,
         "gap": gap,
         "reached": len(trace_linked) + len(deferred) + len(gap),
@@ -588,6 +589,12 @@ def render(result: dict, reason: str) -> str:
                 f"  {len(answers['trace_linked']):>4}  trace-linked candidate requirements with a way to check them",
                 "        structural linkage only; semantic adequacy is not established",
                 f"  {len(answers['semantically_reviewed']):>4}  independently reviewed semantic clause mappings"]
+        if answers["standalone_semantically_reviewed"]:
+            out += [
+                "",
+                f"  {len(answers['standalone_semantically_reviewed']):>4}  independently reviewed standalone-clause requirements",
+                "        separate path: no catalogue control expresses these clauses",
+            ]
         if answers["prioritisation_supplied"]:
             out += [
                 "",
