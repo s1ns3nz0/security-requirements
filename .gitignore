@@ -12,3 +12,6 @@ __pycache__/
 .coverage
 htmlcov/
 .coverage.*
+
+# Local isolated development worktrees.
+.worktrees/
