@@ -52,6 +52,7 @@ LIST_FIELDS = [
     ("declared", "users"),
     ("declared", "user_regions"),
     ("declared", "existing_org_controls"),
+    ("declared", "fixed_interfaces"),
     ("declared", "regulations_declared"),
 ]
 

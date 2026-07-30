@@ -7979,6 +7979,54 @@ def test_neither_script_keeps_its_own_copy_of_the_rule():
         assert "partition(" not in body, f"{name} still carries its own conversion"
 
 
+def test_an_interface_the_service_does_not_control_is_read_and_reported():
+    """A derivation for a server whose whole purpose is API compatibility with a
+    client it does not ship produced a requirement to refuse weak registration
+    parameters. Refusing them would have broken registration from the official
+    client. The constraint was as binding as "the organisation has no second
+    approver" and there was nowhere in the profile to write it.
+
+    Reported rather than acted on: which control survives the constraint belongs
+    to whoever writes the requirement."""
+    profile, warnings = profile_schema.normalise(
+        _minimal_profile(fixed_interfaces=["Bitwarden client API"]))
+    result = sb.run(profile)
+    assert result["fixed_interfaces"] == ["Bitwarden client API"]
+    report = sb.render_gate(result)
+    assert "does not" in report and "refused before it" in report
+
+    # Absent or empty means the service owns its interfaces, and nothing is said.
+    quiet, _ = profile_schema.normalise(_minimal_profile())
+    assert sb.run(quiet)["fixed_interfaces"] == []
+    assert "refused before it" not in sb.render_gate(sb.run(quiet))
+
+    # A scalar where a list belongs is coerced and reported, like every other
+    # declared list -- a string is iterable and would otherwise be read letter
+    # by letter.
+    scalar, notes = profile_schema.normalise(
+        _minimal_profile(fixed_interfaces="Bitwarden client API"))
+    assert sb.run(scalar)["fixed_interfaces"] == ["Bitwarden client API"]
+    assert any("fixed_interfaces" in note for note in notes)
+
+
+def test_the_style_guide_names_both_ways_a_requirement_can_be_unbuildable():
+    """Rule 4 began as one question -- can this organisation carry it out. Two
+    more rejections on the next repository added two neighbours: the system may
+    not have the thing the requirement is about, and the interface may not be
+    ours to change. All three are answered by the profile, and all three were
+    ignored by a requirement anyway."""
+    guide = (REPO_ROOT / "skills" / "deriving-security-requirements" / "references" /
+             "requirement-style.md").read_text(encoding="utf-8")
+    for field in ("existing_org_controls", "auth_mechanism", "fixed_interfaces"):
+        assert field in guide, f"rule 4 does not name {field}"
+    assert "the missing answer is the requirement" in guide, \
+        "the guidance has to say what to do when the profile does not record it"
+
+    schema = (REPO_ROOT / "skills" / "deriving-security-requirements" / "references" /
+              "profile-schema.md").read_text(encoding="utf-8")
+    assert "fixed_interfaces" in schema, "a field the guidance reads has to be asked for"
+
+
 def test_the_golden_cases_still_span_the_scale():
     """The README's claim, asserted rather than left to whoever notices. If they
     all collapse to one level the tailoring has stopped discriminating, and

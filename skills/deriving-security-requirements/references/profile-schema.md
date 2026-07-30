@@ -157,6 +157,28 @@ detected: Stripe, Sentry, Datadog, SendGrid
 
 ---
 
+### Q5b — Is any interface fixed by something outside this service?
+
+```
+[ ] no
+[ ] yes, namely: ______   <- a protocol, an API someone else defines, a client
+                             we do not ship, a wire format we must accept
+```
+
+- **Consumed by**: requirement writing (`requirement-style.md`, rule 4)
+- **Why it is asked**: a service that implements someone else's protocol cannot
+  change what it accepts, and a requirement telling it to is a requirement that
+  gets crossed off. This came out of a derivation for a server whose whole
+  purpose is API compatibility with a client it does not ship: the requirement
+  said the server must refuse weak parameters, and refusing them would have
+  broken registration from the official client. The constraint was as binding as
+  "the organisation has no second approver" and there was nowhere to write it.
+- **Written as**: `declared.fixed_interfaces: ["Bitwarden client API"]`, or an
+  empty list. Empty means the service controls its own interfaces, which is the
+  common case and worth stating rather than leaving to inference.
+
+---
+
 ### Q6 — What controls does the organisation already have?
 
 ```
@@ -233,6 +255,10 @@ inferred:
 
 # --- interview ---
 declared:
+  # Empty means this service controls its own interfaces. A named entry is a
+  # protocol or client it must keep accepting, and a requirement that changes
+  # what it accepts is refused before it is written.
+  fixed_interfaces: []
   data_types:
     - id: basic_contact
     - id: payment_token

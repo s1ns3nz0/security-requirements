@@ -115,6 +115,36 @@ runs:
       read them. Fixed by a fourth rule in the style guide and a note in the
       responsibility report.
 
+  - repository: github.com/dani-garcia/vaultwarden
+    commit: 2629bcb
+    run_on: "2026-07-30"
+    chosen_for: "a second rejection pass, on a shape where the data is entirely credentials"
+    witnessed:
+      overlay: [pipa-isms-p]
+      origin: [threat_only, threat_and_baseline, baseline_only, forced_by_data_type]
+      data_type: [account_credentials, basic_contact, app_logs]
+      modifier: [service_content]
+      csp: [none]
+      deployment_model: [onprem]
+      baseline: [high]
+      responsibility: [org, team]
+      locale: [en]
+    defects: 2
+    note: >-
+      The first real profile to carry `service_content` on account_credentials,
+      which is the Keycloak design change from earlier: credentials are system
+      information in most services and are the content in this one, so they now
+      count toward the water mark instead of being excluded from it.
+
+      Six requirements, two rejected, and the two rejections were a different
+      pattern from OpenEMR's. One demanded the server refuse weak registration
+      parameters, which would break the official client this project exists to
+      stay compatible with -- a constraint the profile had no field for.
+      The other asked the server to check a password hint against the master
+      password, which the server never receives: `auth_mechanism` already said
+      the client sends a derived key, and the requirement contradicted it.
+      One field added, rule 4 widened to name both.
+
   - repository: github.com/Azure-Samples/azure-search-openai-demo
     commit: 3f4a21f
     run_on: "2026-07-28"

@@ -1333,6 +1333,8 @@ def run(profile: dict) -> dict:
         "overlay_triggers": overlays,
         "cross_border": cross_border,
         "catalogue_drift": catalogue_drift(profile, types_table),
+        "fixed_interfaces": [str(x) for x in
+                             ((profile.get("declared") or {}).get("fixed_interfaces") or [])],
         "leaves_the_boundary": data_leaving_the_boundary(
             profile, set(personal),
             {(e["id"] if isinstance(e, dict) else e)
@@ -1445,6 +1447,20 @@ def render_gate(result: dict) -> str:
         out += ["", "Uncovered regulations detected"]
         for item in result["uncovered_regulations"]:
             out.append(f"  ! {item['message']}")
+    # An interface the service does not control bounds what a requirement may
+    # ask for, and there was nowhere to write that down until a derivation
+    # demanded a server refuse parameters its own client sends. Printed rather
+    # than acted on: the constraint belongs to whoever writes the requirements.
+    fixed = (result.get("fixed_interfaces") or [])
+    if fixed:
+        out += ["",
+                f"  NOTE: {', '.join(fixed)} " +
+                ("is an interface" if len(fixed) == 1 else "are interfaces") +
+                " this service does not",
+                "  control. A requirement that changes what it accepts is refused before it",
+                "  is written, however right it would be for a service that owned the wire",
+                "  format. Move the control to the side this service owns.", ""]
+
     for note in result.get("catalogue_drift") or []:
         out.append(f"  CHECK: {note}")
     if result.get("catalogue_drift"):

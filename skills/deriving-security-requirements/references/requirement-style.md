@@ -84,6 +84,29 @@ Two of the first eight requirements this tool wrote for a real repository were
 rejected on this, and the profile contained the information that would have
 caught both.
 
+Two more were rejected on the next repository, for two neighbouring reasons.
+
+**The system may not have the thing.** `inferred.auth_mechanism` said the server
+receives a key derived from the master password and never the password itself. A
+requirement then asked the server to refuse a password hint containing the
+password — a check on plaintext the server never sees. The profile had already
+answered it. Read `auth_mechanism`, `entrypoints`, and `stack` before writing an
+obligation about data flowing through them, and if the requirement needs
+something the profile does not record, the missing answer is the requirement.
+
+**The interface may not be ours to change.** `declared.fixed_interfaces` names a
+protocol or client the service must keep accepting. A requirement that changes
+what it accepts is refused before it is written, however correct it would be for
+a service that owned its own wire format:
+
+| the profile says | do not write |
+|---|---|
+| `fixed_interfaces: ["Bitwarden client API"]` | "the server must refuse a registration whose parameters fall below a floor" — the official client sends them and registration would break |
+
+Where the control is still right, move it to the side the service owns: refusing
+the weak value is not available, and reporting it, or refusing it only for
+clients the service does ship, may be.
+
 ## Record shape
 
 ```yaml
