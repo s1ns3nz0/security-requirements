@@ -22,9 +22,15 @@ caught where it happens.
 
 What it is worth, measured
 --------------------------
-Half a sweep of the gate scripts -- 197 of 428 points, half an hour -- produced
-sixteen survivors, of which four were real and twelve were message formatting:
-an "is"/"are" plural, a "those axes"/"that axis". A quarter signal.
+One sweep of the gate scripts at ea501cf: 422 of 428 points, twenty-one
+survivors, stopped by hand six points short. Every survivor is listed in
+``evidence/mutation-sweep.yaml`` with the invocation and the commit, because the
+first version of this paragraph quoted a number read off a partial run and never
+updated -- 197 points and sixteen survivors -- and a tool for finding unsupported
+claims cannot carry one.
+
+Most of the survivors are message formatting: an "is"/"are" plural, a "those
+axes"/"that axis". Four were real.
 
 The one worth having found is in this file's own subject: the credential check
 in `url_problem` reads `username or password`, and nothing distinguished it from
@@ -58,6 +64,12 @@ Safety
 Runs in a copy of the tree. The first version of this edited the working tree in
 place, was interrupted, and left a mutated source behind that read as four real
 regressions.
+
+The repository is never written to -- `--json` refuses a path inside it. What an
+interrupted run can leave is the copy itself: TemporaryDirectory cleans up on a
+normal exit and on KeyboardInterrupt, and not on SIGKILL or a host crash, so a
+`mutate-*` directory under the system temporary directory may outlive the run.
+It is a copy and deleting it is safe.
 
 Usage
 -----
@@ -149,6 +161,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--json", type=Path)
     args = ap.parse_args(argv)
+
+    # The report is the only thing this writes outside the copy, and it may not
+    # be written inside the repository. A tool whose safety claim is "it works on
+    # a copy" cannot take a caller-supplied path into the tree it is protecting.
+    if args.json:
+        try:
+            args.json.resolve().relative_to(REPO_ROOT)
+        except ValueError:
+            pass
+        else:
+            ap.error(f"--json may not write inside the repository: {args.json}")
 
     names = args.files or GATE_SCRIPTS
     points = [(name, point)

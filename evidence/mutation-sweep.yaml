@@ -1,0 +1,51 @@
+# Mutation sweep, recorded.
+#
+# `scripts/mutate.py` claimed a result in its own docstring with nothing
+# behind it, and the number it claimed was one I had read off a partial run
+# and never updated -- 197 of 428 with sixteen survivors, when the run
+# finished at 423 with twenty-one. A tool for finding unsupported claims
+# carrying one is the shape this repository exists to stop.
+#
+# This is the run itself: the invocation, the commit, and every survivor.
+
+version: "0.1.0"
+
+run:
+  invocation: "python3 scripts/mutate.py"
+  commit: ea501cf
+  scope: the six gate scripts
+  points: 428
+  completed: 422
+  note: >-
+    Stopped by hand five points short, after the survivor list had made its
+    point. Recorded as it ended rather than rounded up.
+  killed: 401
+  survived: 21
+
+# Where they fell.
+by_file:
+  select_baseline.py: 14
+  lint.py: 7
+
+survivors:
+  - lint.py:298:And->Or
+  - lint.py:299:And->Or
+  - lint.py:439:Or->And
+  - lint.py:523:In->NotIn
+  - lint.py:592:Eq->NotEq
+  - lint.py:740:Or->And
+  - lint.py:742:Or->And
+  - select_baseline.py:320:Or->And
+  - select_baseline.py:363:Or->And
+  - select_baseline.py:498:Or->And
+  - select_baseline.py:500:Or->And
+  - select_baseline.py:515:Or->And
+  - select_baseline.py:541:Or->And
+  - select_baseline.py:1032:NotIn->In
+  - select_baseline.py:1231:Or->And
+  - select_baseline.py:1236:Gt->LtE
+  - select_baseline.py:1389:Eq->NotEq
+  - select_baseline.py:1404:IsNot->Is
+  - select_baseline.py:1426:NotEq->Eq
+  - select_baseline.py:1427:Eq->NotEq
+  - select_baseline.py:1490:NotEq->Eq

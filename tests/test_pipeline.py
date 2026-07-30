@@ -7993,7 +7993,13 @@ def test_an_interface_the_service_does_not_control_is_read_and_reported():
     result = sb.run(profile)
     assert result["fixed_interfaces"] == ["Bitwarden client API"]
     report = sb.render_gate(result)
-    assert "does not" in report and "refused before it" in report
+    # The interface by name. "does not" appears in half the prose on the page,
+    # so it proved the note existed and not that it identified anything.
+    assert "Bitwarden client API is an interface this service does not" in report
+    assert "refused before it" in report
+    assert "Move the control to the side this service owns" in report, \
+        "a note that states the constraint without saying what to do with it "\
+        "leaves the reader where they were"
 
     # Absent or empty means the service owns its interfaces, and nothing is said.
     quiet, _ = profile_schema.normalise(_minimal_profile())
@@ -8017,10 +8023,21 @@ def test_the_style_guide_names_both_ways_a_requirement_can_be_unbuildable():
     ignored by a requirement anyway."""
     guide = (REPO_ROOT / "skills" / "deriving-security-requirements" / "references" /
              "requirement-style.md").read_text(encoding="utf-8")
+
+    # Inside rule 4, not anywhere in the file. The first version checked the
+    # whole guide, so moving the fields into an unrelated example would have
+    # passed while rule 4 said nothing.
+    rule_four = guide.split("### 4. Executable by the organisation")[1].split("\n## ")[0]
     for field in ("existing_org_controls", "auth_mechanism", "fixed_interfaces"):
-        assert field in guide, f"rule 4 does not name {field}"
-    assert "the missing answer is the requirement" in guide, \
-        "the guidance has to say what to do when the profile does not record it"
+        assert field in rule_four, f"rule 4 does not name {field}"
+
+    # And each field has to arrive with the question it answers, or it is a
+    # list of field names rather than a rule.
+    for phrase in ("can this organisation carry it out",
+                   "does the system have the thing",
+                   "is the interface ours to change"):
+        assert phrase in rule_four, f"rule 4 names the fields without the test: {phrase!r}"
+    assert "the missing answer is the requirement" in rule_four
 
     schema = (REPO_ROOT / "skills" / "deriving-security-requirements" / "references" /
               "profile-schema.md").read_text(encoding="utf-8")

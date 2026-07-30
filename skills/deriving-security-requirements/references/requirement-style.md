@@ -58,6 +58,19 @@ A requirement nobody in this organisation can carry out is a requirement that
 gets crossed off rather than done, and it takes the credibility of the ones
 beside it with it.
 
+Three questions, asked of every requirement before it is written. Each is
+answered by a field the profile already carries, and each has been ignored by a
+requirement that was otherwise right:
+
+| ask | the profile field | if the answer is no |
+|---|---|---|
+| can this organisation carry it out | `existing_org_controls` | write what this team can do alone |
+| does the system have the thing | `auth_mechanism`, `entrypoints`, `stack` | the missing answer is the requirement |
+| is the interface ours to change | `fixed_interfaces` | move the control to the side we own |
+
+Where the profile records none of it, the missing answer is the requirement:
+ask the question rather than assuming either answer.
+
 The profile already answers this and the derivation has to read the answer.
 `declared.existing_org_controls` is what the organisation has. An empty list is
 not a gap in the interview to be worked around -- it is the organisation saying
@@ -86,7 +99,7 @@ caught both.
 
 Two more were rejected on the next repository, for two neighbouring reasons.
 
-**The system may not have the thing.** `inferred.auth_mechanism` said the server
+**The system may not have the thing.** Nothing can be required of data that does not reach it. `inferred.auth_mechanism` said the server
 receives a key derived from the master password and never the password itself. A
 requirement then asked the server to refuse a password hint containing the
 password — a check on plaintext the server never sees. The profile had already
@@ -94,7 +107,7 @@ answered it. Read `auth_mechanism`, `entrypoints`, and `stack` before writing an
 obligation about data flowing through them, and if the requirement needs
 something the profile does not record, the missing answer is the requirement.
 
-**The interface may not be ours to change.** `declared.fixed_interfaces` names a
+**The interface may not be ours to change.** An interface that is not ours to change bounds the requirement before it is written. `declared.fixed_interfaces` names a
 protocol or client the service must keep accepting. A requirement that changes
 what it accepts is refused before it is written, however correct it would be for
 a service that owned its own wire format:
