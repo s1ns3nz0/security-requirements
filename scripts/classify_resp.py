@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -239,6 +240,13 @@ def load_services(profile: dict, csp: str | None = None,
     for entry in declared:
         sid = entry["id"] if isinstance(entry, dict) else entry
         path = SERVICES_DIR / f"{sid}.yaml"
+        plugin_data = os.environ.get("CLAUDE_PLUGIN_DATA")
+        generated = (
+            Path(plugin_data) / "responsibility" / "services" / f"{sid}.yaml"
+            if plugin_data else None
+        )
+        if not path.exists() and generated and generated.exists():
+            path = generated
         if not path.exists():
             uncurated.append(sid)
             continue

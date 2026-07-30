@@ -99,6 +99,7 @@ EXEMPTIONS = REPO_ROOT / "evidence" / "mutation-exemptions.yaml"
 GATE_SCRIPTS = [
     "lint.py", "select_baseline.py", "apply_overlay.py",
     "merge.py", "classify_resp.py", "render.py",
+    "confirmation.py", "semantic_review.py",
 ]
 
 # One operator for its opposite. Arithmetic and constant mutations are left out:

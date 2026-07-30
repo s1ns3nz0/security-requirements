@@ -5,9 +5,20 @@ description: Derive security requirements from a confirmed profile - threat mode
 Requires a confirmed `.security-requirements/profile.yaml`. If it does not
 exist, or the gate was not passed, run `/sec-req-init` first.
 
+Enforce the persisted gate before doing any work:
+
+```
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/confirmation.py" --check \
+    .security-requirements/profile.yaml
+```
+
+A missing, incomplete, or stale confirmation is a blocker. Do not infer
+approval from conversation history.
+
 ## 1. Threat model
 
-Follow `skills/deriving-security-requirements/references/threat-modeling.md`.
+Follow
+`${CLAUDE_PLUGIN_ROOT}/skills/deriving-security-requirements/references/threat-modeling.md`.
 
 Build the DFD first. Threats listed without a structure are recalled, not
 derived, and recalled threats are the ones the baseline already covers.
@@ -24,7 +35,7 @@ Write `.security-requirements/threats.yaml`.
 ## 2. Responsibility split
 
 ```
-python3 scripts/classify_resp.py \
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/classify_resp.py" \
     .security-requirements/profile.yaml \
     .security-requirements/controls.json \
     --json .security-requirements/responsibility.json
@@ -32,13 +43,14 @@ python3 scripts/classify_resp.py \
 
 Read the uncurated service list from the output. Those need model judgement:
 for each, produce a draft mapping and write it to
-`responsibility/services/<id>.yaml` with `reviewed: false`. It is cached for
-later runs and shown as unverified wherever it appears.
+`${CLAUDE_PLUGIN_DATA}/responsibility/services/<id>.yaml` with
+`reviewed: false`. Plugin data persists across plugin upgrades; the installed
+plugin directory does not. It is shown as unverified wherever it appears.
 
 ## 3. Regulatory overlay, where one applies
 
 ```
-python3 scripts/apply_overlay.py pipa-isms-p \
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/apply_overlay.py" pipa-isms-p \
     .security-requirements/profile.yaml \
     .security-requirements/controls.json \
     --json .security-requirements/overlay.json
@@ -55,11 +67,11 @@ when you carry it into the document.
 ## 4. Cross and prioritise
 
 ```
-python3 scripts/merge.py --cross \
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/merge.py" --cross \
     --controls .security-requirements/controls.json \
     --responsibility .security-requirements/responsibility.json \
     --threats .security-requirements/threats.yaml \
-    --out .security-requirements/draft.json
+    --out .security-requirements/cross.json
 ```
 
 The `threat only` bucket is the point of the exercise. If it is empty, the
@@ -68,10 +80,13 @@ baseline.
 
 ## 5. Write the requirements
 
-Follow `references/requirement-style.md`. Verifiable, atomic, property not
+Follow
+`${CLAUDE_PLUGIN_ROOT}/skills/deriving-security-requirements/references/requirement-style.md`.
+Verifiable, atomic, property not
 implementation.
 
-Write one requirement per item in the crossed set. Every requirement needs a
+Read `.security-requirements/cross.json` and write one requirement per item into
+`.security-requirements/draft.json`. Every requirement needs a
 populated `verification` block: what to look at, what to expect, and a manual
 fallback. Requirements are grouped under CSF 2.0 functions for the reader and
 carry 800-53 and ASVS identifiers as evidence.
@@ -82,7 +97,7 @@ where no threat matched them.
 ## 6. Merge and render
 
 ```
-python3 scripts/merge.py --apply \
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/merge.py" --apply \
     --draft .security-requirements/draft.json \
     --existing .security-requirements/requirements.yaml \
     --state .security-requirements/state.yaml
@@ -111,9 +126,12 @@ built for a Korean regime came to be unable to publish a Korean document.
 locale=$(python3 -c "import yaml,sys; print((yaml.safe_load(open(sys.argv[1])) or {}).get('locale','en'))" \
     .security-requirements/profile.yaml)
 
-python3 scripts/lint.py .security-requirements/requirements.yaml --locale "$locale"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/lint.py" --locale "$locale" \
+    .security-requirements/requirements.yaml \
+    --threats .security-requirements/threats.yaml
 
-python3 scripts/render.py .security-requirements/requirements.yaml \
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/render.py" \
+    .security-requirements/requirements.yaml \
     --out docs/security/
 ```
 
@@ -128,7 +146,7 @@ which controls the tailoring selected. Now that `requirements.yaml` is written,
 run each applicable overlay again with the document and the work list:
 
 ```
-python3 scripts/apply_overlay.py pipa-isms-p \
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/apply_overlay.py" pipa-isms-p \
     .security-requirements/profile.yaml \
     .security-requirements/controls.json \
     --requirements .security-requirements/requirements.yaml \
@@ -142,10 +160,35 @@ about the document rather than about the derivation:
 101  assessed criteria
  95  a control in the catalogue expresses it
  94  a selected control addresses it
-  8  a written requirement answers it, with a way to check it
+  8  trace-linked candidate requirements, with a way to check them
+  0  independently reviewed semantic clause mappings
 ```
 
-Read the last row against the two below it, never on its own. Most of the
+Trace linkage is not semantic adequacy. A human reviewer advances a candidate
+by recording the exact control and overlay-clause links plus verification review
+as described in the requirement style reference. Before making any semantic
+coverage claim, run:
+
+```
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/semantic_review.py" --check \
+    .security-requirements/requirements.yaml
+```
+
+This gate requires every live requirement to carry a current, digest-bound
+independent review. A draft may be published without passing it, but must remain
+labeled trace-linked rather than semantically reviewed.
+
+Keep the assurance stages distinct:
+
+```
+selected -> authored -> trace-linked -> semantically reviewed
+         -> implemented -> evidenced -> assessed
+```
+
+This plugin establishes at most the first four stages. It never infers
+implemented, evidenced, assessed, or compliant from requirement text.
+
+Read the trace-linked row against the two below it, never on its own. Most of the
 difference will be **deferred** — the baseline selected a control and no threat
 reached it, so it came out of the cross step at low priority. That is the
 tailoring working. What matters is the **gap** row: a control a threat or a
@@ -163,7 +206,7 @@ State plainly:
 - which services were unverified
 - which regulatory overlays applied, at what scope, and which of their
   clauses no control reaches
-- for each overlay, how many clauses a written requirement answers, and how
-  many are a gap rather than a deferral. Never the answered count alone
+- for each overlay, how many clauses have trace-linked candidate requirements, and how
+  many are a gap rather than a deferral. Never the trace-linked count alone
 - which detected regulations have no overlay at all
 - what remains UNDETERMINED and what it cost

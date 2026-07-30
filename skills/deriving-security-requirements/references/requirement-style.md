@@ -143,7 +143,15 @@ clients the service does ship, may be.
       expect: "sse_algorithm = aws:kms with a customer-managed key arn"
       fallback_manual: "Console > S3 > bucket > Properties > Default encryption"
     priority: high
-  human: {}
+  human:
+    semantic_review:
+      status: approved
+      reviewer: "alice@example.com"       # independent human, never the model
+      reviewed_at: "2026-07-31T11:00:00Z"
+      requirement_digest: "sha256:..."    # invalidated by any managed edit
+      control_links: [SC-28, SC-28(1)]
+      overlay_clauses: [pipa-isms-p:2.10.2]
+      verification_reviewed: true
 ```
 
 ### Identifiers
@@ -161,6 +169,12 @@ overwritten — status, priority overrides, exception approvals, evidence links.
 When a re-run wants to change a `managed` field on a requirement that carries
 `human` content, the change goes to `pending_review` for approval rather than
 being applied.
+
+`semantic_review` is not generated approval. A human reviewer records which
+control links and exact `<overlay-id>:<clause>` mappings they evaluated and
+whether the verification method tests the stated property. The digest binds the
+approval to the complete `managed` block; any model-authored change makes the
+review stale.
 
 ### Requirements are not deleted
 

@@ -36,12 +36,22 @@ integration, a new entrypoint class. Do not re-run the seven questions.
 If the change alters the impact derivation, show the recalculation and gate on
 it again.
 
+Any profile change invalidates its stored digest. Show the complete diff,
+obtain explicit confirmation again, and persist it:
+
+```
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/confirmation.py" --stamp \
+    .security-requirements/profile.yaml --by user
+```
+
 ## 2. Re-derive
 
 ```
-python3 scripts/select_baseline.py .security-requirements/profile.yaml \
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/select_baseline.py" \
+    .security-requirements/profile.yaml \
     --json .security-requirements/controls.json
-python3 scripts/classify_resp.py .security-requirements/profile.yaml \
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/classify_resp.py" \
+    .security-requirements/profile.yaml \
     .security-requirements/controls.json \
     --json .security-requirements/responsibility.json
 ```
@@ -49,10 +59,26 @@ python3 scripts/classify_resp.py .security-requirements/profile.yaml \
 Update the threat model incrementally. New components and new flows get new
 threats; existing threats keep their identifiers.
 
-## 3. Merge
+Run every applicable regulatory overlay against the refreshed profile and
+controls. Generate the `forces_requirements` entries from the refreshed data
+types even when no threat matches them.
+
+## 3. Cross, author, and merge
 
 ```
-python3 scripts/merge.py --apply \
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/merge.py" --cross \
+    --controls .security-requirements/controls.json \
+    --responsibility .security-requirements/responsibility.json \
+    --threats .security-requirements/threats.yaml \
+    --out .security-requirements/cross.json
+```
+
+Update `.security-requirements/draft.json` from this work list, including new
+overlay-standalone and `forces_requirements` work. Do not reuse the old draft
+unchanged.
+
+```
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/merge.py" --apply \
     --draft .security-requirements/draft.json \
     --existing .security-requirements/requirements.yaml \
     --state .security-requirements/state.yaml
@@ -62,7 +88,34 @@ python3 scripts/merge.py --apply \
 must keep its identifier across runs or every ticket, evidence link, and
 exception approval that references it silently starts pointing somewhere else.
 
-## 4. Report the delta
+## 4. Validate and publish
+
+```
+locale=$(python3 -c "import yaml,sys; print((yaml.safe_load(open(sys.argv[1])) or {}).get('locale','en'))" \
+    .security-requirements/profile.yaml)
+
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/lint.py" \
+    .security-requirements/requirements.yaml \
+    --threats .security-requirements/threats.yaml --locale "$locale"
+
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/render.py" \
+    .security-requirements/requirements.yaml --out docs/security/
+```
+
+Re-run every applicable overlay against the written document:
+
+```
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/apply_overlay.py" <overlay-id> \
+    .security-requirements/profile.yaml \
+    .security-requirements/controls.json \
+    --requirements .security-requirements/requirements.yaml \
+    --cross .security-requirements/cross.json
+```
+
+An overlay, lint, or render failure blocks publication. Do not leave
+`docs/security/` carrying the previous run.
+
+## 5. Report the delta
 
 ```
   added        3   (2 from the new component, 1 from a raised data classification)
