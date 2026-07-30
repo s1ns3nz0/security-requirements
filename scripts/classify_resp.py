@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -41,6 +42,7 @@ from profile_schema import normalise
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LAYERS = REPO_ROOT / "responsibility" / "layers.yaml"
 SERVICES_DIR = REPO_ROOT / "responsibility" / "services"
+SERVICE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 BUCKETS = ["team", "shared", "csp_claimed", "org", "undetermined"]
 
@@ -48,6 +50,18 @@ BUCKETS = ["team", "shared", "csp_claimed", "org", "undetermined"]
 # same control: the more demanding answer wins, because under-assigning work to
 # the team is the failure mode that leaves a gap unowned.
 PRECEDENCE = {"team": 3, "shared": 2, "csp_claimed": 1, "org": 0}
+
+
+def service_path(base: Path, service_id: str) -> Path:
+    candidate = base / f"{service_id}.yaml"
+    if candidate.exists():
+        try:
+            candidate.resolve().relative_to(base.resolve())
+        except ValueError as exc:
+            raise ValueError(
+                f"{service_id!r} escapes service curation directory"
+            ) from exc
+    return candidate
 
 # Organisational controls a profile may declare as already in place. Used to
 # annotate, never to delete: the control still has to be answered at audit,
@@ -239,10 +253,14 @@ def load_services(profile: dict, csp: str | None = None,
     specs, curated, uncurated, foreign = {}, [], [], []
     for entry in declared:
         sid = entry["id"] if isinstance(entry, dict) else entry
-        path = SERVICES_DIR / f"{sid}.yaml"
+        if not isinstance(sid, str) or not SERVICE_ID_RE.fullmatch(sid):
+            raise ValueError(f"unsafe managed service identifier: {sid!r}")
+        path = service_path(SERVICES_DIR, sid)
         plugin_data = os.environ.get("CLAUDE_PLUGIN_DATA")
         generated = (
-            Path(plugin_data) / "responsibility" / "services" / f"{sid}.yaml"
+            service_path(
+                Path(plugin_data) / "responsibility" / "services", sid
+            )
             if plugin_data else None
         )
         if not path.exists() and generated and generated.exists():

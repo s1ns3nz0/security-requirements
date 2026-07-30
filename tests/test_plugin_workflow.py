@@ -107,6 +107,13 @@ def test_refresh_rebuilds_and_republishes_the_complete_pipeline():
     assert "--cross .security-requirements/cross.json" in refresh
     assert "forces_requirements" in refresh
     assert '/scripts/confirmation.py" --stamp' in refresh
+    assert '/scripts/confirmation.py" --check' in refresh
+    assert refresh.index('/scripts/select_baseline.py"') < refresh.index(
+        '/scripts/confirmation.py" --stamp'
+    )
+    assert refresh.index('/scripts/apply_overlay.py"') < refresh.index(
+        '/scripts/render.py"'
+    )
 
 
 def test_build_lints_requirement_threat_references():

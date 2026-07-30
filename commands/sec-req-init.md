@@ -56,7 +56,9 @@ adjusts a level, write `overridden_by_user: true` and the reason into the
 profile — "why Moderate?" must have an answer at audit.
 
 After the user explicitly confirms, persist an approval bound to the exact
-profile:
+profile. The script writes the audit copy into the profile and the authoritative
+copy under `${CLAUDE_PLUGIN_DATA}`; repository content alone can never create a
+valid approval:
 
 ```
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/confirmation.py" --stamp \

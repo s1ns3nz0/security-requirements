@@ -1968,6 +1968,32 @@ def test_generated_service_curation_is_loaded_from_persistent_plugin_data(
     assert uncurated == ["newcloud-db"]
 
 
+@pytest.mark.parametrize("service_id", ["../outside", "nested/service", "/absolute"])
+def test_managed_service_identifier_cannot_escape_curation_directory(
+    profile, service_id
+):
+    candidate = copy.deepcopy(profile)
+    candidate["inferred"]["managed_services"] = [{"id": service_id}]
+    with pytest.raises(ValueError, match="unsafe managed service identifier"):
+        classify_resp.load_services(candidate, "aws", ["aws"])
+
+
+def test_generated_service_symlink_cannot_escape_plugin_data(
+    profile, tmp_path, monkeypatch
+):
+    outside = tmp_path / "outside.yaml"
+    outside.write_text(yaml.safe_dump({"provider": "aws", "reviewed": False}), encoding="utf-8")
+    service_dir = tmp_path / "data" / "responsibility" / "services"
+    service_dir.mkdir(parents=True)
+    (service_dir / "escaped.yaml").symlink_to(outside)
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path / "data"))
+    candidate = copy.deepcopy(profile)
+    candidate["inferred"]["managed_services"] = [{"id": "escaped"}]
+
+    with pytest.raises(ValueError, match="escapes service curation directory"):
+        classify_resp.load_services(candidate, "aws", ["aws"])
+
+
 def test_gke_network_policy_is_the_team_s(profile):
     """Enabling policy enforcement is not the control: a cluster with it on and
     no policies written behaves exactly like one without it."""
@@ -7140,6 +7166,46 @@ def test_exact_human_review_advances_clause_beyond_trace_linkage(b2b_funnel_inpu
     )
     reviewed = {row["clause"] for row in assurance["semantically_reviewed"]}
     assert "2.6.1" in reviewed
+
+
+def test_standalone_clause_can_be_semantically_reviewed(b2b_funnel_inputs):
+    import semantic_review
+
+    requirements = copy.deepcopy(b2b_funnel_inputs["requirements"])
+    standalone = b2b_funnel_inputs["result"]["standalone"][0]["clause"]
+    candidate = requirements["requirements"][0]
+    semantic_review.stamp(
+        candidate,
+        reviewer="alice@example.com",
+        controls=candidate["managed"].get("sources", []),
+        clauses=[f"pipa-isms-p:{standalone}"],
+        verification_reviewed=True,
+        reviewed_at="2026-07-31T11:00:00Z",
+    )
+    assurance = overlay_mod.answerability(
+        b2b_funnel_inputs["result"], requirements, b2b_funnel_inputs["work"]
+    )
+    assert standalone in {
+        row["clause"] for row in assurance["semantically_reviewed"]
+    }
+
+
+def test_overlay_user_output_uses_staged_assurance_language(b2b_funnel_inputs):
+    result = copy.deepcopy(b2b_funnel_inputs["result"])
+    result["answerability"] = overlay_mod.answerability(
+        result, b2b_funnel_inputs["requirements"], b2b_funnel_inputs["work"]
+    )
+    output = overlay_mod.render(result, "test").lower()
+    for banned in ("partly covered", "unanswered", "actually answers"):
+        assert banned not in output
+    help_text = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "apply_overlay.py"), "--help"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.lower()
+    for banned in ("partly covered", "unanswered", "actually answers"):
+        assert banned not in help_text
 
 
 def test_the_answered_row_counts_clauses_and_not_requirements(b2b_funnel_inputs):

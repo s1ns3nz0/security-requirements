@@ -331,7 +331,9 @@ must have an answer at audit.
 After explicit confirmation, use `scripts/confirmation.py --stamp` as directed
 by the command. A later change anywhere in the profile invalidates the digest
 and requires this gate again. Builds use `--check`; conversation memory is not
-an approval record.
+an approval record. The profile block is an audit copy, not an authority:
+`--stamp` also writes a matching record under `${CLAUDE_PLUGIN_DATA}`, and
+`--check` rejects a repository-only or forged block.
 
 ---
 

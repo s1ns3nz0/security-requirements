@@ -13,7 +13,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/confirmation.py" --check \
 ```
 
 A missing, incomplete, or stale confirmation is a blocker. Do not infer
-approval from conversation history.
+approval from conversation history or trust a confirmation block stored only in
+the repository. `--check` requires its matching plugin-owned record under
+`${CLAUDE_PLUGIN_DATA}`.
 
 ## 1. Threat model
 
@@ -196,7 +198,7 @@ data type prioritised, with nothing written against it. A gap is work; a
 deferral is a decision the derivation already made.
 
 Without `--cross` there is no prioritisation to consult, so nothing can be
-called deferred and every unanswered clause is reported as a gap. Pass it.
+called deferred and every clause without a candidate is reported as a gap. Pass it.
 
 ## 8. Report
 

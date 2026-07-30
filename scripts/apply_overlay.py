@@ -412,7 +412,7 @@ def answerability(result: dict, requirements: dict | None,
     Everything above this in the report is about the derivation: whether a
     control exists, whether the tailoring selected it. None of it says anything
     was written down, and an assessor asking how a clause is satisfied cannot be
-    answered with a control identifier. This is the row that was missing --
+    resolved with a control identifier. This is the row that was missing --
     `apply_overlay` had never seen a requirements file.
 
     Three outcomes, and the distinction between the second and third is the
@@ -433,7 +433,7 @@ def answerability(result: dict, requirements: dict | None,
     and the reader would conclude the tool had not run.
 
     Without a cross file there is no prioritisation to consult, so nothing can
-    be called deferred and every unanswered clause is reported as a gap. The
+    be called deferred and every clause without a candidate is reported as a gap. The
     report says which of the two it is looking at.
     """
     linked_by: dict[str, list[str]] = {}
@@ -475,6 +475,19 @@ def answerability(result: dict, requirements: dict | None,
             deferred.append(row)
         else:
             gap.append(row)
+
+    for row in result["standalone"]:
+        reviewed_hits = sorted(
+            req_id
+            for req_id, requirement in requirements_by_id.items()
+            if semantic_review.clause_approved(
+                requirement, result["overlay"], row["clause"]
+            )
+        )
+        if reviewed_hits:
+            semantically_reviewed.append(
+                {**row, "requirements": reviewed_hits}
+            )
 
     return {
         "trace_linked": trace_linked,
@@ -552,7 +565,7 @@ def render(result: dict, reason: str) -> str:
 
     reached = "reached by the derived requirement set"
     out.append(f"  {len(result['covered']):>4}  {reached}")
-    out.append(f"  {len(result['partial']):>4}  partly {'reached' if coarse else 'covered'} -- some mapped controls are outside it")
+    out.append(f"  {len(result['partial']):>4}  partly reached -- some mapped controls are outside it")
     out.append(f"  {len(result['uncovered']):>4}  mapped, but no mapped control is in the baseline")
     if result.get("unreachable"):
         out.append(f"  {len(result['unreachable']):>4}  mapped only to controls outside every baseline "
@@ -593,7 +606,7 @@ def render(result: dict, reason: str) -> str:
                     out.append(f"      ... and {len(answers['gap']) - 12} more")
         else:
             out += ["",
-                    f"  {len(answers['gap']):>4}  unanswered. No cross file was supplied, so there is no",
+                    f"  {len(answers['gap']):>4}  gaps. No cross file was supplied, so there is no",
                     "        prioritisation to consult and none of these can be told apart",
                     "        from work the tailoring deliberately deferred. Pass --cross to",
                     "        split them."]
@@ -654,8 +667,8 @@ def main() -> int:
     ap.add_argument("--json", type=Path)
     ap.add_argument("--force", action="store_true", help="evaluate even if the applicability test fails")
     ap.add_argument("--requirements", type=Path,
-                    help="requirements.yaml -- adds the row saying which clauses "
-                         "a written requirement actually answers")
+                    help="requirements.yaml -- reports trace-linked candidates and "
+                         "independently reviewed semantic mappings")
     ap.add_argument("--cross", type=Path,
                     help="merge.py --cross output; supplies the prioritisation that "
                          "tells a deferred clause from a gap")

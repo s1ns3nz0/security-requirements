@@ -36,20 +36,28 @@ integration, a new entrypoint class. Do not re-run the seven questions.
 If the change alters the impact derivation, show the recalculation and gate on
 it again.
 
-Any profile change invalidates its stored digest. Show the complete diff,
-obtain explicit confirmation again, and persist it:
-
-```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/confirmation.py" --stamp \
-    .security-requirements/profile.yaml --by user
-```
-
 ## 2. Re-derive
 
 ```
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/select_baseline.py" \
     .security-requirements/profile.yaml \
     --json .security-requirements/controls.json
+```
+
+Show the recalculated derivation and complete profile diff. Any profile change
+invalidates its stored digest. After explicit confirmation, persist the approval
+in plugin-owned state and enforce it:
+
+```
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/confirmation.py" --stamp \
+    .security-requirements/profile.yaml --by user
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/confirmation.py" --check \
+    .security-requirements/profile.yaml
+```
+
+Only then continue:
+
+```
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/classify_resp.py" \
     .security-requirements/profile.yaml \
     .security-requirements/controls.json \
@@ -97,9 +105,6 @@ locale=$(python3 -c "import yaml,sys; print((yaml.safe_load(open(sys.argv[1])) o
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/lint.py" \
     .security-requirements/requirements.yaml \
     --threats .security-requirements/threats.yaml --locale "$locale"
-
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/render.py" \
-    .security-requirements/requirements.yaml --out docs/security/
 ```
 
 Re-run every applicable overlay against the written document:
@@ -112,8 +117,14 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/apply_overlay.py" <overlay-id> \
     --cross .security-requirements/cross.json
 ```
 
-An overlay, lint, or render failure blocks publication. Do not leave
-`docs/security/` carrying the previous run.
+Only after every overlay succeeds, publish:
+
+```
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/render.py" \
+    .security-requirements/requirements.yaml --out docs/security/
+```
+
+An overlay, lint, or render failure blocks publication.
 
 ## 5. Report the delta
 

@@ -7,6 +7,7 @@ import argparse
 import copy
 from datetime import datetime, timezone
 import hashlib
+import os
 from pathlib import Path
 import sys
 
@@ -33,10 +34,13 @@ def stamp(profile: dict, confirmed_by: str, confirmed_at: str | None = None) -> 
     return profile
 
 
-def validate(profile: dict) -> list[str]:
+def validate(profile: dict, trusted_confirmation: dict | None) -> list[str]:
+    if not isinstance(trusted_confirmation, dict):
+        return ["plugin-owned confirmation state is missing"]
     confirmation = profile.get("confirmation")
-    if not isinstance(confirmation, dict):
-        return ["profile has no persisted confirmation"]
+    if confirmation != trusted_confirmation:
+        return ["repository confirmation does not match plugin-owned confirmation state"]
+    confirmation = trusted_confirmation
     required = ("status", "confirmed_by", "confirmed_at", "profile_digest")
     missing = [key for key in required if not confirmation.get(key)]
     if missing:
@@ -48,6 +52,19 @@ def validate(profile: dict) -> list[str]:
     return []
 
 
+def confirmation_state_path(profile_path: Path) -> Path:
+    data_root = os.environ.get("CLAUDE_PLUGIN_DATA")
+    if not data_root:
+        raise RuntimeError("CLAUDE_PLUGIN_DATA is required for confirmation state")
+    project_root = (
+        profile_path.parent.parent
+        if profile_path.parent.name == ".security-requirements"
+        else profile_path.parent
+    ).resolve()
+    key = hashlib.sha256(str(project_root).encode("utf-8")).hexdigest()
+    return Path(data_root) / "confirmations" / f"{key}.yaml"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     action = parser.add_mutually_exclusive_group(required=True)
@@ -57,6 +74,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     path = args.check or args.stamp
     profile = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    try:
+        state_path = confirmation_state_path(path)
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
 
     if args.stamp:
         stamp(profile, args.by)
@@ -64,10 +86,20 @@ def main(argv: list[str] | None = None) -> int:
             yaml.safe_dump(profile, allow_unicode=True, sort_keys=False),
             encoding="utf-8",
         )
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(
+            yaml.safe_dump(profile["confirmation"], sort_keys=False),
+            encoding="utf-8",
+        )
         print(f"confirmed {path} ({profile['confirmation']['profile_digest']})")
         return 0
 
-    problems = validate(profile)
+    trusted = (
+        yaml.safe_load(state_path.read_text(encoding="utf-8"))
+        if state_path.exists()
+        else None
+    )
+    problems = validate(profile, trusted)
     for problem in problems:
         print(f"ERROR: {problem}", file=sys.stderr)
     return 1 if problems else 0
