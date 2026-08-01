@@ -15,7 +15,6 @@
       "name": "security-requirements",
       "source": "./",
       "description": "Derives what a service must satisfy, before or independently of any code existing. Bundles the NIST 800-53 Rev 5 catalog, CSF 2.0, and ASVS 5.0 so cited control identifiers are checked rather than recalled.",
-      "version": "0.1.0",
       "category": "security",
       "keywords": [
         "security",
@@ -26,7 +25,9 @@
         "csf",
         "asvs",
         "threat-modeling"
-      ]
+      ],
+      "homepage": "https://github.com/s1ns3nz0/security-requirements",
+      "license": "Apache-2.0"
     }
   ]
 }

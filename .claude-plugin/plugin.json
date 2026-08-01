@@ -1,11 +1,12 @@
 {
   "name": "security-requirements",
-  "version": "0.1.0",
   "description": "Derives tailored security requirements for a service from NIST CSF 2.0, SP 800-53, OWASP ASVS, and cloud provider guidance. Prescriptive, not discovery: it says what the service must satisfy, before or independently of any code existing.",
   "author": {
     "name": "s1ns3nz0"
   },
   "license": "Apache-2.0",
+  "homepage": "https://github.com/s1ns3nz0/security-requirements",
+  "repository": "https://github.com/s1ns3nz0/security-requirements",
   "keywords": [
     "security",
     "compliance",
