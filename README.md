@@ -32,20 +32,38 @@ service must satisfy, why it applies, who acts, and how it can be verified.
 
 ## Where it fits
 
-This project overlaps several established categories. It does not replace them.
-The distinction is the stage it serves and the trace it keeps.
+Similar Claude Code projects already exist. The claim is not that repository-
+grounded security analysis is new. The distinction is what becomes the primary
+artifact and how it is derived.
 
-| Tool or category | What it does well | Difference here |
+| Claude Code project | Overlap | Difference here |
 |---|---|---|
-| [OWASP SecurityRAT](https://owasp.org/www-project-securityrat/) | Selects and tracks requirements from application properties, with issue-tracker workflow | This project also derives repository architecture, crosses a full baseline with service-specific threats, and assigns cloud responsibility and evidence |
-| [SD Elements](https://docs.sdelements.com/release/latest/guide/) | Commercial requirements automation from technology, business, and compliance drivers; it can scan repositories to pre-answer surveys | This project is open and repository-local, exposes its catalogs and derivation, and separates model judgement from deterministic stages |
-| [OWASP Threat Dragon](https://owasp.org/www-project-threat-dragon/) and [Threagile](https://threagile.io/) | Create threat models, diagrams, risks, and mitigations | Threats are one input here; they are crossed with impact, control baselines, regulatory overlays, and responsibility data |
-| [NIST OSCAL](https://pages.nist.gov/OSCAL/) and [Compliance Trestle](https://github.com/oscal-compass/compliance-trestle) | Represent, author, validate, and govern machine-readable compliance artifacts | They provide interchange and artifact workflows; this project derives what a particular service must satisfy before those artifacts are populated |
-| [Checkov](https://www.checkov.io/1.Welcome/What%20is%20Checkov.html), CodeQL, SAST, and secret scanners | Detect defects or policy violations in code and infrastructure that already exist | This project states properties a design and future implementation must satisfy, including requirements a scanner cannot observe yet |
+| [appsec-advisor](https://github.com/matthiasrohr/appsec-advisor) | The closest plugin found: derives architecture, boundaries, flows, and STRIDE findings from a repository; supports stable IDs, review decisions, requirements audits, and CI gates | It audits against a configured or fallback AppSec catalog. This project derives the service's requirement set from confirmed impact, SP 800-53B, ASVS, regulatory overlays, threats, and cloud responsibility |
+| [tachi](https://github.com/davidmatousek/tachi) | Claude Code threat-modeling and reasoning harness with STRIDE, AI-specific agents, risk scoring, control analysis, SARIF, and reports | Its primary artifact is a threat and vulnerability assessment. Here the threat model is one path crossed with a compliance baseline to produce atomic development requirements |
+| [Claude Code Security Review](https://github.com/anthropics/claude-code-security-review) | Uses Claude to find vulnerabilities in code changes and produce review findings | It reviews implementation that exists. This project prescribes properties for architecture and development before or independently of implementation |
 
-The closest comparison is SD Elements, not a scanner. The narrower goal here is
-transparent derivation that lives with the repository and survives architecture
-changes, review edits, exceptions, and later evidence.
+The closest overlap is `appsec-advisor`. This project is narrower on threat-model
+reporting and broader on control-baseline derivation, regulatory applicability,
+cloud responsibility, and control-to-requirement traceability.
+
+Outside the plugin ecosystem, [OWASP SecurityRAT](https://owasp.org/www-project-securityrat/)
+and [SD Elements](https://docs.sdelements.com/release/latest/guide/) are the
+closest requirements-oriented predecessors.
+
+SD Elements is the closest product concept. `appsec-advisor` is the closest
+Claude Code plugin.
+
+No exact public plugin was found that combines the entire chain below. That is
+a search result, not a uniqueness proof, and the ecosystem can change.
+
+```
+repository + confirmed owner intent
+  -> impact and control baseline
+  -> architecture-specific threats
+  -> regulatory applicability
+  -> cloud/team/organisation responsibility
+  -> stable, verifiable development requirements
+```
 
 ## What it produces
 
