@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="220" height="40" viewBox="0 0 220 40"
+     role="img" aria-labelledby="lic-title lic-desc">
+  <title id="lic-title">Licence: Apache-2.0</title>
+  <desc id="lic-desc">The code in this repository is licensed under Apache-2.0. Bundled reference data keeps its own terms.</desc>
+
+  <rect x="0.5" y="0.5" width="219" height="39" rx="6" fill="#14171A" stroke="#262B2E" stroke-width="1"/>
+  <line x1="96" y1="1" x2="96" y2="39" stroke="#262B2E" stroke-width="1"/>
+
+  <text font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+        font-size="13" letter-spacing="1" fill="#8A9096"
+        text-anchor="middle">
+    <tspan x="48" y="25">LICENCE</tspan>
+  </text>
+  <text font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+        font-size="13" fill="#F3F1ED"
+        text-anchor="middle">
+    <tspan x="158" y="25">Apache-2.0</tspan>
+  </text>
+</svg>

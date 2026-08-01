@@ -3,6 +3,11 @@
        alt="security-requirements states what a service must satisfy, before or without any code to scan. Beside the title, a rendered requirement: personal data must be removed from exception payloads before they reach the error reporter, with no control recorded against it.">
 </p>
 
+<p align="center">
+  <a href="./LICENSE"><img src="./assets/readme/licence.svg" width="220"
+     alt="Licence: Apache-2.0"></a>
+</p>
+
 Most security tooling is **discovery** — read the code, find the flaw. There is
 plenty of it.
 
@@ -123,12 +128,8 @@ quickly.
 
 ## Run it
 
-```
-/plugin marketplace add s1ns3nz0/security-requirements
-/plugin install security-requirements@security-requirements
-```
-
-Then, in the repository you want requirements for:
+Distribution is under review, so there is no install line here yet. Three
+commands, run in the repository you want requirements for:
 
 ```
 /sec-req-init      scan the repository, interview the gaps, confirm impact
