@@ -1,11 +1,15 @@
 # security-requirements
 
-Derives security requirements from a repository and a confirmed service
-profile. It is a design-stage prescription tool, not a vulnerability scanner.
+Derives security requirements from a proposed architecture description or an
+existing repository, plus a confirmed service profile. It is a design-stage
+prescription tool, not a vulnerability scanner.
 
-The repository supplies architecture evidence. Seven owner questions supply
-intent code cannot reveal: data sensitivity, recovery objectives, users,
-external boundaries, obligations, existing controls, and jurisdiction.
+At design time, the owner supplies the intended components, flows, and trust
+boundaries. For an existing service, the repository supplies that evidence.
+
+Seven owner questions supply intent neither source can establish: data
+sensitivity, recovery objectives, users, external boundaries, obligations,
+existing controls, and jurisdiction.
 
 The result is a reviewable contract for architecture and development: what the
 service must satisfy, why it applies, who acts, and how it can be verified.
@@ -32,9 +36,9 @@ service must satisfy, why it applies, who acts, and how it can be verified.
 
 ## Where it fits
 
-Similar Claude Code projects already exist. The claim is not that repository-
-grounded security analysis is new. The distinction is what becomes the primary
-artifact and how it is derived.
+Similar Claude Code projects already exist. The claim is not that AI-assisted
+security analysis is new. The distinction is that the primary artifact here is
+a security contract derived before implementation, not a list of findings.
 
 | Claude Code project | Overlap | Difference here |
 |---|---|---|
@@ -42,9 +46,9 @@ artifact and how it is derived.
 | [tachi](https://github.com/davidmatousek/tachi) | Claude Code threat-modeling and reasoning harness with STRIDE, AI-specific agents, risk scoring, control analysis, SARIF, and reports | Its primary artifact is a threat and vulnerability assessment. Here the threat model is one path crossed with a compliance baseline to produce atomic development requirements |
 | [Claude Code Security Review](https://github.com/anthropics/claude-code-security-review) | Uses Claude to find vulnerabilities in code changes and produce review findings | It reviews implementation that exists. This project prescribes properties for architecture and development before or independently of implementation |
 
-The closest overlap is `appsec-advisor`. This project is narrower on threat-model
-reporting and broader on control-baseline derivation, regulatory applicability,
-cloud responsibility, and control-to-requirement traceability.
+The closest overlap is `appsec-advisor`. It normally reconstructs architecture
+from a repository and audits against an existing catalog. This project can start
+from design intent and derives the catalog the design must satisfy.
 
 Outside the plugin ecosystem, [OWASP SecurityRAT](https://owasp.org/www-project-securityrat/)
 and [SD Elements](https://docs.sdelements.com/release/latest/guide/) are the
@@ -57,7 +61,7 @@ No exact public plugin was found that combines the entire chain below. That is
 a search result, not a uniqueness proof, and the ecosystem can change.
 
 ```
-repository + confirmed owner intent
+design description OR repository evidence + confirmed owner intent
   -> impact and control baseline
   -> architecture-specific threats
   -> regulatory applicability
@@ -93,7 +97,7 @@ The inputs branch. A payment service with a zero-loss objective must not receive
 the same result as a public documentation site merely because both use AWS.
 
 ```
-repository evidence + seven owner answers
+design description OR repository evidence + seven owner answers
   -> confirmed profile                              hard gate
      |-- data + RTO/RPO -> FIPS 199 impact
      |                    -> SP 800-53B + ASVS       completeness
@@ -122,6 +126,18 @@ Unknown input remains `UNDETERMINED`. It surfaces a consequence and a refresh
 instruction; it is not silently replaced with a model guess.
 
 ## Security design review
+
+Three activities are deliberately separate:
+
+```
+requirements derivation  design intent -> security contract
+security design review   proposed architecture -> decisions against that contract
+implementation review    code and deployment -> evidence or violations
+```
+
+This project starts with requirements derivation. That means it can run before
+there is source code. The same contract then drives design review and gives
+later scanners and reviewers service-specific acceptance criteria.
 
 The generated requirements are review criteria. An architecture review can mark
 each one `pass`, `conditional`, `fail`, `not_applicable`, or `undetermined`,
