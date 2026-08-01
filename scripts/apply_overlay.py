@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Attach a regulatory overlay to a derived requirement set.
 
-An overlay answers a question the core derivation cannot: which clauses of a
-named regime the derived controls already satisfy, and which they do not reach
-at all. The second list is the point. A team asked to certify against ISMS-P
-and handed a SP 800-53 derivation has to work out by hand which of the 101
-clauses are covered; the clauses nothing covers are the ones that surprise them
-in an audit.
+An overlay reports which clauses of a named regime are reached by controls in
+the derived set, which are only partly reached, and which no selected control
+reaches. These are mapping and derivation states, not implementation or
+compliance claims. The clauses no control reaches are the ones that otherwise
+surprise a team during an audit.
 
 The mapping is authored, not published -- NIST and KISA publish no crosswalk --
 so every control identifier it cites is link-checked against the bundled
@@ -33,6 +32,7 @@ from profile_schema import expand_regions, normalise
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import classify_resp  # noqa: E402
+import semantic_review  # noqa: E402
 OVERLAYS = REPO_ROOT / "overlays"
 CATALOG_DIR = REPO_ROOT / "catalogs" / "nist-800-53r5"
 
@@ -406,20 +406,20 @@ def _live(requirement: dict) -> bool:
 
 def answerability(result: dict, requirements: dict | None,
                   work: dict | None = None) -> dict:
-    """Which of the reached clauses a written requirement actually answers.
+    """Which reached clauses have a structurally trace-linked candidate.
 
     Everything above this in the report is about the derivation: whether a
     control exists, whether the tailoring selected it. None of it says anything
     was written down, and an assessor asking how a clause is satisfied cannot be
-    answered with a control identifier. This is the row that was missing --
+    resolved with a control identifier. This is the row that was missing --
     `apply_overlay` had never seen a requirements file.
 
     Three outcomes, and the distinction between the second and third is the
     whole point:
 
-      answered   a control the clause maps to carries a requirement, and that
-                 requirement says how it is checked. A requirement with no
-                 verification is a sentiment and does not count here.
+      trace-linked  a control the clause maps to carries a requirement, and that
+                    requirement says how it is checked. This is a structural
+                    candidate, not a claim of semantic adequacy.
       deferred   every control reaching the clause came out of the cross step at
                  low priority -- the baseline selected it and no threat reached
                  it. That is the tailoring working, not a gap. 342 of this
@@ -432,39 +432,70 @@ def answerability(result: dict, requirements: dict | None,
     and the reader would conclude the tool had not run.
 
     Without a cross file there is no prioritisation to consult, so nothing can
-    be called deferred and every unanswered clause is reported as a gap. The
+    be called deferred and every clause without a candidate is reported as a gap. The
     report says which of the two it is looking at.
     """
-    answered_by: dict[str, list[str]] = {}
+    linked_by: dict[str, list[str]] = {}
+    requirements_by_id = {}
     for requirement in (requirements or {}).get("requirements") or []:
         if not _live(requirement):
             continue
+        requirements_by_id[requirement["id"]] = requirement
         managed = requirement.get("managed") or {}
         verification = managed.get("verification") or {}
         if not (verification.get("method") and verification.get("expect")):
             continue
         for source in managed.get("sources") or []:
-            answered_by.setdefault(source, []).append(requirement["id"])
+            linked_by.setdefault(source, []).append(requirement["id"])
 
     priority = {item["control"]: item.get("priority")
                 for item in (work or {}).get("items") or [] if item.get("control")}
 
-    answered, deferred, gap = [], [], []
+    trace_linked, semantically_reviewed, deferred, gap = [], [], [], []
     for row in result["covered"] + result["partial"]:
         selected = row.get("controls_in_baseline") or []
-        hits = sorted({rid for c in selected for rid in answered_by.get(c, [])})
+        hits = sorted({rid for c in selected for rid in linked_by.get(c, [])})
         if hits:
-            answered.append({**row, "requirements": hits})
+            trace_linked.append({**row, "requirements": hits})
+            reviewed_hits = []
+            for req_id in hits:
+                requirement = requirements_by_id[req_id]
+                review = (requirement.get("human") or {}).get("semantic_review") or {}
+                reviewed_controls = set(review.get("control_links") or [])
+                if reviewed_controls & set(selected) and semantic_review.clause_approved(
+                    requirement, result["overlay"], row["clause"]
+                ):
+                    reviewed_hits.append(req_id)
+            if reviewed_hits:
+                semantically_reviewed.append(
+                    {**row, "requirements": sorted(reviewed_hits)}
+                )
         elif priority and selected and all(priority.get(c) == "low" for c in selected):
             deferred.append(row)
         else:
             gap.append(row)
 
+    standalone_semantically_reviewed = []
+    for row in result["standalone"]:
+        reviewed_hits = sorted(
+            req_id
+            for req_id, requirement in requirements_by_id.items()
+            if semantic_review.clause_approved(
+                requirement, result["overlay"], row["clause"]
+            )
+        )
+        if reviewed_hits:
+            standalone_semantically_reviewed.append(
+                {**row, "requirements": reviewed_hits}
+            )
+
     return {
-        "answered": answered,
+        "trace_linked": trace_linked,
+        "semantically_reviewed": semantically_reviewed,
+        "standalone_semantically_reviewed": standalone_semantically_reviewed,
         "deferred": deferred,
         "gap": gap,
-        "reached": len(answered) + len(deferred) + len(gap),
+        "reached": len(trace_linked) + len(deferred) + len(gap),
         "prioritisation_supplied": bool(priority),
         "requirements_supplied": True,
     }
@@ -535,7 +566,7 @@ def render(result: dict, reason: str) -> str:
 
     reached = "reached by the derived requirement set"
     out.append(f"  {len(result['covered']):>4}  {reached}")
-    out.append(f"  {len(result['partial']):>4}  partly {'reached' if coarse else 'covered'} -- some mapped controls are outside it")
+    out.append(f"  {len(result['partial']):>4}  partly reached -- some mapped controls are outside it")
     out.append(f"  {len(result['uncovered']):>4}  mapped, but no mapped control is in the baseline")
     if result.get("unreachable"):
         out.append(f"  {len(result['unreachable']):>4}  mapped only to controls outside every baseline "
@@ -545,10 +576,8 @@ def render(result: dict, reason: str) -> str:
     out.append(f"  {result['clause_count']:>4}  clauses")
 
     # The funnel. Each row is a subset of the one above it, so a line lifted out
-    # on its own still carries its own ceiling -- which is the property the
-    # earlier report did not have. "94 of 101 reached" was quotable and read as
-    # near-compliance; "4 answered, out of 94 reached, out of 95 a control can
-    # express, out of 101 assessed" cannot be quoted into meaning that.
+    # on its own still carries its own ceiling. Trace linkage is deliberately
+    # named as a candidate state rather than semantic or compliance coverage.
     answers = result.get("answerability")
     if answers:
         expressible = result["clause_count"] - len(result["standalone"])
@@ -557,11 +586,19 @@ def render(result: dict, reason: str) -> str:
                 f"  {result['clause_count']:>4}  assessed criteria",
                 f"  {expressible:>4}  a control in the catalogue expresses it",
                 f"  {answers['reached']:>4}  a selected control addresses it",
-                f"  {len(answers['answered']):>4}  a written requirement answers it, with a way to check it"]
+                f"  {len(answers['trace_linked']):>4}  trace-linked candidate requirements with a way to check them",
+                "        structural linkage only; semantic adequacy is not established",
+                f"  {len(answers['semantically_reviewed']):>4}  independently reviewed semantic clause mappings"]
+        if answers["standalone_semantically_reviewed"]:
+            out += [
+                "",
+                f"  {len(answers['standalone_semantically_reviewed']):>4}  independently reviewed standalone-clause requirements",
+                "        separate path: no catalogue control expresses these clauses",
+            ]
         if answers["prioritisation_supplied"]:
             out += [
                 "",
-                f"  The other {answers['reached'] - len(answers['answered'])} split two ways, and the split is the point:",
+                f"  The other {answers['reached'] - len(answers['trace_linked'])} split two ways, and the split is the point:",
                 f"    {len(answers['deferred']):>4}  deferred -- every control reaching them came out of the cross",
                 "          step at low priority. The baseline selected them and no threat",
                 "          reached them, which is the tailoring working, not a gap.",
@@ -576,7 +613,7 @@ def render(result: dict, reason: str) -> str:
                     out.append(f"      ... and {len(answers['gap']) - 12} more")
         else:
             out += ["",
-                    f"  {len(answers['gap']):>4}  unanswered. No cross file was supplied, so there is no",
+                    f"  {len(answers['gap']):>4}  gaps. No cross file was supplied, so there is no",
                     "        prioritisation to consult and none of these can be told apart",
                     "        from work the tailoring deliberately deferred. Pass --cross to",
                     "        split them."]
@@ -637,8 +674,8 @@ def main() -> int:
     ap.add_argument("--json", type=Path)
     ap.add_argument("--force", action="store_true", help="evaluate even if the applicability test fails")
     ap.add_argument("--requirements", type=Path,
-                    help="requirements.yaml -- adds the row saying which clauses "
-                         "a written requirement actually answers")
+                    help="requirements.yaml -- reports trace-linked candidates and "
+                         "independently reviewed semantic mappings")
     ap.add_argument("--cross", type=Path,
                     help="merge.py --cross output; supplies the prioritisation that "
                          "tells a deferred clause from a gap")

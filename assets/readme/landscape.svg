@@ -1,65 +1,56 @@
 <svg xmlns="http://www.w3.org/2000/svg"
-     width="1200" height="484" viewBox="0 0 1200 484"
+     width="1200" height="504" viewBox="0 0 1200 504"
      role="img" aria-labelledby="land-title land-desc">
-  <title id="land-title">Where this sits among the other security tools for Claude Code</title>
-  <desc id="land-desc">Two bands. Before there is code to read, security-requirements produces requirements, traceability, and a responsibility split, and Tachi produces threats, attack trees, and risk scores. Once there is code to read, the security guidance plugin fixes issues in the code Claude is writing, slash security-review returns findings on a branch, the Claude Security plugin returns findings and then patches, and SAST, SCA, and dependency scanners return rule matches and known CVEs.</desc>
+  <title id="land-title">What each adjacent tool produces</title>
+  <desc id="land-desc">security-requirements produces a derived requirement set. appsec-advisor produces an audit against a configured catalog. Tachi produces a threat assessment. The Claude Security plugin produces findings and then patches. Slash security-review produces findings on a branch. SAST, SCA, and dependency scanning produce rule matches and known CVEs. One derives what must be true; the rest report what is.</desc>
 
-  <rect width="1200" height="484" rx="14" fill="#0B0D0E"/>
+  <rect width="1200" height="504" rx="14" fill="#0B0D0E"/>
 
   <text font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
         font-size="18" letter-spacing="1.4" fill="#6E767C">
-    <tspan x="64" y="54">WHERE IT SITS</tspan>
+    <tspan x="64" y="60">TOOL</tspan>
+    <tspan x="600" y="60">WHAT COMES OUT</tspan>
   </text>
+  <line x1="64" y1="84" x2="1136" y2="84" stroke="#3A4145" stroke-width="1"/>
 
-  <g id="band-before">
-    <line x1="64" y1="86" x2="64" y2="212" stroke="#E0A64A" stroke-width="2"/>
-    <text font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-          font-size="18" letter-spacing="1.2" fill="#E0A64A">
-      <tspan x="88" y="102">BEFORE THERE IS CODE TO READ</tspan>
-    </text>
-
+  <g id="row-this">
+    <rect x="48" y="100" width="1088" height="56" fill="#17140D"/>
+    <rect x="48" y="100" width="3" height="56" fill="#E0A64A"/>
     <text font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-          font-size="23" fill="#E0A64A">
-      <tspan x="88" y="148">security-requirements</tspan>
-    </text>
+          font-size="23" fill="#E0A64A"><tspan x="64" y="135">security-requirements</tspan></text>
     <text font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-          font-size="18" fill="#B9BFC4">
-      <tspan x="520" y="147">requirements, traceability, responsibility split</tspan>
-    </text>
-
-    <text font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-          font-size="23" fill="#F3F1ED">
-      <tspan x="88" y="192">Tachi</tspan>
-    </text>
-    <text font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-          font-size="18" fill="#B9BFC4">
-      <tspan x="520" y="191">threats, attack trees, risk scores</tspan>
-    </text>
+          font-size="19" fill="#E0A64A"><tspan x="600" y="134">a derived requirement set</tspan></text>
   </g>
 
-  <line x1="64" y1="244" x2="1136" y2="244" stroke="#262B2E" stroke-width="1"/>
-
-  <g id="band-after">
-    <line x1="64" y1="276" x2="64" y2="440" stroke="#3A4145" stroke-width="2"/>
-    <text font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-          font-size="18" letter-spacing="1.2" fill="#6E767C">
-      <tspan x="88" y="292">ONCE THERE IS CODE TO READ</tspan>
-    </text>
-
-    <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-       font-size="23" fill="#B9BFC4">
-      <text><tspan x="88" y="336">security guidance plugin</tspan></text>
-      <text><tspan x="88" y="372">/security-review</tspan></text>
-      <text><tspan x="88" y="408">Claude Security plugin</tspan></text>
-      <text><tspan x="88" y="444">SAST, SCA, dependency scanning</tspan></text>
-    </g>
-
-    <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
-       font-size="18" fill="#8A9096">
-      <text><tspan x="520" y="335">fixes in the code Claude is writing</tspan></text>
-      <text><tspan x="520" y="371">findings on a branch</tspan></text>
-      <text><tspan x="520" y="407">findings, then patches you apply</tspan></text>
-      <text><tspan x="520" y="443">rule matches and known CVEs</tspan></text>
-    </g>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+     font-size="23" fill="#F3F1ED">
+    <text><tspan x="64" y="199">appsec-advisor</tspan></text>
+    <text><tspan x="64" y="255">Tachi</tspan></text>
+    <text><tspan x="64" y="311">Claude Security plugin</tspan></text>
+    <text><tspan x="64" y="367">/security-review</tspan></text>
+    <text><tspan x="64" y="423">SAST, SCA, dependency scanning</tspan></text>
   </g>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+     font-size="19" fill="#B9BFC4">
+    <text><tspan x="600" y="198">an audit against a catalog</tspan></text>
+    <text><tspan x="600" y="254">a threat assessment</tspan></text>
+    <text><tspan x="600" y="310">findings, then patches</tspan></text>
+    <text><tspan x="600" y="366">findings on a branch</tspan></text>
+    <text><tspan x="600" y="422">rule matches and known CVEs</tspan></text>
+  </g>
+
+  <g stroke="#1C2022" stroke-width="1">
+    <line x1="64" y1="172" x2="1136" y2="172"/>
+    <line x1="64" y1="228" x2="1136" y2="228"/>
+    <line x1="64" y1="284" x2="1136" y2="284"/>
+    <line x1="64" y1="340" x2="1136" y2="340"/>
+    <line x1="64" y1="396" x2="1136" y2="396"/>
+    <line x1="64" y1="448" x2="1136" y2="448" stroke="#262B2E"/>
+  </g>
+
+  <text font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+        font-size="18" fill="#5C6469">
+    <tspan x="64" y="482">one derives what must be true. the rest report what is.</tspan>
+  </text>
 </svg>

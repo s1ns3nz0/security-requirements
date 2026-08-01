@@ -288,6 +288,13 @@ derived:
   asvs_level: 2
   regulatory_flags: [pipa_general]
   threat_flags: []                # e.g. linddun_linkability
+
+# --- written only after explicit user confirmation ---
+confirmation:
+  status: confirmed
+  confirmed_by: user
+  confirmed_at: "2026-07-31T10:00:00Z"
+  profile_digest: "sha256:..."     # exact profile, excluding this block
 ```
 
 ---
@@ -320,6 +327,13 @@ Impact derivation
 
 An adjustment records `overridden_by_user: true` and the reason. "Why Moderate?"
 must have an answer at audit.
+
+After explicit confirmation, use `scripts/confirmation.py --stamp` as directed
+by the command. A later change anywhere in the profile invalidates the digest
+and requires this gate again. Builds use `--check`; conversation memory is not
+an approval record. The profile block is an audit copy, not an authority:
+`--stamp` also writes a matching record under `${CLAUDE_PLUGIN_DATA}`, and
+`--check` rejects a repository-only or forged block.
 
 ---
 

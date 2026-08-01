@@ -1937,6 +1937,63 @@ def test_curation_covers_three_providers():
     assert {"aws", "azure", "gcp"} <= providers
 
 
+def test_generated_service_curation_is_loaded_from_persistent_plugin_data(
+    profile, tmp_path, monkeypatch
+):
+    service_dir = tmp_path / "responsibility" / "services"
+    service_dir.mkdir(parents=True)
+    (service_dir / "newcloud-db.yaml").write_text(
+        yaml.safe_dump({
+            "provider": "aws",
+            "reviewed": False,
+            "controls": {
+                "SC-28": {
+                    "responsibility": "shared",
+                    "csp_part": "operates storage encryption",
+                    "team_part": "enables encryption",
+                }
+            },
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path))
+    candidate = copy.deepcopy(profile)
+    candidate["inferred"]["managed_services"] = [{"id": "newcloud-db"}]
+
+    specs, curated, uncurated, _ = classify_resp.load_services(
+        candidate, "aws", ["aws"]
+    )
+    assert "newcloud-db" in specs
+    assert curated == []
+    assert uncurated == ["newcloud-db"]
+
+
+@pytest.mark.parametrize("service_id", ["../outside", "nested/service", "/absolute"])
+def test_managed_service_identifier_cannot_escape_curation_directory(
+    profile, service_id
+):
+    candidate = copy.deepcopy(profile)
+    candidate["inferred"]["managed_services"] = [{"id": service_id}]
+    with pytest.raises(ValueError, match="unsafe managed service identifier"):
+        classify_resp.load_services(candidate, "aws", ["aws"])
+
+
+def test_generated_service_symlink_cannot_escape_plugin_data(
+    profile, tmp_path, monkeypatch
+):
+    outside = tmp_path / "outside.yaml"
+    outside.write_text(yaml.safe_dump({"provider": "aws", "reviewed": False}), encoding="utf-8")
+    service_dir = tmp_path / "data" / "responsibility" / "services"
+    service_dir.mkdir(parents=True)
+    (service_dir / "escaped.yaml").symlink_to(outside)
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path / "data"))
+    candidate = copy.deepcopy(profile)
+    candidate["inferred"]["managed_services"] = [{"id": "escaped"}]
+
+    with pytest.raises(ValueError, match="escapes service curation directory"):
+        classify_resp.load_services(candidate, "aws", ["aws"])
+
+
 def test_gke_network_policy_is_the_team_s(profile):
     """Enabling policy enforcement is not the control: a cluster with it on and
     no policies written behaves exactly like one without it."""
@@ -7062,13 +7119,100 @@ def test_the_funnel_rows_are_each_a_subset_of_the_row_above(b2b_funnel_inputs):
     assessed = result["clause_count"]
     expressible = assessed - len(result["standalone"])
     reached = answers["reached"]
-    answered = len(answers["answered"])
+    linked = len(answers["trace_linked"])
 
-    assert answered <= reached <= expressible <= assessed, \
-        (answered, reached, expressible, assessed)
+    assert linked <= reached <= expressible <= assessed, \
+        (linked, reached, expressible, assessed)
     assert reached == len(result["covered"]) + len(result["partial"])
-    assert answered + len(answers["deferred"]) + len(answers["gap"]) == reached, \
+    assert linked + len(answers["deferred"]) + len(answers["gap"]) == reached, \
         "the three outcomes have to partition the reached set, or a clause is counted twice"
+
+
+def test_structural_match_is_named_trace_linked_not_answered(b2b_funnel_inputs):
+    assurance = overlay_mod.answerability(
+        b2b_funnel_inputs["result"],
+        b2b_funnel_inputs["requirements"],
+        b2b_funnel_inputs["work"],
+    )
+    assert assurance["trace_linked"]
+    assert "answered" not in assurance
+
+    report = copy.deepcopy(b2b_funnel_inputs["result"])
+    report["answerability"] = assurance
+    rendered = overlay_mod.render(report, "test")
+    assert "trace-linked candidate requirements" in rendered
+    assert "a written requirement answers it" not in rendered
+
+
+def test_exact_human_review_advances_clause_beyond_trace_linkage(b2b_funnel_inputs):
+    import semantic_review
+
+    requirements = copy.deepcopy(b2b_funnel_inputs["requirements"])
+    candidate = next(
+        req for req in requirements["requirements"]
+        if "AC-3" in req["managed"].get("sources", [])
+    )
+    semantic_review.stamp(
+        candidate,
+        reviewer="alice@example.com",
+        controls=["AC-3"],
+        clauses=["pipa-isms-p:2.6.1"],
+        verification_reviewed=True,
+        reviewed_at="2026-07-31T11:00:00Z",
+    )
+
+    assurance = overlay_mod.answerability(
+        b2b_funnel_inputs["result"], requirements, b2b_funnel_inputs["work"]
+    )
+    reviewed = {row["clause"] for row in assurance["semantically_reviewed"]}
+    assert "2.6.1" in reviewed
+
+
+def test_standalone_clause_can_be_semantically_reviewed(b2b_funnel_inputs):
+    import semantic_review
+
+    requirements = copy.deepcopy(b2b_funnel_inputs["requirements"])
+    standalone = b2b_funnel_inputs["result"]["standalone"][0]["clause"]
+    candidate = requirements["requirements"][0]
+    semantic_review.stamp(
+        candidate,
+        reviewer="alice@example.com",
+        controls=candidate["managed"].get("sources", []),
+        clauses=[f"pipa-isms-p:{standalone}"],
+        verification_reviewed=True,
+        reviewed_at="2026-07-31T11:00:00Z",
+    )
+    assurance = overlay_mod.answerability(
+        b2b_funnel_inputs["result"], requirements, b2b_funnel_inputs["work"]
+    )
+    assert standalone in {
+        row["clause"] for row in assurance["standalone_semantically_reviewed"]
+    }
+    assert len(assurance["semantically_reviewed"]) <= len(assurance["trace_linked"])
+
+
+def test_overlay_user_output_uses_staged_assurance_language(b2b_funnel_inputs):
+    result = copy.deepcopy(b2b_funnel_inputs["result"])
+    result["answerability"] = overlay_mod.answerability(
+        result, b2b_funnel_inputs["requirements"], b2b_funnel_inputs["work"]
+    )
+    output = overlay_mod.render(result, "test").lower()
+    for banned in ("partly covered", "unanswered", "actually answers"):
+        assert banned not in output
+    help_text = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "apply_overlay.py"), "--help"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.lower()
+    for banned in (
+        "partly covered",
+        "unanswered",
+        "actually answers",
+        "already satisfy",
+        "clauses are covered",
+    ):
+        assert banned not in help_text
 
 
 def test_the_answered_row_counts_clauses_and_not_requirements(b2b_funnel_inputs):
@@ -7078,9 +7222,9 @@ def test_the_answered_row_counts_clauses_and_not_requirements(b2b_funnel_inputs)
     answers = overlay_mod.answerability(b2b_funnel_inputs["result"],
                                         b2b_funnel_inputs["requirements"],
                                         b2b_funnel_inputs["work"])
-    clauses = {row["clause"] for row in answers["answered"]}
-    requirements = {rid for row in answers["answered"] for rid in row["requirements"]}
-    assert len(clauses) == len(answers["answered"])
+    clauses = {row["clause"] for row in answers["trace_linked"]}
+    requirements = {rid for row in answers["trace_linked"] for rid in row["requirements"]}
+    assert len(clauses) == len(answers["trace_linked"])
     assert len(requirements) < len(clauses), \
         "the golden draft answers more clauses than it has requirements; that is the point"
 
@@ -7093,7 +7237,7 @@ def test_a_requirement_with_no_way_to_check_it_answers_nothing(b2b_funnel_inputs
         requirement["managed"].pop("verification", None)
     answers = overlay_mod.answerability(b2b_funnel_inputs["result"], stripped,
                                         b2b_funnel_inputs["work"])
-    assert answers["answered"] == []
+    assert answers["trace_linked"] == []
 
 
 def test_a_retired_requirement_answers_nothing(b2b_funnel_inputs):
@@ -7107,7 +7251,7 @@ def test_a_retired_requirement_answers_nothing(b2b_funnel_inputs):
         requirement.setdefault("human", {})["status"] = "retired"
     after = overlay_mod.answerability(b2b_funnel_inputs["result"], retired,
                                       b2b_funnel_inputs["work"])
-    assert live["answered"] and after["answered"] == []
+    assert live["trace_linked"] and after["trace_linked"] == []
 
 
 def test_deferred_is_not_a_gap(b2b_funnel_inputs):
@@ -7131,7 +7275,7 @@ def test_without_a_cross_file_nothing_is_called_deferred(b2b_funnel_inputs):
                                         b2b_funnel_inputs["requirements"], None)
     assert answers["prioritisation_supplied"] is False
     assert answers["deferred"] == []
-    assert len(answers["gap"]) == answers["reached"] - len(answers["answered"])
+    assert len(answers["gap"]) == answers["reached"] - len(answers["trace_linked"])
 
 
 def test_a_prioritised_control_with_nothing_written_is_a_gap(b2b_funnel_inputs):
@@ -7167,7 +7311,7 @@ def test_the_overlay_command_line_prints_the_funnel(tmp_path, capsys, monkeypatc
     assert overlay_mod.main() == 0
     printed = capsys.readouterr().out
     assert "assessed criteria" in printed
-    assert "a written requirement answers it" in printed
+    assert "trace-linked candidate requirements" in printed
     assert "deferred" in printed and "the tailoring working, not a gap" in printed
 
     # Without the requirements file the funnel is not printed at all: reporting

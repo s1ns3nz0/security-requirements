@@ -11,9 +11,16 @@
 Most security tooling is **discovery** — read the code, find the flaw. There is
 plenty of it.
 
-This is **prescription**. It states what a service must satisfy, before or
-independently of any code existing. That is the artefact a design or compliance
-stage actually needs, and it is the one nothing produces.
+This is **prescription**. It derives what a service must satisfy from a proposed
+architecture description or an existing repository, plus a confirmed profile. At
+design time the owner supplies the intended components, flows, and trust
+boundaries; for an existing service the repository supplies that evidence.
+Seven owner questions supply the intent neither source can establish: data
+sensitivity, recovery objectives, users, external boundaries, obligations,
+existing controls, and jurisdiction.
+
+What comes out is a reviewable contract for architecture and development: what
+the service must satisfy, why it applies, who acts, and how it can be verified.
 
 ## What comes out
 
@@ -22,11 +29,17 @@ docs/security/
   requirements.md      organised by CSF 2.0 function, so it reads as work
   traceability.md      control -> requirement, so an auditor can check coverage
   responsibility.md    who owns what, and what evidence backs each claim
+
+.security-requirements/
+  profile.yaml         confirmed inputs and impact derivation
+  threats.yaml         DFD boundaries and service-specific threats
+  requirements.yaml    stable records, review state, exceptions, evidence links
+  status.yaml          assurance state; never inferred from prose alone
 ```
 
 Each requirement is verifiable, atomic, states a property rather than an
-implementation, and carries the control identifiers it derives from. One of
-them, verbatim from a run of the `b2b-saas-aws` golden case:
+implementation, and carries the control and threat references it derives from.
+One of them, verbatim from a run of the `b2b-saas-aws` golden case:
 
 ---
 
@@ -49,6 +62,9 @@ The audit log destination must not be writable by any identity whose actions it 
 
 ---
 
+Only `docs/security/` is meant for publication. The internal files expose
+architecture, storage locations, unimplemented controls, and accepted risks.
+
 ## How it derives them
 
 <p align="center">
@@ -56,12 +72,33 @@ The audit log destination must not be writable by any identity whose actions it 
        alt="A FIPS 199 impact rating selects an SP 800-53B baseline of 350 controls, supplying completeness. STRIDE and LINDDUN on the data flow diagram produce 8 threats across 7 trust boundaries, supplying relevance. Crossing the two gives 8 requirements raised in priority, 3 additional requirements the baseline does not express, and 342 controls retained at lower priority.">
 </p>
 
+The inputs branch before they cross. A payment service with a zero-loss
+objective must not receive the same result as a public documentation site
+merely because both run on AWS.
+
+```
+design description OR repository evidence + seven owner answers
+  -> confirmed profile                              hard gate
+     |-- data + RTO/RPO -> FIPS 199 impact
+     |                    -> SP 800-53B + ASVS       completeness
+     |-- DFD boundaries -> STRIDE / LINDDUN          relevance
+     |-- region + data + declared regimes
+     |                    -> regulatory overlays     applicability
+     `-- provider + deployment + managed services
+                          -> responsibility          ownership
+```
+
 The baseline guarantees nothing is missed. The threat model finds what a
 baseline cannot express — tenant isolation, business logic replay, personal data
 leaving inside a stack trace.
 
 The middle row is the reason this exists. If it is empty, the threat model was
 generic, and what you are holding is a filtered baseline.
+
+Profile confirmation is a hard gate, not a formality. A wrong region or recovery
+objective changes hundreds of downstream decisions while still producing
+convincing prose. Unknown input stays `UNDETERMINED`: it surfaces a consequence
+and a refresh instruction rather than being quietly replaced with a guess.
 
 ## Who has to do it
 
@@ -76,55 +113,86 @@ what makes the result usable rather than filed and forgotten.
 
 Nothing is asserted to be handled by the cloud provider. **Inheritance is a
 claim, not a fact** — every provider-claimed control carries the evidence a
-reader must obtain to substantiate it.
+reader must obtain to substantiate it. A managed service with no curated file is
+reported `unverified` rather than given an invented split.
+
+Requirements state durable properties, and the service files add the
+provider-specific part without baking one cloud's implementation into the
+requirement text:
+
+```yaml
+statement: "Payment records must be recoverable to a point before deletion."
+responsibility: shared
+csp_part: "AWS provides the DynamoDB point-in-time recovery mechanism."
+team_part: "Enable it before accepting production payment records."
+verification:
+  method: iac_inspect
+  target: "the DynamoDB table's point-in-time recovery setting"
+  expect: "enabled"
+evidence:
+  - "deployed configuration"
+  - "successful restoration exercise"
+  - "applicable provider assurance report"
+```
+
+## What the contract is then used for
+
+Three activities are deliberately separate:
+
+```
+requirements derivation  design intent -> security contract
+security design review   proposed architecture -> decisions against that contract
+implementation review    code and deployment -> evidence or violations
+```
+
+This starts at the first one, which is why it can run before there is source
+code. The same contract then drives design review and gives later scanners and
+reviewers service-specific acceptance criteria. Each requirement can be marked
+`pass`, `conditional`, `fail`, `not_applicable`, or `undetermined`, with
+evidence and an owner.
+
+That is requirements-driven review, not automatic certification. A repository
+can show a control is planned or configured; assessment evidence is what shows
+it operates.
+
+The assurance funnel is one-way, and no stage implies the next:
+
+```
+authored -> trace-linked -> semantically reviewed -> implemented -> evidenced
+```
+
+A valid control identifier does not make requirement prose correct. A correct
+requirement is not an implemented one. A provider claim without current evidence
+is not inheritance.
 
 ## Where it sits
 
 <p align="center">
   <img src="./assets/readme/landscape.svg" width="100%"
-       alt="Before there is code to read: security-requirements produces requirements, traceability, and a responsibility split; Tachi produces threats, attack trees, and risk scores. Once there is code to read: the security guidance plugin fixes issues as Claude writes them, /security-review returns findings on a branch, the Claude Security plugin returns findings and then patches, and SAST, SCA, and dependency scanners return rule matches and known CVEs.">
+       alt="security-requirements produces a derived requirement set. appsec-advisor produces an audit against a configured catalog. Tachi produces a threat assessment. The Claude Security plugin produces findings and then patches. /security-review produces findings on a branch. SAST, SCA, and dependency scanning produce rule matches and known CVEs.">
 </p>
 
-Everything in the lower band needs code to read. They differ in depth and in
-when they run — [`/security-review`](https://code.claude.com/docs/en/commands)
-makes a single pass over a branch, the
-[Claude Security plugin](https://code.claude.com/docs/en/claude-security) runs a
-multi-agent scan and drafts patches you apply yourself, the
-[security guidance plugin](https://code.claude.com/docs/en/security-guidance)
-works on code as Claude writes it, and
-[claude-code-security-review](https://github.com/anthropics/claude-code-security-review)
-does the same on a pull request diff — but each one starts from something
-already written. They answer *what is wrong with this code*.
+Similar Claude Code projects already exist. The claim is not that AI-assisted
+security analysis is new. The distinction is that the primary artefact here is a
+security contract derived before implementation, rather than a list of findings.
 
-This never reads for defects. It answers *what would have to be true*, and it
-can answer before the first line exists.
+| Claude Code project | Overlap | Difference here |
+|---|---|---|
+| [appsec-advisor](https://github.com/matthiasrohr/appsec-advisor) | The closest plugin found: derives architecture, boundaries, flows, and STRIDE findings from a repository; supports stable IDs, review decisions, requirements audits, and CI gates | It audits against a configured or fallback AppSec catalog. This derives the service's requirement set from confirmed impact, SP 800-53B, ASVS, regulatory overlays, threats, and cloud responsibility |
+| [tachi](https://github.com/davidmatousek/tachi) | Claude Code threat-modeling and reasoning harness with STRIDE, AI-specific agents, risk scoring, control analysis, SARIF, and reports | Its primary artefact is a threat and vulnerability assessment. Here the threat model is one path, crossed with a compliance baseline to produce atomic development requirements |
+| [Claude Code Security Review](https://github.com/anthropics/claude-code-security-review) and the [Claude Security plugin](https://code.claude.com/docs/en/claude-security) | Use Claude to find vulnerabilities in code changes and produce review findings or patches | They review implementation that exists. This prescribes properties for architecture and development before or independently of implementation |
 
-[Tachi](https://github.com/davidmatousek/tachi) is the closest of them: also
-architecture-level rather than code-level, also STRIDE, and it also writes under
-`docs/security/`. Three differences worth knowing before choosing.
+`appsec-advisor` is the closest Claude Code plugin. It normally reconstructs
+architecture from a repository and audits against an existing catalog; this can
+start from design intent and derives the catalog the design must satisfy.
 
-**It ends in threats; this ends in requirements.** Tachi produces threats,
-attack trees, risk scores, and an assembled report. Here every output is a
-statement the service must satisfy, carrying a verification method and the
-control identifiers it derives from, so the same artefact is work for a delivery
-team and coverage for an auditor.
+Outside the plugin ecosystem, [OWASP SecurityRAT](https://owasp.org/www-project-securityrat/)
+and [SD Elements](https://docs.sdelements.com/release/latest/guide/) are the
+closest requirements-oriented predecessors, and SD Elements is the closest
+product concept.
 
-**There is no baseline half.** A threat model finds what someone thought of.
-Crossing it against a FIPS 199 impact rating and an SP 800-53B baseline is what
-covers what nobody thought of. The two halves answer different questions and
-this runs both — it is the diagram under [How it derives them](#how-it-derives-them).
-
-**Different framework families.** Tachi maps to OWASP, MITRE ATT&CK and ATLAS,
-NIST AI RMF, and CWE, and reaches agentic and LLM threats through MAESTRO. This
-maps to SP 800-53 Rev 5, CSF 2.0, and ASVS, with six regulatory overlays, and
-models no AI or agentic threat at all. If that is what your system is, Tachi
-covers ground this does not.
-
-None of this replaces the lower band. **This finds no vulnerabilities.** It will
-not tell you a query is injectable. Run it beside the tools that will.
-
-Compared against each tool's own documentation in August 2026; all of them move
-quickly.
+No public plugin was found combining the whole chain. That is a search result,
+not a uniqueness proof, and the ecosystem changes.
 
 ## Run it
 
@@ -137,10 +205,19 @@ commands, run in the repository you want requirements for:
 /sec-req-refresh   re-derive after a change, preserving human edits
 ```
 
-Where a profile triggers a regulation an overlay covers, `/sec-req-build` runs
-it and reports the clauses no control reaches — the ones an audit asks about
-and an SP 800-53 derivation cannot produce. The clause mapping is this
-repository's reading, not a published crosswalk, and says so.
+The sequence underneath them:
+
+1. Scan the repository as untrusted evidence; do not execute its code.
+2. Present the inferred architecture and ask the seven owner questions.
+3. Confirm the complete profile and impact derivation.
+4. Select the baseline, model threats, classify responsibility, run overlays.
+5. Draft atomic requirements, lint identifiers and links, then render.
+6. Re-run overlays against the written requirements to expose the assurance gap.
+
+Where a profile triggers a regulation an overlay covers, `/sec-req-build` reports
+the clauses no control reaches — the ones an audit asks about and an SP 800-53
+derivation cannot produce. The clause mapping is this repository's reading, not a
+published crosswalk, and says so.
 
 ### Where the files go
 
@@ -153,25 +230,36 @@ with an explanation; git history survives deletion.
 `docs/security/` holds the requirement definitions, which are safe to publish
 and better for being read.
 
-## What it refuses to do
+## What it does not do
 
-**Recall a control identifier from memory.** The catalog is derived mechanically
-from NIST's OSCAL release, and `scripts/lint.py` fails the build if a
-requirement cites an identifier the catalog does not contain. A fabricated
+- It does not find implementation vulnerabilities. Use SAST, DAST, SCA, secret
+  scanning, IaC scanning, and penetration testing — after requirements exist.
+- It does not execute an inspected repository. Repository text is untrusted
+  evidence and may carry instructions meant to influence the model.
+- It does not assert cloud inheritance. Provider claims require current evidence.
+- It does not decide whether a law applies, or establish certification.
+- It does not mark a requirement implemented or evidenced from plausible prose.
+- It models no AI or agentic threat.
+
+## Design commitments
+
+**Control identifiers are never recalled from memory.** The catalog is derived
+mechanically from NIST's OSCAL release, and `scripts/lint.py` fails the build if
+a requirement cites an identifier the catalog does not contain. A fabricated
 `SC-28(4)` reads exactly like the three enhancements that are real; one of them
 in a compliance document discredits all of it.
 
-**Imply a coverage gap away.** Detected regulations outside the supported set are
-declared as not covered. Services without a curated responsibility file are shown
-as unverified. Controls in families that are not yet bundled are reported as
-unavailable rather than dropped.
+**Coverage gaps are stated, never implied away.** Detected regulations outside
+the supported set are declared as not covered. Services without a curated
+responsibility file are shown as unverified. Controls in families that are not
+yet bundled are reported as unavailable rather than dropped.
 
-**Overwrite a human edit.** Exception approvals, rewritten statements, and status
-survive re-runs; competing changes land in `pending_review`. Requirements are
-retired with a reason, never deleted — last quarter's audit report has to remain
-answerable.
+**Human edits survive re-runs.** Exception approvals, rewritten statements, and
+status are never overwritten; competing changes land in `pending_review`.
+Requirements are retired with a reason, never deleted — last quarter's audit
+report has to remain answerable.
 
-**Renumber.** Identifiers are derived from content, not sequence. A requirement
+**Identifiers are stable.** Derived from content, not sequence. A requirement
 inserted in the middle does not silently repoint every existing ticket and
 evidence link.
 
@@ -186,9 +274,14 @@ CloudGoat, OWASP WrongSecrets, Online Boutique, Airflow, Jaeger, and twenty
 infrastructure projects run with authored threat models. Every round is recorded
 in [DESIGN.md](DESIGN.md) §17–18 with the defects it found.
 
-**Nobody outside this repository has used it.** The requirement text itself is
-written by a model, not derived mechanically, and its quality has only ever been
-scored against an answer key written by the same author.
+**Nobody outside this repository has used it.** Models interpret repositories,
+write threats, and draft prose: the requirement text is written by a model.
+Scripts do catalog lookup, baseline selection, responsibility classification,
+crossing, linting, and state transitions.
+
+Requirement quality has only ever been scored against
+an answer key written by the same author. That evaluation is useful for
+regression, not for independent validation.
 
 ## What is bundled
 
@@ -215,7 +308,7 @@ summarised in our own words with links, never reproduced.
 
 ```bash
 python3 scripts/rebuild_catalogs.py     # rebuild every catalog from upstream
-python3 -m pytest tests/                # deterministic layer, 738 tests
+python3 -m pytest tests/                # deterministic layer, 766 tests
 ```
 
 Seven golden cases keep the whole scale reachable — they derive to Low, three
