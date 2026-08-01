@@ -73,6 +73,54 @@ Nothing is asserted to be handled by the cloud provider. **Inheritance is a
 claim, not a fact** — every provider-claimed control carries the evidence a
 reader must obtain to substantiate it.
 
+## Where it sits
+
+<p align="center">
+  <img src="./assets/readme/landscape.svg" width="100%"
+       alt="Before there is code to read: security-requirements produces requirements, traceability, and a responsibility split; Tachi produces threats, attack trees, and risk scores. Once there is code to read: the security guidance plugin fixes issues as Claude writes them, /security-review returns findings on a branch, the Claude Security plugin returns findings and then patches, and SAST, SCA, and dependency scanners return rule matches and known CVEs.">
+</p>
+
+Everything in the lower band needs code to read. They differ in depth and in
+when they run — [`/security-review`](https://code.claude.com/docs/en/commands)
+makes a single pass over a branch, the
+[Claude Security plugin](https://code.claude.com/docs/en/claude-security) runs a
+multi-agent scan and drafts patches you apply yourself, the
+[security guidance plugin](https://code.claude.com/docs/en/security-guidance)
+works on code as Claude writes it, and
+[claude-code-security-review](https://github.com/anthropics/claude-code-security-review)
+does the same on a pull request diff — but each one starts from something
+already written. They answer *what is wrong with this code*.
+
+This never reads for defects. It answers *what would have to be true*, and it
+can answer before the first line exists.
+
+[Tachi](https://github.com/davidmatousek/tachi) is the closest of them: also
+architecture-level rather than code-level, also STRIDE, and it also writes under
+`docs/security/`. Three differences worth knowing before choosing.
+
+**It ends in threats; this ends in requirements.** Tachi produces threats,
+attack trees, risk scores, and an assembled report. Here every output is a
+statement the service must satisfy, carrying a verification method and the
+control identifiers it derives from, so the same artefact is work for a delivery
+team and coverage for an auditor.
+
+**There is no baseline half.** A threat model finds what someone thought of.
+Crossing it against a FIPS 199 impact rating and an SP 800-53B baseline is what
+covers what nobody thought of. The two halves answer different questions and
+this runs both — it is the diagram under [How it derives them](#how-it-derives-them).
+
+**Different framework families.** Tachi maps to OWASP, MITRE ATT&CK and ATLAS,
+NIST AI RMF, and CWE, and reaches agentic and LLM threats through MAESTRO. This
+maps to SP 800-53 Rev 5, CSF 2.0, and ASVS, with six regulatory overlays, and
+models no AI or agentic threat at all. If that is what your system is, Tachi
+covers ground this does not.
+
+None of this replaces the lower band. **This finds no vulnerabilities.** It will
+not tell you a query is injectable. Run it beside the tools that will.
+
+Compared against each tool's own documentation in August 2026; all of them move
+quickly.
+
 ## Run it
 
 ```
