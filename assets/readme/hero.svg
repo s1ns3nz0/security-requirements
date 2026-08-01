@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="420" viewBox="0 0 1200 420"
+     role="img" aria-labelledby="hero-title hero-desc">
+  <title id="hero-title">security-requirements</title>
+  <desc id="hero-desc">security-requirements states what a service must satisfy, before or without any code to scan. Beside the title is a rendered requirement from a golden case: REQ-ERRORREPORT-SCRUBBING-01, which requires personal data to be removed from exception payloads before they reach the error reporting service, marked as having no control recorded against it.</desc>
+
+  <rect width="1200" height="420" rx="14" fill="#0B0D0E"/>
+
+  <g id="title-block">
+    <text font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="19" letter-spacing="1.6" fill="#6E767C">
+      <tspan x="64" y="94">NIST SP 800-53 REV 5 &#183; CSF 2.0 &#183; OWASP ASVS 5.0</tspan>
+    </text>
+
+    <text font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="58" font-weight="700" fill="#F3F1ED">
+      <tspan x="64" y="172">security-requirements</tspan>
+    </text>
+
+    <text font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="26" fill="#B9BFC4">
+      <tspan x="64" y="222">States what a service must satisfy,</tspan>
+      <tspan x="64" y="258">before or without any code to scan.</tspan>
+    </text>
+
+    <line x1="64" y1="306" x2="584" y2="306" stroke="#262B2E" stroke-width="1"/>
+
+    <text font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="19" fill="#6E767C">
+      <tspan x="64" y="342">1,196 controls &#183; 6 overlays &#183; 738 tests</tspan>
+    </text>
+  </g>
+
+  <g id="requirement-specimen">
+    <rect x="648" y="60" width="488" height="296" rx="8" fill="#14171A" stroke="#262B2E" stroke-width="1"/>
+
+    <text font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18" fill="#E0A64A">
+      <tspan x="676" y="102">REQ-ERRORREPORT-SCRUBBING-01</tspan>
+    </text>
+
+    <text font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="21" fill="#F3F1ED">
+      <tspan x="676" y="146">Personal data must be removed from</tspan>
+      <tspan x="676" y="174">exception payloads before they are</tspan>
+      <tspan x="676" y="202">transmitted to the error reporter.</tspan>
+    </text>
+
+    <line x1="676" y1="234" x2="1108" y2="234" stroke="#262B2E" stroke-width="1"/>
+
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">
+      <text fill="#6E767C"><tspan x="676" y="266">responsibility</tspan></text>
+      <text fill="#B9BFC4"><tspan x="852" y="266">team implements</tspan></text>
+
+      <text fill="#6E767C"><tspan x="676" y="296">basis</tspan></text>
+      <text fill="#E0A64A"><tspan x="852" y="296">no control recorded</tspan></text>
+
+      <text fill="#6E767C"><tspan x="676" y="326">verify</tspan></text>
+      <text fill="#B9BFC4"><tspan x="852" y="326">code_grep &#183; beforeSend</tspan></text>
+    </g>
+
+    <text font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="17" fill="#5C6469">
+      <tspan x="648" y="390">rendered output &#183; golden/b2b-saas-aws &#183; synthetic profile</tspan>
+    </text>
+  </g>
+</svg>

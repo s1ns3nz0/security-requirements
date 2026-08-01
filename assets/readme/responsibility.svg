@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="248" viewBox="0 0 1200 248"
+     role="img" aria-labelledby="resp-title resp-desc">
+  <title id="resp-title">Responsibility split across a Moderate baseline</title>
+  <desc id="resp-desc">Of 350 controls selected at Moderate impact, 93 are implemented by the delivery team, 59 are shared between the team and the cloud provider, 44 are claimed by the provider and require evidence, and 154 are organisational controls answered elsewhere. 152 controls reach the delivery team; the remaining 198 are answered by someone else.</desc>
+
+  <rect width="1200" height="248" rx="14" fill="#0B0D0E"/>
+
+  <text font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+        font-size="18" letter-spacing="1.4" fill="#6E767C">
+    <tspan x="64" y="52">RESPONSIBILITY SPLIT &#183; 350 CONTROLS AT MODERATE</tspan>
+  </text>
+
+  <g id="bar">
+    <rect x="64"    y="76" width="285" height="36" fill="#E0A64A"/>
+    <rect x="349"   y="76" width="181" height="36" fill="#8A7444"/>
+    <rect x="530"   y="76" width="135" height="36" fill="#4A5257"/>
+    <rect x="665"   y="76" width="471" height="36" fill="#22272A"/>
+  </g>
+
+  <g id="legend" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">
+    <g>
+      <rect x="64" y="140" width="12" height="12" fill="#E0A64A"/>
+      <text font-size="28" fill="#F3F1ED"><tspan x="88" y="152">93</tspan></text>
+      <text font-size="18" fill="#8A9096"><tspan x="64" y="184">team implements</tspan></text>
+    </g>
+    <g>
+      <rect x="332" y="140" width="12" height="12" fill="#8A7444"/>
+      <text font-size="28" fill="#F3F1ED"><tspan x="356" y="152">59</tspan></text>
+      <text font-size="18" fill="#8A9096"><tspan x="332" y="184">shared</tspan></text>
+    </g>
+    <g>
+      <rect x="600" y="140" width="12" height="12" fill="#4A5257"/>
+      <text font-size="28" fill="#B9BFC4"><tspan x="624" y="152">44</tspan></text>
+      <text font-size="18" fill="#8A9096"><tspan x="600" y="184">provider claimed</tspan></text>
+    </g>
+    <g>
+      <rect x="868" y="140" width="12" height="12" fill="#22272A" stroke="#3A4145" stroke-width="1"/>
+      <text font-size="28" fill="#B9BFC4"><tspan x="892" y="152">154</tspan></text>
+      <text font-size="18" fill="#8A9096"><tspan x="868" y="184">organisational</tspan></text>
+    </g>
+  </g>
+
+  <line x1="64" y1="206" x2="1136" y2="206" stroke="#262B2E" stroke-width="1"/>
+  <text font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+        font-size="18" fill="#8A9096">
+    <tspan x="64" y="234">152 reach the delivery team. Handing over the other 198 is how these documents get discarded.</tspan>
+  </text>
+</svg>
