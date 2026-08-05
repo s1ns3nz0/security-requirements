@@ -196,8 +196,16 @@ not a uniqueness proof, and the ecosystem changes.
 
 ## Run it
 
-Distribution is under review, so there is no install line here yet. Three
-commands, run in the repository you want requirements for:
+```
+/plugin marketplace add s1ns3nz0/security-requirements
+/plugin install security-requirements@security-requirements
+```
+
+This repository serves itself as a marketplace. Submission to the
+Anthropic-managed directory is separate and still under review; if it lists,
+that route will be added here alongside this one rather than replacing it.
+
+Then, in the repository you want requirements for:
 
 ```
 /sec-req-init      scan the repository, interview the gaps, confirm impact
