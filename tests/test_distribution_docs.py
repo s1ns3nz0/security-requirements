@@ -57,7 +57,7 @@ def test_clean_clone_documentation_covers_updates_dependencies_and_state():
     )
 
     for command in (
-        "/plugin update security-requirements",
+        "/plugin marketplace update security-requirements",
         "claude plugin uninstall security-requirements@security-requirements --keep-data",
         f"codex plugin remove {QUALIFIED_PLUGIN_NAME}",
         "codex plugin marketplace remove security-requirements",
@@ -70,8 +70,17 @@ def test_clean_clone_documentation_covers_updates_dependencies_and_state():
 
     assert "python3 scripts/validate_distribution.py ." in text
     assert "python3 -m pytest tests/test_distribution_docs.py -q" in text
-    claude_update = text[text.index("For Claude Code, run"):text.index("### Runtime requirements")]
-    assert "--keep-data" in claude_update
+    claude_update = text[
+        text.index("Claude Code uses the manifest version"):text.index("### Runtime requirements")
+    ]
+    ordered = (
+        "/plugin marketplace update security-requirements",
+        "claude plugin uninstall security-requirements@security-requirements --keep-data",
+        "/plugin install security-requirements@security-requirements",
+    )
+    assert [claude_update.index(command) for command in ordered] == sorted(
+        claude_update.index(command) for command in ordered
+    )
     assert "/plugin marketplace add ." not in claude_update
 
 
@@ -178,6 +187,53 @@ def test_distribution_validator_checks_nested_path_valued_manifest_fields(tmp_pa
     assert any("Codex manifest.interface.assetPath" in error for error in module.validate(clone))
 
 
+@pytest.mark.parametrize(
+    "field,value",
+    (
+        ("agents", "../outside"),
+        ("outputStyles", ["./../outside"]),
+        ("screenshots", ["/absolute.png"]),
+        ("mcpServers", "servers.json"),
+    ),
+)
+def test_distribution_validator_checks_supported_path_fields(tmp_path, field, value):
+    module = _load_validator()
+    clone = tmp_path / "clone"
+    shutil.copytree(REPO_ROOT, clone, ignore=shutil.ignore_patterns(".git", ".pytest_cache", "__pycache__"))
+    manifest_path = clone / "plugins" / PLUGIN_NAME / ".claude-plugin" / "plugin.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest[field] = value
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert any(f"Claude manifest.{field}" in error for error in module.validate(clone))
+
+
+def test_distribution_validator_preserves_path_field_context_in_nested_lists(tmp_path):
+    module = _load_validator()
+    clone = tmp_path / "clone"
+    shutil.copytree(REPO_ROOT, clone, ignore=shutil.ignore_patterns(".git", ".pytest_cache", "__pycache__"))
+    manifest_path = clone / "plugins" / PLUGIN_NAME / ".claude-plugin" / "plugin.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["outputStyles"] = {"dark": ["../outside"]}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert any(
+        "Claude manifest.outputStyles.dark[0]" in error for error in module.validate(clone)
+    )
+
+
+def test_distribution_validator_rejects_malformed_path_field_values(tmp_path):
+    module = _load_validator()
+    clone = tmp_path / "clone"
+    shutil.copytree(REPO_ROOT, clone, ignore=shutil.ignore_patterns(".git", ".pytest_cache", "__pycache__"))
+    manifest_path = clone / "plugins" / PLUGIN_NAME / ".claude-plugin" / "plugin.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["agents"] = 42
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert any("Claude manifest.agents must contain path strings" in error for error in module.validate(clone))
+
+
 @pytest.mark.parametrize("component", ("mcpServers", "apps", "hooks"))
 def test_distribution_validator_rejects_unsupported_codex_components(tmp_path, component):
     module = _load_validator()
@@ -232,3 +288,20 @@ def test_distribution_validator_rejects_metadata_symlinks_and_aggregates_parser_
         "JSON object required",
     ):
         assert any(expected in error for error in errors), errors
+
+
+@pytest.mark.parametrize("directory", ("scripts", "catalogs", "overlays", "responsibility", "skills"))
+def test_distribution_validator_rejects_runtime_copies_outside_the_payload(tmp_path, directory):
+    module = _load_validator()
+    clone = tmp_path / "clone"
+    shutil.copytree(REPO_ROOT, clone, ignore=shutil.ignore_patterns(".git", ".pytest_cache", "__pycache__"))
+    if directory == "scripts":
+        (clone / directory / "runtime_paths.py").write_text("", encoding="utf-8")
+    else:
+        (clone / directory).mkdir()
+    extra = clone / "plugins" / "other-payload" / directory
+    extra.mkdir(parents=True)
+
+    errors = module.validate(clone)
+    assert any(f"top-level runtime directory: {directory}" in error for error in errors)
+    assert any(f"duplicate runtime directory: {directory}" in error for error in errors)

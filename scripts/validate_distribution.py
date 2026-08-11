@@ -10,7 +10,7 @@ import sys
 
 PLUGIN_NAME = "security-requirements"
 PAYLOAD = Path("plugins") / PLUGIN_NAME
-RUNTIME_DIRECTORIES = ("scripts", "catalogs", "overlays", "responsibility")
+RUNTIME_DIRECTORIES = ("scripts", "catalogs", "overlays", "responsibility", "skills")
 WORKFLOWS = ("init", "build", "refresh")
 FORBIDDEN_CODEX_COMPONENTS = ("mcpServers", "apps", "hooks")
 METADATA_FILES = (
@@ -20,7 +20,8 @@ METADATA_FILES = (
     PAYLOAD / ".codex-plugin" / "plugin.json",
 )
 PATH_FIELD_NAMES = {
-    "path", "paths", "skills", "commands", "scripts", "files", "directories", "source",
+    "agents", "commands", "hooks", "lspservers", "mcpservers", "outputstyles",
+    "path", "paths", "screenshots", "skills", "scripts", "files", "directories", "source",
 }
 
 
@@ -82,14 +83,30 @@ def _is_path_field(name: str) -> bool:
     )
 
 
+def _path_values(value: object, payload: Path, label: str, errors: list[str]) -> None:
+    if isinstance(value, str):
+        _relative_path(value, payload, label, errors)
+    elif isinstance(value, list):
+        for index, nested in enumerate(value):
+            _path_values(nested, payload, f"{label}[{index}]", errors)
+    elif isinstance(value, dict):
+        for key, nested in value.items():
+            _path_values(nested, payload, f"{label}.{key}", errors)
+    else:
+        errors.append(f"{label} must contain path strings, lists, or mappings: {value!r}")
+
+
 def _manifest_paths(value: object, payload: Path, label: str, errors: list[str], field: str = "") -> None:
+    if _is_path_field(field):
+        _path_values(value, payload, label, errors)
+        return
     if isinstance(value, dict):
         for key, nested in value.items():
             _manifest_paths(nested, payload, f"{label}.{key}", errors, key)
     elif isinstance(value, list):
         for index, nested in enumerate(value):
             _manifest_paths(nested, payload, f"{label}[{index}]", errors, field)
-    elif _is_path_field(field) or isinstance(value, str) and value.startswith("./"):
+    elif isinstance(value, str) and value.startswith("./"):
         _relative_path(value, payload, label, errors)
 
 
@@ -106,7 +123,16 @@ def _metadata_symlinks(root: Path, errors: list[str]) -> None:
             path = path.parent
 
 
-def _duplicate_runtime_directories(payload: Path, errors: list[str]) -> None:
+def _duplicate_runtime_directories(root: Path, payload: Path, errors: list[str]) -> None:
+    root_scripts = root / "scripts"
+    if root_scripts.is_dir():
+        allowed = {"validate_distribution.py", "__pycache__"}
+        if any(path.name not in allowed for path in root_scripts.iterdir()):
+            errors.append("top-level runtime directory: scripts")
+    for directory in RUNTIME_DIRECTORIES[1:]:
+        if (root / directory).exists():
+            errors.append(f"top-level runtime directory: {directory}")
+
     for directory in RUNTIME_DIRECTORIES:
         expected = payload / directory
         if not expected.is_dir():
@@ -173,7 +199,7 @@ def validate(root: Path) -> list[str]:
             if path.is_symlink():
                 errors.append(f"symlink is not allowed in payload: {path.relative_to(root)}")
 
-    _duplicate_runtime_directories(payload, errors)
+    _duplicate_runtime_directories(root, payload, errors)
 
     for workflow in WORKFLOWS:
         command = payload / "commands" / f"sec-req-{workflow}.md"

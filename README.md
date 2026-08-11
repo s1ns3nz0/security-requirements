@@ -253,11 +253,20 @@ codex plugin marketplace add .
 codex plugin add security-requirements@security-requirements
 ```
 
-For Claude Code, run `/plugin update security-requirements`; the marketplace is
-already registered, so do not add it again. If a reinstall is necessary, run
-`claude plugin uninstall security-requirements@security-requirements --keep-data`
-so `${CLAUDE_PLUGIN_DATA}` and its confirmation records remain, then run only
-`/plugin install security-requirements@security-requirements`. For a Git
+Claude Code uses the manifest version (`0.1.0`) to decide whether a plugin
+update is available. After pulling a changed local clone with that same version,
+refresh and reinstall in this order; the marketplace is already registered, so
+do not add it again:
+
+```text
+git pull --ff-only
+/plugin marketplace update security-requirements
+claude plugin uninstall security-requirements@security-requirements --keep-data
+/plugin install security-requirements@security-requirements
+```
+
+`--keep-data` preserves `${CLAUDE_PLUGIN_DATA}` and its confirmation records.
+For a Git
 marketplace configured directly in Codex, `codex plugin marketplace upgrade
 security-requirements` refreshes its snapshot; that command does not update a
 local source.
@@ -379,7 +388,7 @@ summarised in our own words with links, never reproduced.
 
 ```bash
 python3 scripts/rebuild_catalogs.py     # rebuild every catalog from upstream
-python3 -m pytest tests/                # deterministic layer, 809 tests
+python3 -m pytest tests/                # deterministic layer, 820 tests
 python3 -m pytest tests/test_distribution_docs.py -q
 python3 scripts/validate_distribution.py .
 ```
