@@ -22,7 +22,8 @@ import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "scripts"))
+PLUGIN_ROOT = REPO_ROOT / "plugins" / "security-requirements"
+sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
 import classify_resp  # noqa: E402
 import lint as lint_mod  # noqa: E402
@@ -68,12 +69,12 @@ def threats():
 # ---------------------------------------------------------------------------
 
 def test_catalog_is_built():
-    assert (REPO_ROOT / "catalogs" / "nist-800-53r5" / "baselines.json").exists(), \
+    assert (PLUGIN_ROOT / "catalogs" / "nist-800-53r5" / "baselines.json").exists(), \
         "run scripts/rebuild_catalogs.py first"
 
 
 def test_baseline_sizes_match_publication():
-    path = REPO_ROOT / "catalogs" / "nist-800-53r5" / "baselines.json"
+    path = PLUGIN_ROOT / "catalogs" / "nist-800-53r5" / "baselines.json"
     baselines = json.loads(path.read_text(encoding="utf-8"))
     # SP 800-53B. A change here means the upstream release moved and the
     # curation needs revisiting, not that the test is wrong.
@@ -83,7 +84,7 @@ def test_baseline_sizes_match_publication():
 
 
 def test_all_twenty_families_are_bundled():
-    meta = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" / "meta.json").read_text(encoding="utf-8"))
+    meta = json.loads((PLUGIN_ROOT / "catalogs" / "nist-800-53r5" / "meta.json").read_text(encoding="utf-8"))
     assert len(meta["families_extracted"]) == 20
     assert meta["partial"] is False
 
@@ -96,13 +97,13 @@ def test_csf_matches_published_structure():
     set, must land on exactly the 106 and 22 that NIST publishes. Anything else
     means the filter drifted and the bundled structure is wrong.
     """
-    meta = json.loads((REPO_ROOT / "catalogs" / "csf-2.0" / "meta.json").read_text(encoding="utf-8"))
+    meta = json.loads((PLUGIN_ROOT / "catalogs" / "csf-2.0" / "meta.json").read_text(encoding="utf-8"))
     assert meta["subcategory_count"] == 106
     assert meta["category_count"] == 22
 
 
 def test_asvs_is_bundled_with_its_licence():
-    asvs = REPO_ROOT / "catalogs" / "asvs-5"
+    asvs = PLUGIN_ROOT / "catalogs" / "asvs-5"
     meta = json.loads((asvs / "meta.json").read_text(encoding="utf-8"))
     assert meta["requirement_count"] > 300
     assert meta["license"] == "CC BY-SA 4.0"
@@ -120,7 +121,7 @@ def test_no_unresolved_parameter_placeholders():
     reference each other's parameters (SC-42(2) uses one declared on SC-42(1)).
     Both leaked raw internal ids such as `ac-07_odp.04` into control statements.
     """
-    for path in (REPO_ROOT / "catalogs" / "nist-800-53r5").glob("*.jsonl"):
+    for path in (PLUGIN_ROOT / "catalogs" / "nist-800-53r5").glob("*.jsonl"):
         for line in path.read_text(encoding="utf-8").splitlines():
             record = json.loads(line)
             assert "_odp" not in record["statement"], record["id"]
@@ -199,7 +200,7 @@ def test_encryption_is_not_an_accepted_modifier(profile):
     Accepting it as grounds for reduction lets a requirement delete itself.
     """
     table = yaml.safe_load(
-        (REPO_ROOT / "catalogs" / "data-types" / "classification.yaml").read_text(encoding="utf-8")
+        (PLUGIN_ROOT / "catalogs" / "data-types" / "classification.yaml").read_text(encoding="utf-8")
     )
     rejected = {m["id"] for m in table["rejected_modifiers"]}
     assert "encrypted_at_rest" in rejected
@@ -579,7 +580,7 @@ def test_availability_hint_is_gone(profile):
     wiring it would have driven availability to High for every service that
     holds secrets -- which is every service."""
     table = yaml.safe_load(
-        (REPO_ROOT / "catalogs" / "data-types" / "classification.yaml").read_text(encoding="utf-8")
+        (PLUGIN_ROOT / "catalogs" / "data-types" / "classification.yaml").read_text(encoding="utf-8")
     )
     assert not any("availability_hint" in t for t in table["types"])
 
@@ -1288,7 +1289,7 @@ def test_catalog_provenance_records_what_is_on_disk():
     rest where an earlier run put them, so the directory can hold two builds
     while the provenance names one. Consumers read the directory."""
     meta = json.loads(
-        (REPO_ROOT / "catalogs" / "nist-800-53r5" / "meta.json").read_text(encoding="utf-8"))
+        (PLUGIN_ROOT / "catalogs" / "nist-800-53r5" / "meta.json").read_text(encoding="utf-8"))
     assert meta["families_present"] == meta["families_extracted"]
     assert meta["families_stale"] == []
 
@@ -1413,7 +1414,7 @@ def test_hipaa_matches_the_published_rule_shape():
     """Nine administrative standards, four physical, five technical. The
     extractor asserts this too; the test guards the committed artefact."""
     src = json.loads(
-        (REPO_ROOT / "overlays" / "hipaa-security-rule" / "source.json").read_text(encoding="utf-8"))
+        (PLUGIN_ROOT / "overlays" / "hipaa-security-rule" / "source.json").read_text(encoding="utf-8"))
     assert src["standards_per_section"] == {
         "164.308": 9, "164.310": 4, "164.312": 5, "164.314": 2, "164.316": 2}
     assert src["designations"] == {"Required": 24, "Addressable": 22}
@@ -1499,7 +1500,7 @@ def test_the_derivation_carries_every_layer_it_selected(profile):
 
     # And the count must keep naming what it names: the impact baseline it was
     # always the size of, not the union it now sits beside.
-    baselines = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" /
+    baselines = json.loads((PLUGIN_ROOT / "catalogs" / "nist-800-53r5" /
                             "baselines.json").read_text(encoding="utf-8"))
     impact = set(baselines[derived["baseline"].replace("nist-800-53b-", "")])
     assert derived["control_count"] == len(impact) - len(derived["controls_unavailable"])
@@ -1807,7 +1808,7 @@ def test_overlays_pass_the_validator():
     these are the ones needing a view across overlays and against the
     baselines."""
     import subprocess
-    r = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "validate_overlays.py")],
+    r = subprocess.run([sys.executable, str(PLUGIN_ROOT / "scripts" / "validate_overlays.py")],
                        capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
 
@@ -1828,11 +1829,11 @@ def test_unreachable_clauses_are_not_reported_as_gaps(profile):
     derived = sb.run(profile)
     loaded = overlay_mod.load("pipa-isms-p")
 
-    baselines = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" /
+    baselines = json.loads((PLUGIN_ROOT / "catalogs" / "nist-800-53r5" /
                             "baselines.json").read_text(encoding="utf-8"))
     in_any = set().union(*baselines.values())
     catalog_ids = {json.loads(line)["id"]
-                   for line in (REPO_ROOT / "catalogs" / "nist-800-53r5" /
+                   for line in (PLUGIN_ROOT / "catalogs" / "nist-800-53r5" /
                                 "AC.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()}
     orphan = sorted(catalog_ids - in_any)[0]
 
@@ -1858,7 +1859,7 @@ def test_the_programme_layer_is_selected_at_every_impact_level(profile):
     map to them were permanently unreportable -- reported as tool advisories,
     which reads as a mapping error rather than a missing layer.
     """
-    baselines = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" /
+    baselines = json.loads((PLUGIN_ROOT / "catalogs" / "nist-800-53r5" /
                             "baselines.json").read_text(encoding="utf-8"))
     for impact in ("low", "moderate", "high"):
         assert not [c for c in baselines[impact] if c.startswith("PM-")], \
@@ -1884,7 +1885,7 @@ def test_the_programme_layer_lands_on_the_organisation(profile):
     """Thirty-two organisational controls folded into a team's list would bury
     the ones that are the team's. Asserted against what the classifier actually
     produces, not against the layer file it reads."""
-    baselines = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" /
+    baselines = json.loads((PLUGIN_ROOT / "catalogs" / "nist-800-53r5" /
                             "baselines.json").read_text(encoding="utf-8"))
     derived = sb.run(profile)
     result = classify_resp.classify(profile, derived["controls"])
@@ -1930,7 +1931,7 @@ def test_a_public_repository_declaring_confidential_source_is_questioned(profile
 def test_curation_covers_three_providers():
     """Curation must not be AWS-shaped. Two public GCP repositories came back
     with every managed service unverified."""
-    services = REPO_ROOT / "responsibility" / "services"
+    services = PLUGIN_ROOT / "responsibility" / "services"
     providers = set()
     for path in services.glob("*.yaml"):
         providers.add(yaml.safe_load(path.read_text(encoding="utf-8"))["provider"])
@@ -2199,7 +2200,7 @@ def test_shared_survives_when_a_provider_is_present():
 def _catalog_types():
     import yaml
     from pathlib import Path
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     return table, {e["id"]: e for e in table["types"]}
 
@@ -2211,7 +2212,7 @@ def test_gdpr_scope_is_not_a_copy_of_the_personal_data_flag():
     direction that says a regulation does not apply.
     """
     import yaml
-    meta = yaml.safe_load((REPO_ROOT / "overlays" / "gdpr" /
+    meta = yaml.safe_load((PLUGIN_ROOT / "overlays" / "gdpr" /
                            "meta.yaml").read_text(encoding="utf-8"))
     condition = meta["applies_when"]
     assert condition.get("data_types_personal") is True
@@ -2247,7 +2248,7 @@ def test_a_regime_whose_scope_is_not_personal_data_keeps_its_own_list():
     import yaml
     for overlay_id, expected in (("hipaa-security-rule", "health_records"),
                                  ("pci-dss", "payment_card_raw")):
-        meta = yaml.safe_load((REPO_ROOT / "overlays" / overlay_id /
+        meta = yaml.safe_load((PLUGIN_ROOT / "overlays" / overlay_id /
                                "meta.yaml").read_text(encoding="utf-8"))
         assert expected in meta["applies_when"]["data_types_any"]
         assert not meta["applies_when"].get("data_types_personal")
@@ -2291,7 +2292,7 @@ def cli_workspace(tmp_path_factory, profile):
 
 def _run_cli(script, *args):
     import subprocess
-    return subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / script), *args],
+    return subprocess.run([sys.executable, str(PLUGIN_ROOT / "scripts" / script), *args],
                           capture_output=True, text=True)
 
 
@@ -2353,7 +2354,7 @@ def test_a_shared_hint_over_an_all_organisational_mapping_must_be_explained(tmp_
     import validate_overlays as vo
 
     work = tmp_path / "overlays"
-    shutil.copytree(REPO_ROOT / "overlays", work)
+    shutil.copytree(PLUGIN_ROOT / "overlays", work)
 
     target = work / "gdpr" / "mappings.jsonl"
     rows = [json.loads(l) for l in target.read_text(encoding="utf-8").splitlines() if l.strip()]
@@ -2456,7 +2457,7 @@ def test_a_concrete_level_survives_deferral_on_the_other_axis():
     says moderate. A water mark the axis beside it can talk down is not a water
     mark.
     """
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     spec = {t["id"]: t for t in table["types"]}["ml_training_data"]
     assert spec["confidentiality"] == "inherit_max" and spec["integrity"] == "moderate"
@@ -2608,7 +2609,7 @@ def test_deferral_is_a_property_of_the_entry_not_of_one_axis():
     source = inspect.getsource(sb.derive_confidentiality_integrity)
     assert 'if not allow_inherit and "inherit_max" in (c_raw, i_raw):' in source
 
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     integrity_only = [t["id"] for t in table["types"]
                       if t["integrity"] == "inherit_max" and t["confidentiality"] != "inherit_max"]
@@ -2658,7 +2659,7 @@ def test_the_modifier_does_not_restate_the_table():
     """It says the default reading is wrong for this service; the level to use
     is the one already written against the type. A modifier carrying high/high
     of its own would be a second copy of the table, free to drift from it."""
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     modifier = table["modifiers"]["service_content"]
     assert modifier.get("categorises") is True
@@ -2822,7 +2823,7 @@ def test_the_korean_trigger_follows_the_flag_too():
 
     # Category-specific triggers stay per-type: sensitive data and children are
     # not "personal data with a narrower list".
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     following = {k for k, v in table["regulatory_triggers"].items() if v.get("all_personal_data")}
     assert following == {"gdpr_personal_data", "pipa_general"}
@@ -2836,7 +2837,7 @@ def test_isms_p_scope_reads_the_flag_not_a_fourth_copy_of_it(profile):
     pseudonymous analytics was assessed at ISMS scope and told no personal data
     was declared, on a derivation that had just listed some.
     """
-    meta = yaml.safe_load((REPO_ROOT / "overlays" / "pipa-isms-p" /
+    meta = yaml.safe_load((PLUGIN_ROOT / "overlays" / "pipa-isms-p" /
                            "meta.yaml").read_text(encoding="utf-8"))
     assert meta["scope_selector"].get("data_types_personal") is True
     assert "data_types" not in meta["scope_selector"]
@@ -2961,7 +2962,7 @@ def test_a_bank_account_carries_a_name():
     """The label has said "bank account numbers and holder names" all along.
     Unflagged, a European service holding only bank details was told the
     Regulation did not reach it."""
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     assert {t["id"]: t for t in table["types"]}["bank_account"].get("personal_data") is True
 
@@ -3051,7 +3052,7 @@ def test_the_flag_and_the_per_type_trigger_list_agree():
     assert sb.run(cards)["applicable_overlays"] == ["pci-dss"]
 
     # And the marking is declared on the triggers rather than guessed from names.
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     marked = {k for k, v in table["regulatory_triggers"].items()
               if v.get("requires_natural_person")}
@@ -3131,7 +3132,7 @@ def test_a_requirement_forced_twice_from_one_type_keeps_both_reasons():
     """A modifier and the type it sits on can force the same requirement. Both
     arrive with the same data type and different labels and notes, so grouping
     on the data type alone threw the second of each away."""
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     modifier_forcing = {m for m, spec in table["modifiers"].items()
                         if spec.get("forces_requirements")}
@@ -3181,7 +3182,7 @@ def test_a_covered_regulation_is_still_in_scope():
     of the flag list the gate is supposed to define. Nothing in the catalogue
     sets it today, so the path is exercised directly."""
     import copy as _copy
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     assert not [t for t in table["regulatory_triggers"].values() if t.get("covered")], \
         "if a trigger starts declaring covered, this test should read it instead"
@@ -3258,7 +3259,7 @@ def test_a_modifier_that_cannot_apply_says_so():
     assert not any("changed nothing" in w for w in sb.run(working)["consistency_warnings"])
 
     # The precondition is declared on the modifier, not hard-coded in the check.
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     assert table["modifiers"]["service_content"]["requires"] == "system_information"
     assert table["modifiers"]["legal_entity_only"]["requires"] == "personal_data"
@@ -3272,7 +3273,7 @@ def test_the_interview_answers_reach_the_thing_that_reads_them():
     said they run company-wide SSO -- the one outcome the question exists to
     prevent."""
     import re as _re
-    doc = (REPO_ROOT / "skills" / "deriving-security-requirements" / "references" /
+    doc = (PLUGIN_ROOT / "skills" / "deriving-security-requirements" / "references" /
            "profile-schema.md").read_text(encoding="utf-8")
     block = doc.split("### Q6")[1].split("```")[1]
     labels = [line.strip("[ ]").strip() for line in block.splitlines() if line.strip().startswith("[")]
@@ -3396,7 +3397,7 @@ def test_an_amplifier_that_can_do_nothing_says_so():
     assert "conflicts" not in sb.run(alone)["impact"]["availability"]
 
     # The precondition is declared on the amplifier, not hard-coded.
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "availability.yaml").read_text(encoding="utf-8"))
     solo = [a["id"] for a in table["amplifiers"] if a.get("only_when_alone")]
     assert solo == ["internal_tool_only"]
@@ -3654,10 +3655,10 @@ def test_the_allowlist_holds_nothing_nobody_reads():
     import re as _re
     read_from_managed = set()
     for script in ("render.py", "merge.py", "lint.py"):
-        source = (REPO_ROOT / "scripts" / script).read_text(encoding="utf-8")
+        source = (PLUGIN_ROOT / "scripts" / script).read_text(encoding="utf-8")
         read_from_managed |= set(_re.findall(r'managed(?:\.get\(|\[)"([a-z_]+)"', source))
 
-    schema = (REPO_ROOT / "skills" / "deriving-security-requirements" / "references" /
+    schema = (PLUGIN_ROOT / "skills" / "deriving-security-requirements" / "references" /
               "requirement-style.md").read_text(encoding="utf-8")
     documented = {k for k in lint_mod.MANAGED_KEYS if f"{k}:" in schema}
 
@@ -3673,7 +3674,7 @@ def test_the_allowlist_covers_what_the_rest_of_the_tool_reads():
     import re as _re
     read_from_managed = set()
     for script in ("render.py", "merge.py", "lint.py"):
-        source = (REPO_ROOT / "scripts" / script).read_text(encoding="utf-8")
+        source = (PLUGIN_ROOT / "scripts" / script).read_text(encoding="utf-8")
         read_from_managed |= set(_re.findall(r'managed(?:\.get\(|\[)"([a-z_]+)"', source))
     assert read_from_managed, "this test needs to find the reads it is checking"
     assert read_from_managed <= lint_mod.MANAGED_KEYS, \
@@ -4123,7 +4124,7 @@ def test_no_raw_parameter_identifier_ships_in_the_catalog():
     the guard that keeps it that way is tested above."""
     leaked = re.compile(r"\[assignment: ([a-z]{2}-\d+[._][a-z0-9_.]*)\]")
     found = []
-    for path in sorted((REPO_ROOT / "catalogs" / "nist-800-53r5").glob("*.jsonl")):
+    for path in sorted((PLUGIN_ROOT / "catalogs" / "nist-800-53r5").glob("*.jsonl")):
         for line in path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
@@ -4182,9 +4183,9 @@ def test_the_shipped_hipaa_overlay_still_matches_what_was_counted():
     shipped is the one the count was taken from, and nothing checked that
     afterwards."""
     criteria = [json.loads(line) for line in
-                (REPO_ROOT / "overlays" / "hipaa-security-rule" / "criteria.jsonl")
+                (PLUGIN_ROOT / "overlays" / "hipaa-security-rule" / "criteria.jsonl")
                 .read_text(encoding="utf-8").splitlines() if line.strip()]
-    meta = yaml.safe_load((REPO_ROOT / "overlays" / "hipaa-security-rule" /
+    meta = yaml.safe_load((PLUGIN_ROOT / "overlays" / "hipaa-security-rule" /
                            "meta.yaml").read_text(encoding="utf-8"))
     assert len(criteria) == meta["criteria_count"] == 68
 
@@ -4313,7 +4314,7 @@ def test_a_statement_about_what_the_data_is_wins_over_an_adjustment():
 
     # Two absolute statements that disagree cannot both be true, and the tool
     # says so rather than picking whichever was written first.
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     absolutes = [m for m, spec in table["modifiers"].items()
                  if isinstance((spec.get("effect") or {}).get("confidentiality"), str)]
@@ -4485,7 +4486,7 @@ def _broken_overlay(tmp_path, monkeypatch, *, meta_change=None, mapping_change=N
     """A copy of a real overlay with one thing wrong with it."""
     import shutil
     work = tmp_path / "overlays"
-    shutil.copytree(REPO_ROOT / "overlays", work)
+    shutil.copytree(PLUGIN_ROOT / "overlays", work)
     source = work / "gdpr"
 
     if meta_change:
@@ -4721,7 +4722,7 @@ def test_the_catalog_is_the_one_the_build_produces():
     catalogue and the script that claims to generate it have parted company."""
     import subprocess
     before = {path.name: path.read_bytes()
-              for path in sorted((REPO_ROOT / "catalogs" / "nist-800-53r5").glob("*.jsonl"))}
+              for path in sorted((PLUGIN_ROOT / "catalogs" / "nist-800-53r5").glob("*.jsonl"))}
     assert before, "the catalogue must be present"
     # Not rebuilt here -- that needs the network. What is asserted is that every
     # record parses and carries the fields the pipeline reads.
@@ -4941,7 +4942,7 @@ def test_a_nested_assignment_is_a_second_decision_not_an_artefact():
 
     # And the shipped catalogue reads the same way, which is what makes the
     # nesting a property of the regulation rather than of this test.
-    for line in (REPO_ROOT / "catalogs" / "nist-800-53r5" / "AC.jsonl") \
+    for line in (PLUGIN_ROOT / "catalogs" / "nist-800-53r5" / "AC.jsonl") \
             .read_text(encoding="utf-8").splitlines():
         if line.strip() and json.loads(line)["id"] == "AC-7":
             assert re.search(r"\[assignment:[^\]]*\[assignment:[^\]]*\]",
@@ -5391,8 +5392,8 @@ def test_the_publishing_step_does_not_fail_a_build_on_style():
     perfectly safe to publish. Promoting the one rule that is about disclosure
     is the fix; blanket strictness was a blocker wearing a style note's
     clothes."""
-    for path in (REPO_ROOT / "commands" / "sec-req-build.md",
-                 REPO_ROOT / "skills" / "deriving-security-requirements" / "SKILL.md"):
+    for path in (PLUGIN_ROOT / "commands" / "sec-req-build.md",
+                 PLUGIN_ROOT / "skills" / "deriving-security-requirements" / "SKILL.md"):
         text = path.read_text(encoding="utf-8")
         for line in text.splitlines():
             if "lint.py" in line and "--strict" in line:
@@ -5439,11 +5440,11 @@ def test_the_documented_order_lints_before_it_publishes():
     emitted warnings, and warnings pass. The fix was the order plus promoting
     the disclosure rule to ERROR; see the test below for why it was not
     --strict."""
-    build = (REPO_ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
+    build = (PLUGIN_ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
     assert build.index("scripts/lint.py") < build.index("scripts/render.py"), \
         "lint runs before the publishable files are written"
 
-    skill = (REPO_ROOT / "skills" / "deriving-security-requirements" /
+    skill = (PLUGIN_ROOT / "skills" / "deriving-security-requirements" /
              "SKILL.md").read_text(encoding="utf-8")
     assert skill.index("scripts/lint.py") < skill.index("scripts/render.py")
 
@@ -5547,7 +5548,7 @@ def test_nothing_this_repository_ships_would_block_a_build():
     reason no author could find in their own draft. Promoting a rule to fatal
     means owning what the tool itself puts through it."""
     import yaml as _yaml
-    services = sorted((REPO_ROOT / "responsibility" / "services").glob("*.yaml"))
+    services = sorted((PLUGIN_ROOT / "responsibility" / "services").glob("*.yaml"))
     assert services, "this test needs the files it is checking"
 
     hits = []
@@ -5627,7 +5628,7 @@ def test_the_command_that_writes_the_deliverable_writes_only_what_may_be_publish
 
     out = tmp_path / "published"
     result = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "render.py"), str(source), "--out", str(out)],
+        [sys.executable, str(PLUGIN_ROOT / "scripts" / "render.py"), str(source), "--out", str(out)],
         capture_output=True, text=True, cwd=str(REPO_ROOT))
     assert result.returncode == 0, result.stderr
 
@@ -5690,7 +5691,7 @@ def test_the_citation_hosts_reach_every_authority_this_repository_cites():
     citation_fields = ("text", "document_library", "reference", "retrieved_from",
                        "structure_from")
     checked = 0
-    for meta_path in sorted((REPO_ROOT / "overlays").glob("*/meta.yaml")):
+    for meta_path in sorted((PLUGIN_ROOT / "overlays").glob("*/meta.yaml")):
         source = (_yaml.safe_load(meta_path.read_text(encoding="utf-8")) or {}).get("source") or {}
         for field in citation_fields:
             value = source.get(field)
@@ -6589,7 +6590,7 @@ def test_the_hipaa_overlay_that_ships_has_the_published_shape():
     standards, four physical, five technical -- asserted here against the file
     that actually ships."""
     clauses = [json.loads(line) for line in
-               (REPO_ROOT / "overlays" / "hipaa-security-rule" / "criteria.jsonl")
+               (PLUGIN_ROOT / "overlays" / "hipaa-security-rule" / "criteria.jsonl")
                .read_text(encoding="utf-8").splitlines() if line.strip()]
     per_section = {}
     for clause in clauses:
@@ -6695,7 +6696,7 @@ def test_every_integrity_hint_the_catalogue_declares_is_applied():
     behaviour alone, because the note is what anyone reads to find out what the
     tool does."""
     catalogue = yaml.safe_load(
-        (REPO_ROOT / "catalogs" / "data-types" / "availability.yaml").read_text(encoding="utf-8"))
+        (PLUGIN_ROOT / "catalogs" / "data-types" / "availability.yaml").read_text(encoding="utf-8"))
     hinted = [entry for entry in catalogue.get("rpo_buckets", [])
               if entry.get("integrity_hint")]
     assert hinted, "this test needs the hints it is checking"
@@ -7038,7 +7039,7 @@ def test_a_baseline_control_in_an_unbundled_family_is_reported_unavailable(monke
     nothing -- deleting the reporting entirely would have passed it. The
     catalogue is narrowed here instead."""
     real = sb.load_catalog()
-    baselines = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" / "baselines.json")
+    baselines = json.loads((PLUGIN_ROOT / "catalogs" / "nist-800-53r5" / "baselines.json")
                            .read_text(encoding="utf-8"))
     missing = sorted(baselines["high"])[0]
     monkeypatch.setattr(sb, "load_catalog",
@@ -7058,7 +7059,7 @@ def test_a_hint_that_is_not_an_impact_level_stops_the_derivation(monkeypatch):
     silently would be the original failure in a new spelling: the catalogue
     claims an effect and the derivation ignores it. That is what this whole
     branch was written to stop happening."""
-    real = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" / "availability.yaml")
+    real = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" / "availability.yaml")
                           .read_text(encoding="utf-8"))
     broken = copy.deepcopy(real)
     for bucket in broken["rpo_buckets"]:
@@ -7200,7 +7201,7 @@ def test_overlay_user_output_uses_staged_assurance_language(b2b_funnel_inputs):
     for banned in ("partly covered", "unanswered", "actually answers"):
         assert banned not in output
     help_text = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "apply_overlay.py"), "--help"],
+        [sys.executable, str(PLUGIN_ROOT / "scripts" / "apply_overlay.py"), "--help"],
         check=True,
         capture_output=True,
         text=True,
@@ -7439,12 +7440,12 @@ def test_the_axis_universe_is_read_from_the_catalogues_not_listed():
     import axis_coverage
     space = axis_coverage.universe()
     types_table = yaml.safe_load(
-        (REPO_ROOT / "catalogs" / "data-types" / "classification.yaml").read_text(encoding="utf-8"))
+        (PLUGIN_ROOT / "catalogs" / "data-types" / "classification.yaml").read_text(encoding="utf-8"))
     assert space["data_type"] == {t["id"] for t in types_table["types"]}
-    assert space["overlay"] == {p.name for p in (REPO_ROOT / "overlays").iterdir()
+    assert space["overlay"] == {p.name for p in (PLUGIN_ROOT / "overlays").iterdir()
                                 if (p / "meta.yaml").exists()}
     layers = yaml.safe_load(
-        (REPO_ROOT / "responsibility" / "layers.yaml").read_text(encoding="utf-8"))
+        (PLUGIN_ROOT / "responsibility" / "layers.yaml").read_text(encoding="utf-8"))
     assert space["deployment_model"] == set(layers["deployment_models"])
 
 
@@ -7512,13 +7513,13 @@ def test_the_build_carries_the_locale_to_the_step_that_needs_it():
     """A documented flow that cannot publish in the language the tool is built
     for is a defect in the documentation, and the only thing that catches it is
     reading the documentation as an artefact."""
-    build = (REPO_ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
+    build = (PLUGIN_ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
     invocation = next(line for line in build.splitlines()
                       if "scripts/lint.py" in line and line.strip().startswith("python3"))
     assert "--locale" in invocation, \
         f"the documented lint step drops the profile's locale: {invocation.strip()}"
 
-    skill = (REPO_ROOT / "skills" / "deriving-security-requirements" /
+    skill = (PLUGIN_ROOT / "skills" / "deriving-security-requirements" /
              "SKILL.md").read_text(encoding="utf-8")
     assert "--locale" in skill, "the stage table has to say so too"
 
@@ -7530,7 +7531,7 @@ def test_the_notice_accounts_for_everything_that_ships():
     obligation that is live and unstated, and it was live on a public
     repository."""
     notice = (REPO_ROOT / "NOTICE").read_text(encoding="utf-8")
-    shipped = sorted(p.name for p in (REPO_ROOT / "catalogs").iterdir() if p.is_dir())
+    shipped = sorted(p.name for p in (PLUGIN_ROOT / "catalogs").iterdir() if p.is_dir())
     assert shipped, "this test needs the directories it is checking"
     for directory in shipped:
         assert f"catalogs/{directory}/" in notice, \
@@ -7544,7 +7545,7 @@ def test_the_notice_accounts_for_everything_that_ships():
     for directory in shipped:
         described = notice.split(f"catalogs/{directory}/", 1)[1].split("\n\n", 1)[0]
         if "own LICENSE" in described or "carries its own" in described:
-            assert (REPO_ROOT / "catalogs" / directory / "LICENSE").exists(), directory
+            assert (PLUGIN_ROOT / "catalogs" / directory / "LICENSE").exists(), directory
 
 
 def test_a_korean_document_survives_the_whole_pipeline():
@@ -7631,13 +7632,13 @@ def _minimal_profile(**declared):
 
 
 def _every_data_type():
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" / "classification.yaml")
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" / "classification.yaml")
                            .read_text(encoding="utf-8"))
     return [t["id"] for t in table["types"]]
 
 
 def _every_modifier():
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" / "classification.yaml")
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" / "classification.yaml")
                            .read_text(encoding="utf-8"))
     return sorted(table.get("modifiers") or {})
 
@@ -7648,7 +7649,7 @@ def test_every_data_type_derives(data_type):
     run. `inherit_max` types need a second type to inherit from, which is the
     one shape this has to set up rather than assume."""
     types = [{"id": data_type}]
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" / "classification.yaml")
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" / "classification.yaml")
                            .read_text(encoding="utf-8"))
     spec = next(t for t in table["types"] if t["id"] == data_type)
     if "inherit" in str(spec.get("confidentiality")) or "inherit" in str(spec.get("integrity")):
@@ -7674,7 +7675,7 @@ def test_every_modifier_does_what_the_catalogue_says_it_does(modifier):
     result to the effect the catalogue declares: a relative bump moves the axis
     or is already saturated, an absolute value fixes it, and a modifier with no
     effect must not move it at all."""
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" / "classification.yaml")
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" / "classification.yaml")
                            .read_text(encoding="utf-8"))
     effect = (table["modifiers"][modifier].get("effect") or {}).get("confidentiality")
 
@@ -7720,7 +7721,7 @@ def test_every_provider_splits(provider):
     # deployment layer for all seven, so the test proved only that the name was
     # echoed back. Curation is what makes a provider more than a label, so the
     # difference it makes is what has to be asserted.
-    curated = [p.stem for p in (REPO_ROOT / "responsibility" / "services").glob(f"{provider}-*.yaml")]
+    curated = [p.stem for p in (PLUGIN_ROOT / "responsibility" / "services").glob(f"{provider}-*.yaml")]
     with_service = copy.deepcopy(profile)
     with_service["inferred"]["managed_services"] = [{"id": curated[0]}] if curated else \
                                                    [{"id": f"{provider}-imaginary"}]
@@ -7847,7 +7848,7 @@ def test_the_style_guide_requires_a_requirement_someone_can_carry_out():
     """Step 8 is a model step, so the guidance is the primary control and the
     report note is the prompt for it. A rule that exists in neither place is a
     rule the next derivation will break the same way."""
-    guide = (REPO_ROOT / "skills" / "deriving-security-requirements" / "references" /
+    guide = (PLUGIN_ROOT / "skills" / "deriving-security-requirements" / "references" /
              "requirement-style.md").read_text(encoding="utf-8")
     assert "Executable by the organisation" in guide
     assert "existing_org_controls" in guide, \
@@ -7859,7 +7860,7 @@ def test_the_style_guide_requires_a_requirement_someone_can_carry_out():
     headings = re.findall(r"^### (\d+)\.", guide, re.M)
     words = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
     sources = {"requirement-style.md": guide,
-               "SKILL.md": (REPO_ROOT / "skills" / "deriving-security-requirements" /
+               "SKILL.md": (PLUGIN_ROOT / "skills" / "deriving-security-requirements" /
                             "SKILL.md").read_text(encoding="utf-8")}
     for name, text in sources.items():
         for stated in re.findall(r"(\w+) rules", text):
@@ -7943,8 +7944,8 @@ def test_no_profile_field_is_declared_and_never_read():
         for path, leaf in walk(yaml.safe_load(case.read_text(encoding="utf-8"))):
             declared[path] = leaf
 
-    source = "".join((REPO_ROOT / "scripts" / name).read_text(encoding="utf-8")
-                     for name in sorted(p.name for p in (REPO_ROOT / "scripts").glob("*.py")))
+    source = "".join((PLUGIN_ROOT / "scripts" / name).read_text(encoding="utf-8")
+                     for name in sorted(p.name for p in (PLUGIN_ROOT / "scripts").glob("*.py")))
 
     # Read by the model steps rather than the scripts, and named here so the
     # exemption is a decision rather than an omission.
@@ -8013,7 +8014,7 @@ def test_every_mutation_exemption_still_names_a_mutant_that_lives():
     exemptions = mutate.load_exemptions()
     for mutant in sorted(exemptions):
         name, line, mutation = mutant.split(":", 2)
-        source = REPO_ROOT / "scripts" / name
+        source = PLUGIN_ROOT / "scripts" / name
         assert source.exists(), f"{mutant} names a script that is gone"
 
         lines = source.read_text(encoding="utf-8").splitlines()
@@ -8036,9 +8037,9 @@ def test_the_mutation_tool_never_edits_the_working_tree():
     mutated file behind that read as four real regressions. It copies the tree
     now, and the property is worth holding: a tool that can corrupt the
     repository while looking for defects is a defect."""
-    source = (REPO_ROOT / "scripts" / "mutate.py").read_text(encoding="utf-8")
+    source = (PLUGIN_ROOT / "scripts" / "mutate.py").read_text(encoding="utf-8")
     assert "copytree" in source
-    # Every write goes to the copy. A write to REPO_ROOT / "scripts" would be
+    # Every write goes to the copy. A write to PLUGIN_ROOT / "scripts" would be
     # the mistake, and it is spelled distinctly enough to look for.
     for line in source.splitlines():
         if ".write_text(" in line and "REPO_ROOT" in line:
@@ -8052,7 +8053,7 @@ def test_the_gate_scripts_are_the_ones_that_run_every_time():
     import mutate
 
     documented = set(mutate.GATE_SCRIPTS)
-    build = (REPO_ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
+    build = (PLUGIN_ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
     invoked = set(re.findall(r"scripts/(\w+\.py)", build))
     # The build also runs select_baseline through sec-req-init, and the rebuild
     # scripts are deliberately outside the scope -- they run offline and refuse
@@ -8092,7 +8093,7 @@ def test_a_threat_may_cite_a_requirement_from_the_bundled_asvs_catalogue():
     """The defect end to end. ASVS-V11.1.1 exists in catalogs/asvs-5, and the
     cross step reported it as not a control identifier because the normaliser
     had rewritten it first."""
-    asvs = sorted(lint_mod.load_ids(REPO_ROOT / "catalogs" / "asvs-5"))
+    asvs = sorted(lint_mod.load_ids(PLUGIN_ROOT / "catalogs" / "asvs-5"))
     assert asvs, "this test needs the bundled ASVS catalogue"
     profile, _ = profile_schema.normalise(
         yaml.safe_load((GOLDEN_ROOT / "b2b-saas-aws" / "profile.yaml")
@@ -8117,7 +8118,7 @@ def test_neither_script_keeps_its_own_copy_of_the_rule():
     and the repository has removed this exact shape before -- resolve_layer had
     three copies and one had already drifted."""
     for name in ("lint.py", "merge.py"):
-        source = (REPO_ROOT / "scripts" / name).read_text(encoding="utf-8")
+        source = (PLUGIN_ROOT / "scripts" / name).read_text(encoding="utf-8")
         body = source.split("def canonical_")[1].split("\n\n\n")[0]
         assert "canonical_control_id" in body, f"{name} does not delegate"
         assert "partition(" not in body, f"{name} still carries its own conversion"
@@ -8165,7 +8166,7 @@ def test_the_style_guide_names_both_ways_a_requirement_can_be_unbuildable():
     not have the thing the requirement is about, and the interface may not be
     ours to change. All three are answered by the profile, and all three were
     ignored by a requirement anyway."""
-    guide = (REPO_ROOT / "skills" / "deriving-security-requirements" / "references" /
+    guide = (PLUGIN_ROOT / "skills" / "deriving-security-requirements" / "references" /
              "requirement-style.md").read_text(encoding="utf-8")
 
     # Inside rule 4, not anywhere in the file. The first version checked the
@@ -8183,7 +8184,7 @@ def test_the_style_guide_names_both_ways_a_requirement_can_be_unbuildable():
         assert phrase in rule_four, f"rule 4 names the fields without the test: {phrase!r}"
     assert "the missing answer is the requirement" in rule_four
 
-    schema = (REPO_ROOT / "skills" / "deriving-security-requirements" / "references" /
+    schema = (PLUGIN_ROOT / "skills" / "deriving-security-requirements" / "references" /
               "profile-schema.md").read_text(encoding="utf-8")
     assert "fixed_interfaces" in schema, "a field the guidance reads has to be asked for"
 
@@ -8281,7 +8282,7 @@ def test_every_count_the_documentation_claims_is_the_count_that_is_there():
     was added, and five deployment models when there are seven. A front page is
     the first thing anyone believes, and nothing was checking it."""
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    catalog = REPO_ROOT / "catalogs" / "nist-800-53r5"
+    catalog = PLUGIN_ROOT / "catalogs" / "nist-800-53r5"
 
     controls = {json.loads(line)["id"] for path in catalog.glob("*.jsonl")
                 for line in path.read_text(encoding="utf-8").splitlines() if line.strip()}
@@ -8292,26 +8293,26 @@ def test_every_count_the_documentation_claims_is_the_count_that_is_there():
         assert name.capitalize() in readme or name.upper() in readme or name in readme, \
             f"the {name} set is not mentioned on the front page"
 
-    csf = REPO_ROOT / "catalogs" / "csf-2.0"
+    csf = PLUGIN_ROOT / "catalogs" / "csf-2.0"
     subs = sum(1 for line in (csf / "subcategories.jsonl").read_text(encoding="utf-8").splitlines()
                if line.strip())
     cats = len(json.loads((csf / "categories.json").read_text(encoding="utf-8")))
     assert f"{subs} subcategories under {cats} categories" in readme
 
-    asvs = REPO_ROOT / "catalogs" / "asvs-5"
+    asvs = PLUGIN_ROOT / "catalogs" / "asvs-5"
     reqs = sum(1 for path in asvs.glob("*.jsonl")
                for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
     assert f"{reqs} requirements across {len(list(asvs.glob('*.jsonl')))} chapters" in readme
 
     import yaml as _yaml
-    layers = _yaml.safe_load((REPO_ROOT / "responsibility" / "layers.yaml").read_text(encoding="utf-8"))
+    layers = _yaml.safe_load((PLUGIN_ROOT / "responsibility" / "layers.yaml").read_text(encoding="utf-8"))
     for count, noun in ((len(layers["deployment_models"]), "deployment models"),
-                        (len([p for p in (REPO_ROOT / "responsibility" / "services")
+                        (len([p for p in (PLUGIN_ROOT / "responsibility" / "services")
                               .glob("aws-*.yaml")]), "AWS services")):
         assert _readme_claims(readme, count, noun), \
             f"the README does not say {count} {noun}; it should, in any of {_spellings(count)}"
 
-    for overlay in sorted((REPO_ROOT / "overlays").iterdir()):
+    for overlay in sorted((PLUGIN_ROOT / "overlays").iterdir()):
         meta_path = overlay / "meta.yaml"
         if not meta_path.exists():
             continue

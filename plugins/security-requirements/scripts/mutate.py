@@ -92,7 +92,8 @@ from pathlib import Path
 
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = PLUGIN_ROOT.parent.parent
 EXEMPTIONS = REPO_ROOT / "evidence" / "mutation-exemptions.yaml"
 
 # Every derivation runs these, and what they decide is what the reader gets.
@@ -177,7 +178,7 @@ def main(argv: list[str] | None = None) -> int:
     names = args.files or GATE_SCRIPTS
     points = [(name, point)
               for name in names
-              for point in mutation_points(REPO_ROOT / "scripts" / name)]
+              for point in mutation_points(PLUGIN_ROOT / "scripts" / name)]
     if args.sample:
         random.seed(args.seed)
         points = random.sample(points, min(args.sample, len(points)))
@@ -195,7 +196,7 @@ def main(argv: list[str] | None = None) -> int:
         # what happens during a working session -- applied old line numbers to
         # new content. A tool that reports where a mutant survived has to be
         # reading the file the line numbers came from.
-        snapshot = {name: (REPO_ROOT / "scripts" / name).read_text(encoding="utf-8")
+        snapshot = {name: (PLUGIN_ROOT / "scripts" / name).read_text(encoding="utf-8")
                     for name in {n for n, _ in points}}
 
         for index, (name, (line, operator)) in enumerate(points, 1):
@@ -211,9 +212,11 @@ def main(argv: list[str] | None = None) -> int:
 
             mutant = f"{name}:{line}:{operator}->{SWAP[operator]}"
             lines[line - 1] = lines[line - 1].replace(before, after, 1)
-            (work / "scripts" / name).write_text("".join(lines), encoding="utf-8")
+            (work / "plugins" / "security-requirements" / "scripts" / name).write_text(
+                "".join(lines), encoding="utf-8")
             lived = run(work)
-            (work / "scripts" / name).write_text(original, encoding="utf-8")
+            (work / "plugins" / "security-requirements" / "scripts" / name).write_text(
+                original, encoding="utf-8")
 
             if lived:
                 survivors.append({"mutant": mutant,

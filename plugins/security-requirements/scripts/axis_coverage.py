@@ -61,9 +61,10 @@ import merge  # noqa: E402
 import select_baseline  # noqa: E402
 from profile_schema import normalise  # noqa: E402
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = PLUGIN_ROOT.parent.parent
 GOLDEN = REPO_ROOT / "golden"
-OVERLAYS = REPO_ROOT / "overlays"
+OVERLAYS = PLUGIN_ROOT / "overlays"
 MANIFEST = REPO_ROOT / "evidence" / "axis-coverage.yaml"
 
 # The origins merge.cross can produce. `threat_only` and `threat_and_baseline`
@@ -74,9 +75,9 @@ ORIGINS = {"baseline_only", "threat_only", "threat_and_baseline", "forced_by_dat
 def universe() -> dict[str, set[str]]:
     """Every value each axis can take, read from the catalogues rather than listed."""
     types_table = yaml.safe_load(
-        (REPO_ROOT / "catalogs" / "data-types" / "classification.yaml").read_text(encoding="utf-8"))
+        (PLUGIN_ROOT / "catalogs" / "data-types" / "classification.yaml").read_text(encoding="utf-8"))
     layers = yaml.safe_load(
-        (REPO_ROOT / "responsibility" / "layers.yaml").read_text(encoding="utf-8"))
+        (PLUGIN_ROOT / "responsibility" / "layers.yaml").read_text(encoding="utf-8"))
     import lint
     return {
         "locale": set(lint.VAGUE),

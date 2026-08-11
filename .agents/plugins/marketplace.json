@@ -1,0 +1,16 @@
+{
+  "plugins": [
+    {
+      "name": "security-requirements",
+      "source": {
+        "source": "local",
+        "path": "./plugins/security-requirements"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
