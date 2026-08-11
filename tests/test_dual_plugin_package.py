@@ -1,0 +1,87 @@
+import json
+import re
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+PLUGIN_ROOT = REPO_ROOT / "plugins" / "security-requirements"
+RUNTIME_DIRECTORIES = ("scripts", "catalogs", "overlays", "responsibility")
+
+
+def read_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_both_marketplaces_resolve_to_the_single_payload():
+    claude = read_json(REPO_ROOT / ".claude-plugin" / "marketplace.json")
+    codex = read_json(REPO_ROOT / ".agents" / "plugins" / "marketplace.json")
+    assert claude["plugins"][0]["source"] == "./plugins/security-requirements"
+    assert codex["plugins"][0]["source"] == {
+        "source": "local",
+        "path": "./plugins/security-requirements",
+    }
+    assert PLUGIN_ROOT.is_dir()
+
+
+def test_payload_has_both_host_manifests_and_one_shared_implementation():
+    claude = read_json(PLUGIN_ROOT / ".claude-plugin" / "plugin.json")
+    codex = read_json(PLUGIN_ROOT / ".codex-plugin" / "plugin.json")
+    assert claude["name"] == codex["name"] == PLUGIN_ROOT.name
+    assert codex["skills"] == "./skills/"
+    for relative in RUNTIME_DIRECTORIES:
+        assert (PLUGIN_ROOT / relative).is_dir()
+        assert not (REPO_ROOT / relative).exists()
+
+
+def test_runtime_payload_uses_no_symlinks_or_duplicate_directories():
+    symlinks = [
+        path.relative_to(PLUGIN_ROOT)
+        for path in PLUGIN_ROOT.rglob("*")
+        if path.is_symlink()
+    ]
+    assert symlinks == []
+
+    for directory in RUNTIME_DIRECTORIES:
+        locations = [
+            path.relative_to(REPO_ROOT)
+            for path in REPO_ROOT.rglob(directory)
+            if path.is_dir()
+        ]
+        assert locations == [Path("plugins") / PLUGIN_ROOT.name / directory]
+
+
+def test_codex_marketplace_declares_installation_policy():
+    marketplace = read_json(REPO_ROOT / ".agents" / "plugins" / "marketplace.json")
+    plugin = marketplace["plugins"][0]
+    assert plugin["name"] == PLUGIN_ROOT.name
+    assert plugin["policy"] == {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL",
+    }
+    assert plugin["category"] == "Developer Tools"
+
+
+def test_codex_manifest_declares_the_required_plugin_interface():
+    claude = read_json(PLUGIN_ROOT / ".claude-plugin" / "plugin.json")
+    codex = read_json(PLUGIN_ROOT / ".codex-plugin" / "plugin.json")
+    for field in ("version", "author", "license", "homepage", "repository", "keywords"):
+        assert codex[field] == claude[field]
+    assert re.fullmatch(r"\d+\.\d+\.\d+", codex["version"])
+    assert codex["interface"] == {
+        "displayName": "Security Requirements",
+        "shortDescription": "Derive verifiable security requirements for a service",
+        "longDescription": (
+            "Build and maintain a tailored security requirements contract from "
+            "architecture or repository evidence, NIST, OWASP ASVS, cloud "
+            "responsibility guidance, threat modeling, and applicable regulatory "
+            "overlays."
+        ),
+        "developerName": "s1ns3nz0",
+        "category": "Developer Tools",
+        "capabilities": ["Interactive", "Read", "Write"],
+        "defaultPrompt": [
+            "Initialize the security requirements profile for this repository.",
+            "Build security requirements from the confirmed profile.",
+            "Refresh security requirements after service changes.",
+        ],
+    }

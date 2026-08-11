@@ -2,7 +2,8 @@ from pathlib import Path
 import re
 
 
-ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
+ROOT = REPO_ROOT / "plugins" / "security-requirements"
 COMMANDS = sorted((ROOT / "commands").glob("*.md"))
 SKILL = ROOT / "skills" / "deriving-security-requirements" / "SKILL.md"
 
@@ -14,8 +15,15 @@ def workflow_text() -> str:
 def test_bundled_scripts_are_rooted_at_plugin_installation():
     text = workflow_text()
     assert not re.search(r"python3\s+scripts/", text)
-    assert '"${CLAUDE_PLUGIN_ROOT}/scripts/select_baseline.py"' in text
-    assert '"${CLAUDE_PLUGIN_ROOT}/scripts/lint.py"' in text
+    assert '"${SECURITY_REQUIREMENTS_ROOT}/scripts/select_baseline.py"' in text
+    assert '"${SECURITY_REQUIREMENTS_ROOT}/scripts/lint.py"' in text
+
+
+def test_claude_commands_initialize_the_neutral_payload_root():
+    assert len(COMMANDS) == 3
+    for command in COMMANDS:
+        text = command.read_text(encoding="utf-8")
+        assert 'SECURITY_REQUIREMENTS_ROOT="${CLAUDE_PLUGIN_ROOT}"' in text
 
 
 def test_bundled_references_are_rooted_at_plugin_installation():
@@ -25,7 +33,7 @@ def test_bundled_references_are_rooted_at_plugin_installation():
         line for line in text.splitlines() if any(name in line for name in names)
     ]
     assert reference_lines
-    assert all("${CLAUDE_PLUGIN_ROOT}/" in line for line in reference_lines)
+    assert all("${SECURITY_REQUIREMENTS_ROOT}/" in line for line in reference_lines)
 
 
 def test_every_bundled_resource_named_by_the_workflow_is_plugin_rooted():
@@ -36,7 +44,10 @@ def test_every_bundled_resource_named_by_the_workflow_is_plugin_rooted():
             if any(prefix in line for prefix in prefixes):
                 if not any(
                     root in line
-                    for root in ("${CLAUDE_PLUGIN_ROOT}/", "${CLAUDE_PLUGIN_DATA}/")
+                    for root in (
+                        "${SECURITY_REQUIREMENTS_ROOT}/",
+                        "${SECURITY_REQUIREMENTS_DATA}/",
+                    )
                 ):
                     offenders.append(f"{path.relative_to(ROOT)}:{number}: {line}")
     assert offenders == []
@@ -64,7 +75,7 @@ def test_repository_scan_loads_the_untrusted_input_policy():
     init = (ROOT / "commands" / "sec-req-init.md").read_text(encoding="utf-8")
     skill = SKILL.read_text(encoding="utf-8")
     expected = (
-        "${CLAUDE_PLUGIN_ROOT}/skills/deriving-security-requirements/"
+        "${SECURITY_REQUIREMENTS_ROOT}/skills/deriving-security-requirements/"
         "references/repository-trust.md"
     )
     assert expected in init
