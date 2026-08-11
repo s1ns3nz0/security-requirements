@@ -73,9 +73,9 @@ It is a copy and deleting it is safe.
 
 Usage
 -----
-    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/mutate.py"                    # the gate scripts
-    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/mutate.py" --file lint.py     # one of them
-    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/mutate.py" --sample 40        # a sample, to gauge the shape
+    python3 -I "<absolute plugin root>/scripts/mutate.py"                    # the gate scripts
+    python3 -I "<absolute plugin root>/scripts/mutate.py" --file lint.py     # one of them
+    python3 -I "<absolute plugin root>/scripts/mutate.py" --sample 40        # a sample, to gauge the shape
 """
 
 from __future__ import annotations
@@ -101,6 +101,7 @@ GATE_SCRIPTS = [
     "lint.py", "select_baseline.py", "apply_overlay.py",
     "merge.py", "classify_resp.py", "render.py",
     "confirmation.py", "semantic_review.py", "runtime_paths.py",
+    "profile_locale.py", "safe_paths.py",
 ]
 
 # One operator for its opposite. Arithmetic and constant mutations are left out:
@@ -154,6 +155,46 @@ def run(work: Path) -> bool:
     return result.returncode == 0
 
 
+def validated_script_name(value: str) -> str:
+    """Return one canonical scripts-relative file name or reject it."""
+    relative = Path(value)
+    if relative.is_absolute() or not relative.parts or any(
+        part in ("", ".", "..") for part in relative.parts
+    ):
+        raise ValueError("--file must be a relative path without traversal")
+    scripts = (PLUGIN_ROOT / "scripts").resolve()
+    candidate = scripts / relative
+    try:
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(scripts)
+    except (OSError, ValueError) as exc:
+        raise ValueError("--file must resolve to a packaged script") from exc
+    current = scripts
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError("--file must not contain symlinks")
+    if not resolved.is_file():
+        raise ValueError("--file must name a packaged script file")
+    return resolved.relative_to(scripts).as_posix()
+
+
+def run_mutant(
+    work: Path,
+    copied_source: Path,
+    mutated: str,
+    original: str,
+    *,
+    runner=run,
+) -> bool:
+    """Run one mutation and restore the copied source even when interrupted."""
+    try:
+        copied_source.write_text(mutated, encoding="utf-8")
+        return runner(work)
+    finally:
+        copied_source.write_text(original, encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -175,7 +216,10 @@ def main(argv: list[str] | None = None) -> int:
         else:
             ap.error(f"--json may not write inside the repository: {args.json}")
 
-    names = args.files or GATE_SCRIPTS
+    try:
+        names = [validated_script_name(name) for name in (args.files or GATE_SCRIPTS)]
+    except ValueError as exc:
+        ap.error(str(exc))
     points = [(name, point)
               for name in names
               for point in mutation_points(PLUGIN_ROOT / "scripts" / name)]
@@ -212,11 +256,12 @@ def main(argv: list[str] | None = None) -> int:
 
             mutant = f"{name}:{line}:{operator}->{SWAP[operator]}"
             lines[line - 1] = lines[line - 1].replace(before, after, 1)
-            (work / "plugins" / "security-requirements" / "scripts" / name).write_text(
-                "".join(lines), encoding="utf-8")
-            lived = run(work)
-            (work / "plugins" / "security-requirements" / "scripts" / name).write_text(
-                original, encoding="utf-8")
+            copied_source = (
+                work / "plugins" / "security-requirements" / "scripts" / name
+            )
+            lived = run_mutant(
+                work, copied_source, "".join(lines), original
+            )
 
             if lived:
                 survivors.append({"mutant": mutant,

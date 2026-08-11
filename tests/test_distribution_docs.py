@@ -26,6 +26,16 @@ def _load_validator():
     return module
 
 
+def _distribution_clone(tmp_path: Path) -> Path:
+    clone = tmp_path / "clone"
+    shutil.copytree(
+        REPO_ROOT,
+        clone,
+        ignore=shutil.ignore_patterns(".git", ".pytest_cache", "__pycache__"),
+    )
+    return clone
+
+
 def test_clean_clone_documentation_covers_claude_and_codex_installation():
     readme = _read(REPO_ROOT / "README.md")
 
@@ -84,6 +94,128 @@ def test_clean_clone_documentation_covers_updates_dependencies_and_state():
     assert "/plugin marketplace add ." not in claude_update
 
 
+def test_documentation_uses_packaged_payload_paths_for_runtime_assets():
+    readme = _read(REPO_ROOT / "README.md")
+    contributing = _read(REPO_ROOT / "CONTRIBUTING.md")
+    design = _read(REPO_ROOT / "DESIGN.md")
+
+    for path in (
+        "scripts/lint.py",
+        "scripts/rebuild_catalogs.py",
+        "scripts/eval_golden.py",
+        "scripts/axis_coverage.py",
+    ):
+        assert f"plugins/{PLUGIN_NAME}/{path}" in readme
+    for stale in (
+        "`scripts/lint.py`",
+        "python3 scripts/rebuild_catalogs.py",
+        "python3 scripts/eval_golden.py",
+        "`scripts/axis_coverage.py`",
+    ):
+        assert stale not in readme
+
+    for path in (
+        "responsibility/services/<provider>-<service>.yaml",
+        "responsibility/layers.yaml",
+        "overlays/SCHEMA.md",
+        "catalogs/data-types/classification.yaml",
+        "scripts/rebuild_catalogs.py",
+        "scripts/lint.py",
+    ):
+        assert f"plugins/{PLUGIN_NAME}/{path}" in contributing
+    for stale in (
+        "`responsibility/services/<provider>-<service>.yaml`",
+        "`responsibility/layers.yaml`",
+        "`overlays/SCHEMA.md`",
+        "`catalogs/data-types/classification.yaml`",
+        "python3 scripts/rebuild_catalogs.py",
+        "python3 scripts/lint.py",
+    ):
+        assert stale not in contributing
+
+    for path in (
+        "catalogs/nist-*",
+        "catalogs/asvs-5/",
+        "overlays/",
+        "catalogs/data-types/classification.yaml",
+        "catalogs/data-types/availability.yaml",
+        "skills/deriving-security-requirements/references/profile-schema.md",
+        "overlays/SCHEMA.md",
+        "scripts/profile_schema.py",
+    ):
+        assert f"plugins/{PLUGIN_NAME}/{path}" in design
+    for stale in (
+        "`catalogs/nist-*`",
+        "`catalogs/asvs-5/`",
+        "`overlays/`",
+        "`catalogs/data-types/classification.yaml`",
+        "`catalogs/data-types/availability.yaml`",
+        "`skills/deriving-security-requirements/references/profile-schema.md`",
+        "`overlays/SCHEMA.md`",
+        "`scripts/profile_schema.py`",
+    ):
+        assert stale not in design
+
+
+def test_design_directory_tree_matches_the_dual_host_payload_layout():
+    design = _read(REPO_ROOT / "DESIGN.md")
+    section = design[design.index("## 4. 디렉토리 구조") :]
+    tree = section[section.index("```") + 3 :]
+    tree = tree[: tree.index("```")]
+
+    for fragment in (
+        ".claude-plugin/\n  marketplace.json",
+        ".agents/\n  plugins/\n    marketplace.json",
+        "plugins/\n  security-requirements/\n    .claude-plugin/\n      plugin.json",
+        "    .codex-plugin/\n      plugin.json",
+        "    commands/",
+        "    skills/",
+        "    scripts/",
+        "    catalogs/",
+        "    responsibility/",
+    ):
+        assert fragment in tree
+
+    for stale_root in (
+        "\ncommands/",
+        "\nskills/",
+        "\ncatalogs/",
+        "\nresponsibility/",
+    ):
+        assert stale_root not in tree
+
+
+def test_gitignore_exposes_only_the_codex_marketplace_under_agent_tooling():
+    expected = ".agents/plugins/marketplace.json"
+    tracked = subprocess.run(
+        ["git", "ls-files", "--", ".agents/plugins"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert tracked.stdout.splitlines() == [expected]
+
+    result = subprocess.run(
+        ["git", "check-ignore", "--no-index", "-q", expected],
+        cwd=REPO_ROOT,
+        check=False,
+    )
+    assert result.returncode == 1, f"{expected} must be unignored"
+
+    for ignored in (
+        ".agents/local-settings.json",
+        ".agents/plugins/other.json",
+        ".agents/plugins/nested/plugin.json",
+    ):
+        result = subprocess.run(
+            ["git", "check-ignore", "--no-index", "-q", ignored],
+            cwd=REPO_ROOT,
+            check=False,
+        )
+        assert result.returncode == 0, f"{ignored} must remain ignored"
+
+
 def test_distribution_validator_accepts_the_repository_and_is_read_only(tmp_path):
     assert VALIDATOR.is_file(), "distribution validator must exist"
     module = _load_validator()
@@ -120,6 +252,10 @@ def test_distribution_validator_accepts_the_repository_and_is_read_only(tmp_path
     (
         "python scripts/lint.py requirements.yaml",
         "python3 scripts/lint.py requirements.yaml",
+        "python3 ./scripts/lint.py requirements.yaml",
+        "python3.12 scripts/lint.py requirements.yaml",
+        "python3.12 -I ./scripts/lint.py requirements.yaml",
+        "/usr/bin/python3.12 -I ./scripts/lint.py requirements.yaml",
         "python -I scripts/lint.py requirements.yaml",
         "python3 -u -B scripts/lint.py requirements.yaml",
         "python3 -X utf8 scripts/lint.py requirements.yaml",
@@ -140,6 +276,308 @@ def test_distribution_validator_rejects_cwd_relative_payload_script_invocations(
         and "skills/stale-example.md:1" in error
         for error in errors
     )
+
+
+def test_distribution_validator_rejects_multiline_cwd_relative_python_invocation(tmp_path):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    stale_example = clone / "plugins" / PLUGIN_NAME / "skills" / "stale-example.md"
+    stale_example.write_text(
+        "python3 \\\n"
+        "  -X utf8 \\\n"
+        "  ./scripts/lint.py requirements.yaml\n",
+        encoding="utf-8",
+    )
+
+    errors = module.validate(clone)
+
+    assert any(
+        "cwd-relative payload script invocation" in error
+        and "skills/stale-example.md:1" in error
+        for error in errors
+    )
+
+
+def test_distribution_validator_inspects_packaged_script_docstrings(tmp_path):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    stale_script = clone / "plugins" / PLUGIN_NAME / "scripts" / "stale_example.py"
+    stale_script.write_text(
+        '"""Example:\npython3 ./scripts/lint.py requirements.yaml\n"""\n',
+        encoding="utf-8",
+    )
+
+    errors = module.validate(clone)
+
+    assert any(
+        "cwd-relative payload script invocation" in error
+        and "scripts/stale_example.py:2" in error
+        for error in errors
+    )
+
+
+@pytest.mark.parametrize(
+    "invocation",
+    (
+        "python3 -I -c 'import yaml; print(yaml.__version__)'",
+        "python3 -Ic 'import yaml; print(yaml.__version__)'",
+        "python3 -I -c 'from pathlib import Path; print(Path.cwd())'",
+        "/usr/bin/python3 -I -c 'import yaml'",
+        "python3 -I - < payload.py",
+    ),
+)
+def test_distribution_validator_rejects_inline_python_in_workflows(tmp_path, invocation):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    workflow = clone / "plugins" / PLUGIN_NAME / "skills" / "stale-example.md"
+    workflow.write_text(f"{invocation}\n", encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any(
+        "inline Python is not allowed in workflow" in error
+        and "skills/stale-example.md:1" in error
+        for error in errors
+    )
+
+
+def test_distribution_validator_requires_isolated_python_for_workflow_scripts(tmp_path):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    workflow = clone / "plugins" / PLUGIN_NAME / "skills" / "stale-example.md"
+    workflow.write_text(
+        'python3 "<absolute plugin root>/scripts/lint.py" requirements.yaml\n',
+        encoding="utf-8",
+    )
+
+    errors = module.validate(clone)
+
+    assert any(
+        "workflow Python invocation must use -I" in error
+        and "skills/stale-example.md:1" in error
+        for error in errors
+    )
+
+
+@pytest.mark.parametrize(
+    "invocation",
+    (
+        "python3 evil.py",
+        "python3 -I /tmp/evil.py",
+        'python3 -I "$PWD/scripts/lint.py" requirements.yaml',
+        'python3 -I "/tmp/plugin/scripts/lint.py" requirements.yaml',
+        'python3 -I "<absolute project root>/scripts/lint.py" requirements.yaml',
+    ),
+)
+def test_distribution_validator_rejects_untrusted_workflow_script_paths(
+    tmp_path, invocation
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    workflow = clone / "plugins" / PLUGIN_NAME / "skills" / "stale-example.md"
+    workflow.write_text(f"{invocation}\n", encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any(
+        "workflow Python script is not rooted in the plugin payload" in error
+        and "skills/stale-example.md:1" in error
+        for error in errors
+    )
+
+
+@pytest.mark.parametrize(
+    "invocation",
+    (
+        'python3 -I "<absolute plugin root>/scripts/lint.py" requirements.yaml',
+        'python3 -I "<exact absolute plugin root>/scripts/lint.py" requirements.yaml',
+        'python3 -I "<absolute plugin root>/scripts/axis_coverage.py" --strict',
+        'python3 -I "<exact absolute plugin root>/scripts/'
+        '<trusted packaged script name.py>" <arguments>',
+        'python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/runtime_paths.py" --project-root "$PWD"',
+        'python3 -I "<derived absolute candidate>/scripts/runtime_paths.py" '
+        '--skill "<selected absolute SKILL.md>"',
+    ),
+)
+def test_distribution_validator_accepts_trusted_isolated_workflow_scripts(
+    tmp_path, invocation
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    workflow = clone / "plugins" / PLUGIN_NAME / "skills" / "trusted-example.md"
+    workflow.write_text(f"{invocation}\n", encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert not any("skills/trusted-example.md" in error for error in errors), errors
+
+
+def test_distribution_validator_parses_trusted_command_substitution(tmp_path):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    workflow = clone / "plugins" / PLUGIN_NAME / "skills" / "trusted-example.md"
+    workflow.write_text(
+        'SECURITY_REQUIREMENTS_ROOT="$(python3 -I '
+        '"<derived absolute candidate>/scripts/runtime_paths.py" '
+        '--skill "<selected absolute SKILL.md>")" || exit\n',
+        encoding="utf-8",
+    )
+
+    errors = module.validate(clone)
+
+    assert not any("skills/trusted-example.md" in error for error in errors), errors
+
+
+def test_distribution_validator_parses_yaml_quoted_python_commands(tmp_path):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    workflow = clone / "plugins" / PLUGIN_NAME / "skills" / "stale-example.yaml"
+    workflow.write_text(
+        "rebuild: 'python3 \"${SECURITY_REQUIREMENTS_ROOT}/scripts/rebuild_overlay_hipaa.py\"'\n",
+        encoding="utf-8",
+    )
+
+    errors = module.validate(clone)
+
+    assert any(
+        "workflow Python invocation must use -I" in error
+        and "skills/stale-example.yaml:1" in error
+        for error in errors
+    ), errors
+
+
+@pytest.mark.parametrize(
+    ("workflow", "outputs"),
+    (
+        ("init", '.security-requirements'),
+        ("build", '.security-requirements docs/security'),
+        ("refresh", '.security-requirements docs/security'),
+    ),
+)
+def test_distribution_validator_requires_safe_output_preflight(
+    tmp_path, workflow, outputs
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    command = (
+        clone
+        / "plugins"
+        / PLUGIN_NAME
+        / "commands"
+        / f"sec-req-{workflow}.md"
+    )
+    command.write_text(
+        'python3 -I "<absolute plugin root>/scripts/lint.py" requirements.yaml\n',
+        encoding="utf-8",
+    )
+
+    errors = module.validate(clone)
+
+    assert (
+        f"missing safe output preflight in commands/sec-req-{workflow}.md: "
+        f"--project-root $PWD --check-output {outputs}"
+    ) in errors
+
+
+def test_distribution_validator_accepts_output_preflight_bound_to_target_cwd(tmp_path):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    command = clone / "plugins" / PLUGIN_NAME / "commands" / "sec-req-build.md"
+    command.write_text(
+        'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
+        '--project-root "$PWD" --check-output .security-requirements docs/security\n',
+        encoding="utf-8",
+    )
+
+    errors = module.validate(clone)
+
+    assert not any(
+        "safe output preflight" in error and "commands/sec-req-build.md" in error
+        for error in errors
+    ), errors
+
+
+def test_distribution_validator_ignores_scoped_safe_path_checks_beside_broad_preflight(
+    tmp_path,
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    command = clone / "plugins" / PLUGIN_NAME / "commands" / "sec-req-build.md"
+    command.write_text(
+        'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
+        '--project-root "$PWD" --check-output .security-requirements docs/security\n'
+        'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
+        '--project-root "$PWD" '
+        '--check-output .security-requirements/requirements.yaml\n'
+        'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
+        '--project-root "<exact absolute data root>" '
+        '--check-output "<exact absolute data root>/confirmation.json"\n',
+        encoding="utf-8",
+    )
+
+    errors = module.validate(clone)
+
+    assert not any(
+        "safe output preflight" in error and "commands/sec-req-build.md" in error
+        for error in errors
+    ), errors
+
+
+@pytest.mark.parametrize(
+    "preflight",
+    (
+        'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
+        '--check-output .security-requirements docs/security',
+        'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
+        '--project-root /tmp --check-output .security-requirements docs/security',
+        'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
+        '--project-root "$PWD" --project-root /tmp '
+        '--check-output .security-requirements docs/security',
+        'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
+        '--project-root "$PWD" '
+        '--check-output .security-requirements docs/security '
+        '--check-output .security-requirements',
+        'python3 -I "$PWD/scripts/safe_paths.py" '
+        '--project-root "$PWD" --check-output .security-requirements docs/security',
+    ),
+)
+def test_distribution_validator_rejects_preflight_not_bound_to_trusted_payload_and_cwd(
+    tmp_path, preflight
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    command = clone / "plugins" / PLUGIN_NAME / "commands" / "sec-req-build.md"
+    command.write_text(f"{preflight}\n", encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any(
+        "safe output preflight" in error and "commands/sec-req-build.md" in error
+        for error in errors
+    ), errors
+
+
+def test_distribution_validator_rejects_an_invalid_preflight_beside_a_valid_one(
+    tmp_path,
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    command = clone / "plugins" / PLUGIN_NAME / "commands" / "sec-req-build.md"
+    command.write_text(
+        'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
+        '--project-root "$PWD" --check-output .security-requirements docs/security\n'
+        'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
+        '--project-root /tmp --check-output .security-requirements docs/security\n',
+        encoding="utf-8",
+    )
+
+    errors = module.validate(clone)
+
+    assert any(
+        "invalid safe output preflight" in error
+        and "commands/sec-req-build.md" in error
+        for error in errors
+    ), errors
 
 
 def test_distribution_validator_reports_all_fixture_errors(tmp_path):

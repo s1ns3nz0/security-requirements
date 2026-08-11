@@ -2,38 +2,59 @@
 description: Derive security requirements from a confirmed profile - threat model, responsibility split, requirement authoring
 ---
 
+## Trusted runtime paths
+
+Treat every shell tool call as a fresh shell, including calls after a gate.
+Capture the exact absolute `${CLAUDE_PLUGIN_ROOT}` value as
+`<exact absolute plugin root>`, then resolve persistent state once:
+
 ```bash
-export SECURITY_REQUIREMENTS_ROOT="${CLAUDE_PLUGIN_ROOT}"
-if [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
-  export SECURITY_REQUIREMENTS_DATA="${CLAUDE_PLUGIN_DATA}"
-fi
-if [ -z "${SECURITY_REQUIREMENTS_DATA:-}" ]; then
-  SECURITY_REQUIREMENTS_DATA="$(
-    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/runtime_paths.py"
-  )" || exit
-  export SECURITY_REQUIREMENTS_DATA
-fi
+SECURITY_REQUIREMENTS_ROOT="${CLAUDE_PLUGIN_ROOT}" \
+python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/runtime_paths.py" --project-root "$PWD"
+```
+
+Capture its exact absolute stdout as
+`<exact absolute data root returned by runtime_paths.py>`. Do not set or
+overwrite the neutral `SECURITY_REQUIREMENTS_DATA` before resolution: the helper
+gives it precedence over `CLAUDE_PLUGIN_DATA`, then uses the external OS
+default. Substitute both exact literals into every block below. Every shell call
+independently prefixes them; never rely on an export from another call. For
+Read, Write, or Edit, pass the exact literal path because those tools do not
+expand shell syntax. Never derive a runtime path from the inspected repository
+or cwd.
+
+Before reading or writing workflow outputs, reject repository-controlled
+symlinked output trees:
+
+```bash
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/safe_paths.py" \
+    --project-root "$PWD" --check-output .security-requirements docs/security
 ```
 
 Requires a confirmed `.security-requirements/profile.yaml`. If it does not
-exist, or the gate was not passed, run `/sec-req-init` first.
+exist, or the gate was not passed, run
+`/security-requirements:sec-req-init` first.
 
 Enforce the persisted gate before doing any work:
 
 ```
-python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/confirmation.py" --check \
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/confirmation.py" --check \
     .security-requirements/profile.yaml
 ```
 
 A missing, incomplete, or stale confirmation is a blocker. Do not infer
 approval from conversation history or trust a confirmation block stored only in
 the repository. `--check` requires its matching plugin-owned record under
-`${SECURITY_REQUIREMENTS_DATA}`.
+`<exact absolute data root returned by runtime_paths.py>`.
 
 ## 1. Threat model
 
 Follow
-`${SECURITY_REQUIREMENTS_ROOT}/skills/deriving-security-requirements/references/threat-modeling.md`.
+`<exact absolute plugin root>/skills/deriving-security-requirements/references/threat-modeling.md`.
 
 Build the DFD first. Threats listed without a structure are recalled, not
 derived, and recalled threats are the ones the baseline already covers.
@@ -45,27 +66,53 @@ service? If yes, it is generic.
 Run the LINDDUN pass when personal data types are declared or a
 `linddun_linkability` flag is set.
 
+Run `safe_paths.py` in a fresh shell call immediately before every direct model
+Write or Edit, then pass the same exact checked path to the write tool. A prior
+check never authorizes a later write. Preflight the threat model now:
+
+```
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/safe_paths.py" \
+    --project-root "$PWD" --check-output .security-requirements/threats.yaml
+```
+
 Write `.security-requirements/threats.yaml`.
 
 ## 2. Responsibility split
 
 ```
-python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/classify_resp.py" \
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/classify_resp.py" \
     .security-requirements/profile.yaml \
     .security-requirements/controls.json \
     --json .security-requirements/responsibility.json
 ```
 
 Read the uncurated service list from the output. Those need model judgement:
-for each, produce a draft mapping and write it to
-`${SECURITY_REQUIREMENTS_DATA}/responsibility/services/<id>.yaml` with
+for each, produce a draft mapping. Immediately before its Write, substitute the
+service id and both captured root literals in this preflight:
+
+```
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/safe_paths.py" \
+    --project-root "<exact absolute data root returned by runtime_paths.py>" \
+    --check-output "<exact absolute data root returned by runtime_paths.py>/responsibility/services/<id>.yaml"
+```
+
+Use Write with the exact literal path returned by the trusted runtime helper:
+`<exact absolute data root returned by runtime_paths.py>/responsibility/services/<id>.yaml`, with
 `reviewed: false`. Plugin data persists across plugin upgrades; the installed
 plugin directory does not. It is shown as unverified wherever it appears.
 
 ## 3. Regulatory overlay, where one applies
 
 ```
-python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/apply_overlay.py" pipa-isms-p \
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/apply_overlay.py" pipa-isms-p \
     .security-requirements/profile.yaml \
     .security-requirements/controls.json \
     --json .security-requirements/overlay.json
@@ -82,7 +129,9 @@ when you carry it into the document.
 ## 4. Cross and prioritise
 
 ```
-python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/merge.py" --cross \
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/merge.py" --cross \
     --controls .security-requirements/controls.json \
     --responsibility .security-requirements/responsibility.json \
     --threats .security-requirements/threats.yaml \
@@ -96,11 +145,21 @@ baseline.
 ## 5. Write the requirements
 
 Follow
-`${SECURITY_REQUIREMENTS_ROOT}/skills/deriving-security-requirements/references/requirement-style.md`.
+`<exact absolute plugin root>/skills/deriving-security-requirements/references/requirement-style.md`.
 Verifiable, atomic, property not
 implementation.
 
-Read `.security-requirements/cross.json` and write one requirement per item into
+Read `.security-requirements/cross.json`. Immediately before authoring the
+draft, preflight its exact target:
+
+```
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/safe_paths.py" \
+    --project-root "$PWD" --check-output .security-requirements/draft.json
+```
+
+Then write one requirement per item into
 `.security-requirements/draft.json`. Every requirement needs a
 populated `verification` block: what to look at, what to expect, and a manual
 fallback. Requirements are grouped under CSF 2.0 functions for the reader and
@@ -112,7 +171,9 @@ where no threat matched them.
 ## 6. Merge and render
 
 ```
-python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/merge.py" --apply \
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/merge.py" --apply \
     --draft .security-requirements/draft.json \
     --existing .security-requirements/requirements.yaml \
     --state .security-requirements/state.yaml
@@ -137,15 +198,26 @@ flag on a Korean document does not produce a weaker check -- it produces
 `locale-mismatch` on every requirement and stops the build, which is how a tool
 built for a Korean regime came to be unable to publish a Korean document.
 
-```
-locale=$(python3 -c "import yaml,sys; print((yaml.safe_load(open(sys.argv[1])) or {}).get('locale','en'))" \
-    .security-requirements/profile.yaml)
+Run this entire fenced block as one shell tool call. The local `locale` value is
+valid only inside that call and must not be reused by a later call.
 
-python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/lint.py" --locale "$locale" \
+```
+locale="$(
+  SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+  SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+  python3 -I "<exact absolute plugin root>/scripts/profile_locale.py" \
+      .security-requirements/profile.yaml
+)" || exit
+
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/lint.py" --locale "$locale" \
     .security-requirements/requirements.yaml \
     --threats .security-requirements/threats.yaml
 
-python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/render.py" \
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/render.py" \
     .security-requirements/requirements.yaml \
     --out docs/security/
 ```
@@ -161,7 +233,9 @@ which controls the tailoring selected. Now that `requirements.yaml` is written,
 run each applicable overlay again with the document and the work list:
 
 ```
-python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/apply_overlay.py" pipa-isms-p \
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/apply_overlay.py" pipa-isms-p \
     .security-requirements/profile.yaml \
     .security-requirements/controls.json \
     --requirements .security-requirements/requirements.yaml \
@@ -171,7 +245,7 @@ python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/apply_overlay.py" pipa-isms-p \
 This adds the funnel, and the funnel is the only part of the report that is
 about the document rather than about the derivation:
 
-```
+```text
 101  assessed criteria
  95  a control in the catalogue expresses it
  94  a selected control addresses it
@@ -185,7 +259,9 @@ as described in the requirement style reference. Before making any semantic
 coverage claim, run:
 
 ```
-python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/semantic_review.py" --check \
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/semantic_review.py" --check \
     .security-requirements/requirements.yaml
 ```
 
@@ -195,7 +271,7 @@ labeled trace-linked rather than semantically reviewed.
 
 Keep the assurance stages distinct:
 
-```
+```text
 selected -> authored -> trace-linked -> semantically reviewed
          -> implemented -> evidenced -> assessed
 ```

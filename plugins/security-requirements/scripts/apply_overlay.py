@@ -14,7 +14,7 @@ launder a fabricated identifier into the deliverable through the side door.
 
 Usage
 -----
-    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/apply_overlay.py" pipa-isms-p PROFILE CONTROLS_JSON [--json OUT]
+    python3 -I "<absolute plugin root>/scripts/apply_overlay.py" pipa-isms-p PROFILE CONTROLS_JSON [--json OUT]
 """
 
 from __future__ import annotations
@@ -27,10 +27,11 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from profile_schema import expand_regions, normalise
+from safe_paths import UnsafePathError, preflight_output_paths, safe_write_text
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 import classify_resp  # noqa: E402
 import semantic_review  # noqa: E402
 OVERLAYS = REPO_ROOT / "overlays"
@@ -681,6 +682,13 @@ def main() -> int:
                          "tells a deferred clause from a gap")
     args = ap.parse_args()
 
+    if args.json:
+        try:
+            preflight_output_paths([args.json])
+        except UnsafePathError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
     profile, _ = normalise(yaml.safe_load(args.profile.read_text(encoding="utf-8")))
     derived = json.loads(args.controls.read_text(encoding="utf-8"))
     controls = derived["controls"]
@@ -709,7 +717,9 @@ def main() -> int:
 
     print(render(result, reason))
     if args.json:
-        args.json.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        safe_write_text(
+            args.json, json.dumps(result, indent=2, ensure_ascii=False) + "\n"
+        )
     return 0
 
 

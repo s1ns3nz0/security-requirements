@@ -12,7 +12,14 @@ import sys
 
 import yaml
 
-from runtime_paths import plugin_data_root
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from runtime_paths import inspected_project_root, plugin_data_root
+from safe_paths import (
+    UnsafePathError,
+    preflight_output_paths,
+    safe_path,
+    safe_write_text,
+)
 
 
 def profile_digest(profile: dict) -> str:
@@ -54,13 +61,9 @@ def validate(profile: dict, trusted_confirmation: dict | None) -> list[str]:
 
 
 def confirmation_state_path(profile_path: Path) -> Path:
-    project_root = (
-        profile_path.parent.parent
-        if profile_path.parent.name == ".security-requirements"
-        else profile_path.parent
-    ).resolve()
+    project_root = inspected_project_root(profile_path)
     key = hashlib.sha256(str(project_root).encode("utf-8")).hexdigest()
-    return plugin_data_root() / "confirmations" / f"{key}.yaml"
+    return plugin_data_root(project_root=project_root) / "confirmations" / f"{key}.yaml"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -71,23 +74,31 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--by", default="user", help="identity recorded for --stamp")
     args = parser.parse_args(argv)
     path = args.check or args.stamp
-    profile = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     try:
+        project_root = inspected_project_root(path)
         state_path = confirmation_state_path(path)
-    except (RuntimeError, ValueError) as exc:
+        state_root = plugin_data_root(project_root=project_root)
+        preflight_output_paths([path], project_root=project_root)
+        safe_path(state_path, project_root=state_root)
+        profile = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, RuntimeError, UnsafePathError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 
     if args.stamp:
         stamp(profile, args.by)
-        path.write_text(
+        safe_write_text(
+            path,
             yaml.safe_dump(profile, allow_unicode=True, sort_keys=False),
             encoding="utf-8",
+            project_root=project_root,
         )
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-        state_path.write_text(
+        safe_write_text(
+            state_path,
             yaml.safe_dump(profile["confirmation"], sort_keys=False),
             encoding="utf-8",
+            project_root=state_root,
+            create_parents=True,
         )
         print(f"confirmed {path} ({profile['confirmation']['profile_digest']})")
         return 0

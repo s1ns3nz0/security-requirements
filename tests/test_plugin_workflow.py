@@ -1,5 +1,8 @@
 from pathlib import Path
+import os
 import re
+import subprocess
+import sys
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -11,31 +14,10 @@ ENTRY_SKILLS = {
     for workflow in ("init", "build", "refresh")
 }
 
-CLAUDE_INITIALIZATION = """export SECURITY_REQUIREMENTS_ROOT="${CLAUDE_PLUGIN_ROOT}"
-if [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
-  export SECURITY_REQUIREMENTS_DATA="${CLAUDE_PLUGIN_DATA}"
-fi"""
-
-STATE_INITIALIZATION = """if [ -z "${SECURITY_REQUIREMENTS_DATA:-}" ]; then
-  SECURITY_REQUIREMENTS_DATA="$(
-    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/runtime_paths.py"
-  )" || exit
-  export SECURITY_REQUIREMENTS_DATA
-fi"""
-
-SHARED_ROOT_INITIALIZATION = """if [ -z "${SECURITY_REQUIREMENTS_ROOT:-}" ]; then
-  SECURITY_REQUIREMENTS_SKILL_PATH="<absolute path of this selected SKILL.md>"
-  SECURITY_REQUIREMENTS_ROOT="$(
-    python3 -c 'from pathlib import Path; import sys; path=Path(sys.argv[1]).expanduser(); path.is_absolute() or sys.exit("selected SKILL.md path must be absolute"); print(path.resolve().parent.parent.parent)' \\
-      "${SECURITY_REQUIREMENTS_SKILL_PATH}"
-  )" || exit
-  export SECURITY_REQUIREMENTS_ROOT
-fi"""
-
-PAYLOAD_VALIDATION = '''test -f "${SECURITY_REQUIREMENTS_ROOT}/scripts/runtime_paths.py" || exit
-test -f "${SECURITY_REQUIREMENTS_ROOT}/scripts/select_baseline.py" || exit
-test -d "${SECURITY_REQUIREMENTS_ROOT}/catalogs" || exit'''
-
+PLUGIN_ROOT_LITERAL = "<exact absolute plugin root>"
+DATA_ROOT_LITERAL = "<exact absolute data root returned by runtime_paths.py>"
+SELECTED_SKILL_LITERAL = "<absolute path of this selected SKILL.md>"
+WORKFLOW_FILES = [*COMMANDS, *ENTRY_SKILLS.values(), SKILL]
 
 def workflow_text() -> str:
     return "\n".join(path.read_text(encoding="utf-8") for path in [*COMMANDS, SKILL])
@@ -49,40 +31,101 @@ def host_workflow_text(workflow: str) -> str:
     )
 
 
-def test_bundled_scripts_are_rooted_at_plugin_installation():
-    text = workflow_text()
-    assert not re.search(r"python3\s+scripts/", text)
-    assert '"${SECURITY_REQUIREMENTS_ROOT}/scripts/select_baseline.py"' in text
-    assert '"${SECURITY_REQUIREMENTS_ROOT}/scripts/lint.py"' in text
+def test_packaged_cli_starts_in_isolated_mode_from_a_hostile_project(tmp_path):
+    project = tmp_path / "inspected project 한글"
+    project.mkdir()
+    marker = project / "shadow-imported"
+    poison = f"open({str(marker)!r}, 'a').write(__name__ + '\\n')\nraise RuntimeError(__name__)\n"
+    for module in ("sitecustomize", "pathlib", "yaml"):
+        (project / f"{module}.py").write_text(poison, encoding="utf-8")
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(project)
+
+    for script in (
+        "runtime_paths.py",
+        "safe_paths.py",
+        "profile_locale.py",
+        "select_baseline.py",
+        "confirmation.py",
+        "classify_resp.py",
+        "apply_overlay.py",
+        "merge.py",
+        "lint.py",
+        "render.py",
+        "semantic_review.py",
+    ):
+        result = subprocess.run(
+            [sys.executable, "-I", str(ROOT / "scripts" / script), "--help"],
+            cwd=project,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, f"{script}: {result.stderr}"
+    assert not marker.exists(), marker.read_text(encoding="utf-8") if marker.exists() else ""
 
 
-def test_claude_commands_initialize_the_neutral_payload_root():
+def test_every_workflow_python_invocation_is_isolated_and_packaged():
+    for path in WORKFLOW_FILES:
+        text = path.read_text(encoding="utf-8")
+        assert "python3 -c" not in text, path
+        for match in re.finditer(r"\bpython3\b", text):
+            invocation = text[match.start() :]
+            assert invocation.startswith("python3 -I "), (
+                f"{path.relative_to(ROOT)} has a non-isolated Python call: "
+                f"{invocation.splitlines()[0]}"
+            )
+            first_line = invocation.splitlines()[0]
+            assert "/scripts/" in first_line, (
+                f"{path.relative_to(ROOT)} does not invoke a packaged script: {first_line}"
+            )
+
+
+def test_claude_commands_capture_trusted_literals_without_exporting_state():
     assert len(COMMANDS) == 3
     for command in COMMANDS:
         text = command.read_text(encoding="utf-8")
-        assert CLAUDE_INITIALIZATION in text
-        assert text.index(CLAUDE_INITIALIZATION) < text.index(
-            "${SECURITY_REQUIREMENTS_ROOT}/"
-        )
+        assert "${CLAUDE_PLUGIN_ROOT}" in text
+        assert PLUGIN_ROOT_LITERAL in text
+        assert DATA_ROOT_LITERAL in text
+        assert "export SECURITY_REQUIREMENTS_" not in text
+        assert "neutral `SECURITY_REQUIREMENTS_DATA`" in text
+        assert "fresh shell" in text
 
 
-def test_claude_commands_bind_external_state_with_the_runtime_helper():
+def test_each_claude_operation_binds_both_exact_roots_in_its_own_call():
     for command in COMMANDS:
         text = command.read_text(encoding="utf-8")
-        assert f"{CLAUDE_INITIALIZATION}\n{STATE_INITIALIZATION}" in text
+        fences = re.findall(
+            r"^```([^\n]*)\n(.*?)^```$",
+            text,
+            flags=re.DOTALL | re.MULTILINE,
+        )
+        operation_blocks = [
+            block
+            for language, block in fences
+            if language in ("", "bash")
+            if not (
+                "/scripts/runtime_paths.py" in block
+                and "${CLAUDE_PLUGIN_ROOT}" in block
+            )
+        ]
+        assert operation_blocks, command
+        for block in operation_blocks:
+            assert f'SECURITY_REQUIREMENTS_ROOT="{PLUGIN_ROOT_LITERAL}"' in block
+            assert f'SECURITY_REQUIREMENTS_DATA="{DATA_ROOT_LITERAL}"' in block
 
 
-def test_shared_skill_bootstraps_payload_and_state_before_resource_use():
+def test_shared_skill_derives_its_own_root_and_rejects_ambient_mismatch():
     text = SKILL.read_text(encoding="utf-8")
-    assert SHARED_ROOT_INITIALIZATION in text
-    assert PAYLOAD_VALIDATION in text
-    assert STATE_INITIALIZATION in text
-    bootstrap_position = text.index(SHARED_ROOT_INITIALIZATION)
-    workflow_position = text.index(
-        "${SECURITY_REQUIREMENTS_ROOT}/skills/deriving-security-requirements/"
-        "references/repository-trust.md"
-    )
-    assert bootstrap_position < workflow_position
+    assert f'--skill "{SELECTED_SKILL_LITERAL}"' in text
+    assert "ambient `SECURITY_REQUIREMENTS_ROOT`" in text
+    assert "mismatch" in text
+    assert "if [ -z \"${SECURITY_REQUIREMENTS_ROOT:-}\" ]" not in text
+    assert re.search(r"derive (?:the root|it) again in that same shell call", text)
+    assert PLUGIN_ROOT_LITERAL in text
+    assert DATA_ROOT_LITERAL in text
     assert "CLAUDE_PLUGIN_ROOT" not in text
     assert "CLAUDE_PLUGIN_DATA" not in text
 
@@ -94,7 +137,7 @@ def test_bundled_references_are_rooted_at_plugin_installation():
         line for line in text.splitlines() if any(name in line for name in names)
     ]
     assert reference_lines
-    assert all("${SECURITY_REQUIREMENTS_ROOT}/" in line for line in reference_lines)
+    assert all(f"{PLUGIN_ROOT_LITERAL}/" in line for line in reference_lines)
 
 
 def test_every_bundled_resource_named_by_the_workflow_is_plugin_rooted():
@@ -106,12 +149,76 @@ def test_every_bundled_resource_named_by_the_workflow_is_plugin_rooted():
                 if not any(
                     root in line
                     for root in (
-                        "${SECURITY_REQUIREMENTS_ROOT}/",
-                        "${SECURITY_REQUIREMENTS_DATA}/",
+                        f"{PLUGIN_ROOT_LITERAL}/",
+                        f"{DATA_ROOT_LITERAL}/",
+                        "${CLAUDE_PLUGIN_ROOT}/",
                     )
                 ):
                     offenders.append(f"{path.relative_to(ROOT)}:{number}: {line}")
     assert offenders == []
+
+
+def test_non_shell_resource_calls_use_literals_not_shell_expansion():
+    text = "\n".join(path.read_text(encoding="utf-8") for path in WORKFLOW_FILES)
+    assert "${SECURITY_REQUIREMENTS_ROOT}/" not in text
+    assert "${SECURITY_REQUIREMENTS_DATA}/" not in text
+    assert "pass the exact literal path" in text
+
+
+def test_direct_model_writes_are_preflighted_with_safe_paths():
+    init = (ROOT / "commands" / "sec-req-init.md").read_text(encoding="utf-8")
+    build = (ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
+    refresh = (ROOT / "commands" / "sec-req-refresh.md").read_text(encoding="utf-8")
+
+    assert init.count("/scripts/safe_paths.py") >= 2
+    assert build.count("/scripts/safe_paths.py") >= 3
+    assert refresh.count("/scripts/safe_paths.py") >= 3
+    for text in (init, build, refresh):
+        assert re.search(
+            r"immediately before every direct model\s+Write or Edit",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+    match = re.search(
+        r"If the user\s+adjusts(.*?)After the user explicitly confirms",
+        init,
+        flags=re.DOTALL,
+    )
+    assert match
+    adjustment = match.group(1)
+    assert "/scripts/safe_paths.py" in adjustment
+    assert "--check-output .security-requirements/profile.yaml" in adjustment
+    assert adjustment.index("/scripts/safe_paths.py") < adjustment.index(
+        "Edit `.security-requirements/profile.yaml`"
+    )
+
+
+def test_codex_adapter_skips_only_claude_capture_not_the_broad_preflight():
+    for path in ENTRY_SKILLS.values():
+        text = " ".join(path.read_text(encoding="utf-8").split())
+        assert "skip only the Claude-specific path-capture block" in text
+        assert "execute the initial broad `safe_paths.py` preflight" in text
+
+
+def test_shared_output_layout_is_an_explicit_text_fence():
+    text = SKILL.read_text(encoding="utf-8")
+    assert "```text\n.security-requirements/" in text
+
+
+def test_generated_mapping_uses_the_exact_trusted_data_root():
+    build = (ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
+    mapping = f"{DATA_ROOT_LITERAL}/responsibility/services/<id>.yaml"
+    assert mapping in build
+    assert "exact literal path returned by the trusted runtime helper" in build
+    assert build.index("/scripts/safe_paths.py") < build.index(mapping)
+
+
+def test_claude_cross_workflow_references_are_namespaced():
+    text = "\n".join(path.read_text(encoding="utf-8") for path in COMMANDS)
+    assert "/security-requirements:sec-req-init" in text
+    assert "/security-requirements:sec-req-build" in text
+    assert not re.search(r"(?<!:)\/sec-req-(?:init|build|refresh)\b", text)
 
 
 def test_repository_scan_loads_the_untrusted_input_policy():
@@ -136,7 +243,7 @@ def test_repository_scan_loads_the_untrusted_input_policy():
     init = (ROOT / "commands" / "sec-req-init.md").read_text(encoding="utf-8")
     skill = SKILL.read_text(encoding="utf-8")
     expected = (
-        "${SECURITY_REQUIREMENTS_ROOT}/skills/deriving-security-requirements/"
+        f"{PLUGIN_ROOT_LITERAL}/skills/deriving-security-requirements/"
         "references/repository-trust.md"
     )
     assert expected in init
@@ -156,7 +263,7 @@ def test_profile_confirmation_is_persisted_and_enforced():
 
     write_position = init.index("Write `.security-requirements/profile.yaml`")
     derive_position = init.index(
-        'python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/select_baseline.py"'
+        f'python3 -I "{PLUGIN_ROOT_LITERAL}/scripts/select_baseline.py"'
     )
     assert write_position < derive_position
     assert '/scripts/confirmation.py" --stamp' in init
@@ -167,7 +274,7 @@ def test_profile_confirmation_is_persisted_and_enforced():
 def test_refresh_rebuilds_and_republishes_the_complete_pipeline():
     refresh = host_workflow_text("refresh")
     ordered = (
-        'python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/select_baseline.py"',
+        f'python3 -I "{PLUGIN_ROOT_LITERAL}/scripts/select_baseline.py"',
         '/scripts/classify_resp.py"',
         '/scripts/merge.py" --cross',
         '/scripts/merge.py" --apply',
@@ -183,7 +290,7 @@ def test_refresh_rebuilds_and_republishes_the_complete_pipeline():
     assert '/scripts/confirmation.py" --stamp' in refresh
     assert '/scripts/confirmation.py" --check' in refresh
     assert refresh.index(
-        'python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/select_baseline.py"'
+        f'python3 -I "{PLUGIN_ROOT_LITERAL}/scripts/select_baseline.py"'
     ) < refresh.index(
         '/scripts/confirmation.py" --stamp'
     )

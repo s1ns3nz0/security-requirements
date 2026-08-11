@@ -8,8 +8,8 @@ These are the checks that need a view across overlays and against the baselines.
 
 Usage
 -----
-    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/validate_overlays.py"
-    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/validate_overlays.py" --strict   # advisories fail too
+    python3 -I "<absolute plugin root>/scripts/validate_overlays.py"
+    python3 -I "<absolute plugin root>/scripts/validate_overlays.py" --strict   # advisories fail too
 """
 
 from __future__ import annotations

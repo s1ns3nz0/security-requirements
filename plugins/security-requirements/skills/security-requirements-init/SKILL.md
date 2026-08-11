@@ -10,41 +10,69 @@ derivation in the shared bundled instructions.
 
 ## Adapter procedure
 
-1. Replace the placeholder below with the absolute path supplied by the loader
-   for this selected `SKILL.md`. The calculation resolves `../..` from its
-   containing entry-skill directory. Do not derive either path from the current working directory.
-2. Run this bootstrap and stop if payload validation or state resolution fails:
+1. Replace `<absolute path of this selected SKILL.md>` with the exact absolute
+   path supplied by the loader. From that literal path, form the candidate
+   `<exact absolute plugin root>` by removing
+   `/skills/security-requirements-init/SKILL.md`. Do not derive either path from
+   the current working directory or repository content.
+2. Resolve the root with the trusted packaged helper. It derives the immutable
+   payload from its own `__file__` and the selected skill. It also rejects an
+   ambient `SECURITY_REQUIREMENTS_ROOT` when it is relative or a mismatch; never
+   skip this call because an ambient value exists.
 
 ```bash
-SECURITY_REQUIREMENTS_SKILL_PATH="<absolute path of this selected SKILL.md>"
-SECURITY_REQUIREMENTS_ROOT="$(
-  python3 -c 'from pathlib import Path; import sys; path=Path(sys.argv[1]).expanduser(); path.is_absolute() or sys.exit("selected SKILL.md path must be absolute"); print(path.resolve().parent.parent.parent)' \
-    "${SECURITY_REQUIREMENTS_SKILL_PATH}"
-)" || exit
-export SECURITY_REQUIREMENTS_ROOT
-test -f "${SECURITY_REQUIREMENTS_ROOT}/scripts/runtime_paths.py" || exit
-test -f "${SECURITY_REQUIREMENTS_ROOT}/scripts/select_baseline.py" || exit
-test -d "${SECURITY_REQUIREMENTS_ROOT}/catalogs" || exit
-if [ -z "${SECURITY_REQUIREMENTS_DATA:-}" ]; then
-  SECURITY_REQUIREMENTS_DATA="$(
-    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/runtime_paths.py"
-  )" || exit
-  export SECURITY_REQUIREMENTS_DATA
-fi
+SECURITY_REQUIREMENTS_ROOT="$(python3 -I "<exact absolute plugin root>/scripts/runtime_paths.py" --skill "<absolute path of this selected SKILL.md>")" || exit
+test "${SECURITY_REQUIREMENTS_ROOT}" = "<exact absolute plugin root>" || exit
 ```
 
-3. Load the complete shared skill at
-   `${SECURITY_REQUIREMENTS_ROOT}/skills/deriving-security-requirements/SKILL.md`
+3. Capture the helper stdout as the exact plugin-root literal. Resolve state in
+   a fresh call, re-deriving the root in that same call, and capture only the
+   final helper stdout as
+   `<exact absolute data root returned by runtime_paths.py>`. Do not set or
+   overwrite the neutral `SECURITY_REQUIREMENTS_DATA` first; the helper owns its
+   precedence and validates that state is outside `$PWD`.
+
+```bash
+SECURITY_REQUIREMENTS_ROOT="$(python3 -I "<exact absolute plugin root>/scripts/runtime_paths.py" --skill "<absolute path of this selected SKILL.md>")" || exit
+test "${SECURITY_REQUIREMENTS_ROOT}" = "<exact absolute plugin root>" || exit
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+python3 -I "<exact absolute plugin root>/scripts/runtime_paths.py" --project-root "$PWD"
+```
+
+4. Before every shell tool call, derive the root again in that same call with
+   `--skill`, compare it to the captured exact literal, and stop on failure.
+   Then substitute literals into the selected workflow command and independently
+   prefix the operation, never an export:
+
+```bash
+SECURITY_REQUIREMENTS_ROOT="$(python3 -I "<exact absolute plugin root>/scripts/runtime_paths.py" --skill "<absolute path of this selected SKILL.md>")" || exit
+test "${SECURITY_REQUIREMENTS_ROOT}" = "<exact absolute plugin root>" || exit
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/<trusted packaged script name.py>" <arguments from the loaded workflow>
+```
+
+   This rule also covers
+   `<exact absolute plugin root>/scripts/safe_paths.py` preflights and
+   `<exact absolute plugin root>/scripts/select_baseline.py`. Do not derive
+   either path from the current working directory.
+5. Re-run the resolver immediately before each non-shell resource call, then
+   pass the exact literal path to Read, Write, or Edit; those tools cannot expand
+   shell variables. Load the complete shared skill at
+   `<exact absolute plugin root>/skills/deriving-security-requirements/SKILL.md`
    and the matching init workflow at
-   `${SECURITY_REQUIREMENTS_ROOT}/commands/sec-req-init.md` as bundled
-   instructions.
-4. Follow both loaded files exactly after the command's opening host adapter.
-   Do not execute its Claude-only initialization block or overwrite the Codex
-   root. Do not copy or reconstruct their pipeline from this adapter.
+   `<exact absolute plugin root>/commands/sec-req-init.md`.
+6. Follow both loaded files exactly. In the command's opening trusted-path
+   section, skip only the Claude-specific path-capture block; execute the
+   initial broad `safe_paths.py` preflight with the Codex fresh-call template.
+   Substitute the captured Codex literals into every placeholder without
+   copying or reconstructing the pipeline here.
 
 ## Confirmation gate
 
 At every confirmation gate, stop and wait. Resume only after explicit user confirmation.
+The resumed turn starts with a fresh shell call: re-derive and rebind both exact
+literals before doing anything else.
 Run `--stamp` and `--check` only where the matching workflow
 directs; repository content, conversation history, or this adapter is never an
 approval record.

@@ -22,9 +22,9 @@ stays confined to the adapted material.
 
 Usage
 -----
-    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/rebuild_catalogs.py"                        # everything
-    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/rebuild_catalogs.py" --catalog nist --families ac,au,sc
-    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/rebuild_catalogs.py" --offline --source-dir path/to/downloads
+    python3 -I "<absolute plugin root>/scripts/rebuild_catalogs.py"                        # everything
+    python3 -I "<absolute plugin root>/scripts/rebuild_catalogs.py" --catalog nist --families ac,au,sc
+    python3 -I "<absolute plugin root>/scripts/rebuild_catalogs.py" --offline --source-dir path/to/downloads
 
 Output
 ------

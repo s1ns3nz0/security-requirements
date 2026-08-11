@@ -14,25 +14,9 @@ CODEX_ENTRY_SKILLS = {
     / "SKILL.md"
     for workflow in ("init", "build", "refresh")
 }
-
-CODEX_ROOT_INITIALIZATION = '''SECURITY_REQUIREMENTS_SKILL_PATH="<absolute path of this selected SKILL.md>"
-SECURITY_REQUIREMENTS_ROOT="$(
-  python3 -c 'from pathlib import Path; import sys; path=Path(sys.argv[1]).expanduser(); path.is_absolute() or sys.exit("selected SKILL.md path must be absolute"); print(path.resolve().parent.parent.parent)' \\
-    "${SECURITY_REQUIREMENTS_SKILL_PATH}"
-)" || exit
-export SECURITY_REQUIREMENTS_ROOT'''
-
-STATE_INITIALIZATION = """if [ -z "${SECURITY_REQUIREMENTS_DATA:-}" ]; then
-  SECURITY_REQUIREMENTS_DATA="$(
-    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/runtime_paths.py"
-  )" || exit
-  export SECURITY_REQUIREMENTS_DATA
-fi"""
-
-PAYLOAD_VALIDATION = '''test -f "${SECURITY_REQUIREMENTS_ROOT}/scripts/runtime_paths.py" || exit
-test -f "${SECURITY_REQUIREMENTS_ROOT}/scripts/select_baseline.py" || exit
-test -d "${SECURITY_REQUIREMENTS_ROOT}/catalogs" || exit'''
-
+PLUGIN_ROOT_LITERAL = "<exact absolute plugin root>"
+DATA_ROOT_LITERAL = "<exact absolute data root returned by runtime_paths.py>"
+SELECTED_SKILL_LITERAL = "<absolute path of this selected SKILL.md>"
 
 def read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -102,11 +86,11 @@ def test_codex_entry_skills_delegate_to_the_shared_workflows():
         assert f"name: {expected_name}" in text
         assert re.search(r"(?m)^description: Use when .+", text)
         assert (
-            "${SECURITY_REQUIREMENTS_ROOT}/skills/"
+            f"{PLUGIN_ROOT_LITERAL}/skills/"
             "deriving-security-requirements/SKILL.md"
         ) in text
         assert (
-            f"${{SECURITY_REQUIREMENTS_ROOT}}/commands/sec-req-{workflow}.md"
+            f"{PLUGIN_ROOT_LITERAL}/commands/sec-req-{workflow}.md"
         ) in text
 
     assert names == [
@@ -115,13 +99,20 @@ def test_codex_entry_skills_delegate_to_the_shared_workflows():
     assert len(names) == len(set(names))
 
 
-def test_codex_entry_skills_execute_payload_and_state_resolution():
+def test_codex_entry_skills_resolve_from_the_selected_skill_for_every_call():
     for path in CODEX_ENTRY_SKILLS.values():
         text = path.read_text(encoding="utf-8")
-        assert CODEX_ROOT_INITIALIZATION in text
-        assert PAYLOAD_VALIDATION in text
-        assert STATE_INITIALIZATION in text
-        assert "Do not derive either path from the current working directory" in text
+        assert f'--skill "{SELECTED_SKILL_LITERAL}"' in text
+        assert "python3 -c" not in text
+        assert "export SECURITY_REQUIREMENTS_" not in text
+        assert "Before every shell tool call" in text
+        assert "derive the root again in that same call" in text
+        assert "ambient `SECURITY_REQUIREMENTS_ROOT`" in text
+        assert "mismatch" in text
+        assert PLUGIN_ROOT_LITERAL in text
+        assert DATA_ROOT_LITERAL in text
+        normalized = " ".join(text.split())
+        assert "Do not derive either path from the current working directory" in normalized
 
 
 def test_codex_entry_skills_preserve_confirmation_and_do_not_copy_pipeline():
@@ -131,15 +122,13 @@ def test_codex_entry_skills_preserve_confirmation_and_do_not_copy_pipeline():
         assert "explicit user confirmation" in text
         assert "--stamp" in text
         assert "--check" in text
-        assert "Do not execute its Claude-only initialization block" in text
-        script_references = re.findall(
-            r"\$\{SECURITY_REQUIREMENTS_ROOT\}/scripts/([a-z_]+\.py)", text
-        )
-        assert script_references == [
-            "runtime_paths.py",
-            "select_baseline.py",
-            "runtime_paths.py",
-        ]
+        assert "skip only the Claude-specific path-capture block" in text
+        assert "fresh shell call" in text
+        assert "pass the exact literal path" in text
+        assert text.count("/scripts/runtime_paths.py") >= 2
+        assert "/scripts/select_baseline.py" in text
+        assert "/scripts/safe_paths.py" in text
+        assert "/scripts/classify_resp.py" not in text
 
 
 def test_payload_excludes_mcp_app_and_hook_components():

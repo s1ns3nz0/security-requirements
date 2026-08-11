@@ -13,6 +13,8 @@ from __future__ import annotations
 import copy
 import re
 import json
+import os
+import shlex
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -1989,6 +1991,64 @@ def test_generated_service_curation_rejects_relative_plugin_data_root(
     assert not (project / "plugin-data").exists()
 
 
+def test_generated_service_curation_rejects_state_inside_inspected_project(
+    profile, tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(project / "plugin-data"))
+    candidate = copy.deepcopy(profile)
+    candidate["inferred"]["managed_services"] = [{"id": "newcloud-db"}]
+
+    with pytest.raises(ValueError, match="must be outside the inspected project"):
+        classify_resp.load_services(
+            candidate, "aws", ["aws"], project_root=project
+        )
+
+    assert not (project / "plugin-data").exists()
+
+
+def test_generated_service_cli_rejects_project_contained_state_without_traceback(
+    profile, tmp_path
+):
+    project = tmp_path / "project"
+    state_dir = project / ".security-requirements"
+    state_dir.mkdir(parents=True)
+    candidate = copy.deepcopy(profile)
+    candidate["inferred"]["managed_services"] = [{"id": "newcloud-db"}]
+    profile_path = state_dir / "profile.yaml"
+    controls_path = state_dir / "controls.json"
+    output_path = state_dir / "responsibility.json"
+    profile_path.write_text(yaml.safe_dump(candidate), encoding="utf-8")
+    controls_path.write_text('{"controls": []}\n', encoding="utf-8")
+    env = os.environ.copy()
+    env["SECURITY_REQUIREMENTS_DATA"] = str(project / "plugin-data")
+    env.pop("CLAUDE_PLUGIN_DATA", None)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "classify_resp.py"),
+            str(profile_path),
+            str(controls_path),
+            "--json",
+            str(output_path),
+        ],
+        cwd=project,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "must be outside the inspected project" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert result.stdout == ""
+    assert not output_path.exists()
+
+
 @pytest.mark.parametrize("service_id", ["../outside", "nested/service", "/absolute"])
 def test_managed_service_identifier_cannot_escape_curation_directory(
     profile, service_id
@@ -2012,8 +2072,34 @@ def test_generated_service_symlink_cannot_escape_plugin_data(
     candidate = copy.deepcopy(profile)
     candidate["inferred"]["managed_services"] = [{"id": "escaped"}]
 
-    with pytest.raises(ValueError, match="escapes service curation directory"):
+    with pytest.raises(ValueError, match="symlink|escapes service curation directory"):
         classify_resp.load_services(candidate, "aws", ["aws"])
+
+
+def test_generated_service_ancestor_symlink_cannot_redirect_into_project(
+    profile, tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    project_services = project / ".security-requirements" / "services"
+    project_services.mkdir(parents=True)
+    (project_services / "evil.yaml").write_text(
+        yaml.safe_dump({"provider": "aws", "reviewed": True, "controls": {}}),
+        encoding="utf-8",
+    )
+    state_root = tmp_path / "external-state"
+    responsibility = state_root / "responsibility"
+    responsibility.mkdir(parents=True)
+    (responsibility / "services").symlink_to(
+        project_services, target_is_directory=True
+    )
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(state_root))
+    candidate = copy.deepcopy(profile)
+    candidate["inferred"]["managed_services"] = [{"id": "evil"}]
+
+    with pytest.raises(ValueError, match="symlink"):
+        classify_resp.load_services(
+            candidate, "aws", ["aws"], project_root=project
+        )
 
 
 def test_gke_network_policy_is_the_team_s(profile):
@@ -2324,11 +2410,87 @@ def test_select_baseline_runs_from_the_command_line(cli_workspace):
     assert "Impact derivation" in r.stdout
 
 
+@pytest.mark.parametrize("symlink_kind", ["ancestor", "target", "broken-target"])
+def test_select_baseline_refuses_project_output_symlinks(
+    profile, tmp_path, symlink_kind
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    state = project / ".security-requirements"
+    if symlink_kind == "ancestor":
+        state.symlink_to(outside, target_is_directory=True)
+        profile_path = outside / "profile.yaml"
+        output = state / "controls.json"
+        victim = outside / "controls.json"
+    else:
+        state.mkdir()
+        profile_path = state / "profile.yaml"
+        victim = outside / "victim.json"
+        if symlink_kind == "target":
+            victim.write_text("keep me\n", encoding="utf-8")
+        output = state / "controls.json"
+        output.symlink_to(victim)
+    profile_path.write_text(yaml.safe_dump(profile), encoding="utf-8")
+    before = victim.read_bytes() if victim.exists() else None
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "select_baseline.py"),
+            str(state / "profile.yaml"),
+            "--json",
+            str(output),
+        ],
+        cwd=project,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "symlink" in result.stderr
+    assert (victim.read_bytes() if victim.exists() else None) == before
+
+
 def test_classify_resp_runs_from_the_command_line(cli_workspace):
     work, profile_path, controls_path = cli_workspace
     r = _run_cli("classify_resp.py", str(profile_path), str(controls_path))
     assert r.returncode == 0, r.stdout + r.stderr
     assert "team implements" in r.stdout
+
+
+@pytest.mark.parametrize("script", ["classify_resp.py", "apply_overlay.py"])
+def test_pipeline_json_outputs_refuse_direct_symlinks(
+    cli_workspace, tmp_path, script
+):
+    work, profile_path, controls_path = cli_workspace
+    output_dir = tmp_path / "project" / ".security-requirements"
+    output_dir.mkdir(parents=True)
+    victim = tmp_path / f"{script}.victim"
+    victim.write_text("keep me\n", encoding="utf-8")
+    output = output_dir / "result.json"
+    output.symlink_to(victim)
+    before = victim.read_bytes()
+    if script == "classify_resp.py":
+        args = (str(profile_path), str(controls_path), "--json", str(output))
+    else:
+        args = (
+            "pipa-isms-p",
+            str(profile_path),
+            str(controls_path),
+            "--force",
+            "--json",
+            str(output),
+        )
+
+    result = _run_cli(script, *args)
+
+    assert result.returncode == 2
+    assert "symlink" in result.stderr
+    assert victim.read_bytes() == before
 
 
 @pytest.mark.parametrize("overlay_id", ALL_OVERLAYS)
@@ -3130,7 +3292,12 @@ def test_one_line_per_overlay_not_per_trigger():
     assert {t["id"] for t in gdpr["triggers"]} == {"gdpr_personal_data", "gdpr_special_category"}
 
     rendered = sb.render_gate(result)
-    assert rendered.count("scripts/apply_overlay.py gdpr") == 1
+    command = (
+        f"{shlex.quote(str(Path(sys.executable).resolve()))} -I "
+        f"{shlex.quote(str((PLUGIN_ROOT / 'scripts' / 'apply_overlay.py').resolve()))} gdpr"
+    )
+    assert rendered.count(command) == 1
+    assert "scripts/apply_overlay.py gdpr" in command
     assert "also reached by" in rendered
 
 
@@ -4424,6 +4591,38 @@ def test_a_second_refresh_with_no_change_moves_nothing(tmp_path):
     assert "retired        0" in second.stdout
 
 
+def test_merge_preflights_existing_and_state_before_either_write(tmp_path):
+    work = tmp_path / "project" / ".security-requirements"
+    work.mkdir(parents=True)
+    _refresh_workspace(work)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    victim = outside / "state.yaml"
+    victim.write_text("issued: {}\n", encoding="utf-8")
+    state = work / "state.yaml"
+    state.unlink()
+    state.symlink_to(victim)
+    existing = work / "requirements.yaml"
+    before_existing = existing.read_bytes()
+    before_state = victim.read_bytes()
+
+    result = _run_cli(
+        "merge.py",
+        "--apply",
+        "--draft",
+        str(work / "draft.json"),
+        "--existing",
+        str(existing),
+        "--state",
+        str(state),
+    )
+
+    assert result.returncode == 2
+    assert "symlink" in result.stderr
+    assert existing.read_bytes() == before_existing
+    assert victim.read_bytes() == before_state
+
+
 @pytest.mark.parametrize("broken,expected", [
     ("issued:\n  PKI-SIGNING-KEY: 1\n", "is not an identifier"),
     ("issued: [a, b]\n", "is a list"),
@@ -5666,6 +5865,105 @@ def test_the_command_that_writes_the_deliverable_writes_only_what_may_be_publish
     assert "REQ-DATA-REST-01" in published
     for name in written:
         assert (out / name).read_text(encoding="utf-8").endswith("\n")
+
+
+def test_render_preflights_every_document_before_publishing_any(tmp_path):
+    project = tmp_path / "project"
+    source_dir = project / ".security-requirements"
+    out = project / "docs" / "security"
+    source_dir.mkdir(parents=True)
+    out.mkdir(parents=True)
+    source = source_dir / "requirements.yaml"
+    source.write_text(
+        yaml.safe_dump({"requirements": [_req("REQ-DATA-REST-01")]}),
+        encoding="utf-8",
+    )
+    victim = tmp_path / "outside.md"
+    victim.write_text("keep me\n", encoding="utf-8")
+    (out / "responsibility.md").symlink_to(victim)
+    before = victim.read_bytes()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "render.py"),
+            str(source),
+            "--out",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=project,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "symlink" in result.stderr
+    assert not (out / "requirements.md").exists()
+    assert not (out / "traceability.md").exists()
+    assert victim.read_bytes() == before
+
+
+def test_render_refuses_a_docs_security_ancestor_symlink(tmp_path):
+    project = tmp_path / "project"
+    source_dir = project / ".security-requirements"
+    docs = project / "docs"
+    outside = tmp_path / "outside"
+    source_dir.mkdir(parents=True)
+    docs.mkdir()
+    outside.mkdir()
+    (docs / "security").symlink_to(outside, target_is_directory=True)
+    source = source_dir / "requirements.yaml"
+    source.write_text(
+        yaml.safe_dump({"requirements": [_req("REQ-DATA-REST-01")]}),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "render.py"),
+            str(source),
+            "--out",
+            str(docs / "security"),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=project,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "symlink" in result.stderr
+    assert list(outside.iterdir()) == []
+
+
+def test_safe_output_preflight_rejects_a_symlinked_project_root(tmp_path):
+    project = tmp_path / "real-project"
+    project.mkdir()
+    project_link = tmp_path / "project-link"
+    project_link.symlink_to(project, target_is_directory=True)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "safe_paths.py"),
+            "--project-root",
+            str(project_link),
+            "--check-output",
+            str(project_link / ".security-requirements"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "project root is a symlink" in result.stderr
+    assert not (project / ".security-requirements").exists()
 
 
 @pytest.mark.parametrize("url", [
@@ -8063,8 +8361,70 @@ def test_the_mutation_tool_never_edits_the_working_tree():
     # Every write goes to the copy. A write to PLUGIN_ROOT / "scripts" would be
     # the mistake, and it is spelled distinctly enough to look for.
     for line in source.splitlines():
-        if ".write_text(" in line and "REPO_ROOT" in line:
+        if ".write_text(" in line and any(
+            root_name in line for root_name in ("REPO_ROOT", "PLUGIN_ROOT")
+        ):
             assert False, f"mutate.py writes into the repository: {line.strip()}"
+
+
+@pytest.mark.parametrize("unsafe", ["../outside.py", "/tmp/outside.py", "nested/../../outside.py"])
+def test_mutation_file_argument_cannot_escape_packaged_scripts(monkeypatch, unsafe):
+    import mutate
+
+    monkeypatch.setattr(
+        mutate,
+        "mutation_points",
+        lambda path: pytest.fail(f"unsafe path reached mutation_points: {path}"),
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        mutate.main(["--file", unsafe])
+
+    assert exc.value.code == 2
+
+
+def test_mutation_copy_is_restored_when_the_test_run_is_interrupted(tmp_path):
+    import mutate
+
+    copied_source = tmp_path / "lint.py"
+    original = "if left == right:\n    pass\n"
+    mutated = "if left != right:\n    pass\n"
+    copied_source.write_text(original, encoding="utf-8")
+
+    def interrupt(_work):
+        assert copied_source.read_text(encoding="utf-8") == mutated
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        mutate.run_mutant(tmp_path, copied_source, mutated, original, runner=interrupt)
+
+    assert copied_source.read_text(encoding="utf-8") == original
+
+
+def test_mutation_file_argument_cannot_follow_a_packaged_symlink(
+    tmp_path, monkeypatch
+):
+    import mutate
+
+    payload = tmp_path / "payload"
+    scripts = payload / "scripts"
+    scripts.mkdir(parents=True)
+    victim = tmp_path / "outside.py"
+    victim.write_text("keep me\n", encoding="utf-8")
+    (scripts / "redirect.py").symlink_to(victim)
+    before = victim.read_bytes()
+    monkeypatch.setattr(mutate, "PLUGIN_ROOT", payload)
+    monkeypatch.setattr(
+        mutate,
+        "mutation_points",
+        lambda path: pytest.fail(f"symlink reached mutation_points: {path}"),
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        mutate.main(["--file", "redirect.py"])
+
+    assert exc.value.code == 2
+    assert victim.read_bytes() == before
 
 
 def test_the_gate_scripts_are_the_ones_that_run_every_time():

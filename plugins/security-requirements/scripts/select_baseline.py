@@ -11,8 +11,8 @@ down -- was already collected during the interview and lives in the profile.
 
 Usage
 -----
-    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/select_baseline.py" .security-requirements/profile.yaml
-    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/select_baseline.py" profile.yaml --json controls.json
+    python3 -I "<absolute plugin root>/scripts/select_baseline.py" .security-requirements/profile.yaml
+    python3 -I "<absolute plugin root>/scripts/select_baseline.py" profile.yaml --json controls.json
 
 Exit codes
 ----------
@@ -24,13 +24,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import sys
 from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import profile_schema  # noqa: E402
 from profile_schema import EEA_MEMBERS, SchemaError, expand_regions, normalise
+from safe_paths import UnsafePathError, safe_write_text  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CATALOG_DIR = REPO_ROOT / "catalogs" / "nist-800-53r5"
@@ -1440,7 +1443,12 @@ def render_gate(result: dict) -> str:
         out += ["", "Regulatory overlays that apply"]
         for item in result["overlay_triggers"]:
             reasons = item["triggers"]
-            out.append(f"  + {reasons[0]['label']}  ->  scripts/apply_overlay.py {item['id']}")
+            command = (
+                f"{shlex.quote(str(Path(sys.executable).resolve()))} -I "
+                f"{shlex.quote(str((REPO_ROOT / 'scripts' / 'apply_overlay.py').resolve()))} "
+                f"{shlex.quote(item['id'])}"
+            )
+            out.append(f"  + {reasons[0]['label']}  ->  {command}")
             for extra in reasons[1:]:
                 out.append(f"      also reached by: {extra['label']}")
     if result["uncovered_regulations"]:
@@ -1532,7 +1540,14 @@ def main() -> int:
 
     print(render_gate(result))
     if args.json:
-        args.json.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        try:
+            safe_write_text(
+                args.json,
+                json.dumps(result, indent=2, ensure_ascii=False) + "\n",
+            )
+        except UnsafePathError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
         print(f"\nwrote {args.json}", file=sys.stderr)
     return 0
 

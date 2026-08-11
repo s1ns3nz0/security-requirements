@@ -104,50 +104,69 @@ manifest 상대 경로, 세 진입점, symlink와 중복 런타임 디렉토리�
 
 ```
 .claude-plugin/
-  plugin.json
-commands/
-  sec-req-init.md        # 1~3단계
-  sec-req-build.md       # 4~11단계
-  sec-req-refresh.md     # 재실행·병합
-skills/
-  deriving-security-requirements/
-    SKILL.md
-    references/
-      profile-schema.md
-      threat-modeling.md      # DFD·STRIDE·LINDDUN·페르소나 절차
-      requirement-style.md    # 작문 3원칙
-scripts/
-  select_baseline.py     # 결정론적
-  classify_resp.py
-  merge.py
-  render.py
-  lint.py
-  rebuild_catalogs.py    # OSCAL → JSONL 재생성
-catalogs/
-  nist-800-53r5/         # 공공도메인
-    AC.jsonl ... (20 패밀리)
-    baselines.json
-  csf-2.0/
-    subcategories.jsonl
-    crosswalk-800-53.json
-  asvs-5/                # CC BY-SA 4.0 — 격리
-    LICENSE  NOTICE
-    V1.jsonl ...
-  data-types/
-    classification.yaml  # 데이터유형 → C/I/A 기여도
-  csp-rules/             # 자체 작성 + 출처 URL
-    aws.md
-responsibility/
-  layers.yaml            # 배포모델별 거친 매핑
-  services/
-    aws-s3.yaml          # reviewed: true
-    ...
+  marketplace.json
+.agents/
+  plugins/
+    marketplace.json
+plugins/
+  security-requirements/
+    .claude-plugin/
+      plugin.json
+    .codex-plugin/
+      plugin.json
+    commands/
+      sec-req-init.md        # 1~3단계
+      sec-req-build.md       # 4~11단계
+      sec-req-refresh.md     # 재실행·병합
+    skills/
+      deriving-security-requirements/
+        SKILL.md
+        references/
+          profile-schema.md
+          threat-modeling.md      # DFD·STRIDE·LINDDUN·페르소나 절차
+          requirement-style.md    # 작문 3원칙
+      security-requirements-init/
+        SKILL.md
+      security-requirements-build/
+        SKILL.md
+      security-requirements-refresh/
+        SKILL.md
+    scripts/
+      select_baseline.py     # 결정론적
+      classify_resp.py
+      merge.py
+      render.py
+      lint.py
+      rebuild_catalogs.py    # OSCAL → JSONL 재생성
+    catalogs/
+      nist-800-53r5/         # 공공도메인
+        AC.jsonl ... (20 패밀리)
+        baselines.json
+      csf-2.0/
+        subcategories.jsonl
+      asvs-5/                # CC BY-SA 4.0 — 격리
+        LICENSE  NOTICE
+        V1.jsonl ...
+      data-types/
+        classification.yaml  # 데이터유형 → C/I/A 기여도
+      csp-rules/             # 자체 작성 + 출처 URL
+        aws.md
+    overlays/
+      SCHEMA.md
+      ...
+    responsibility/
+      layers.yaml            # 배포모델별 거친 매핑
+      services/
+        aws-s3.yaml          # reviewed: true
+        ...
 golden/                  # 전부 합성 케이스
   b2b-saas-aws/
   mobile-backend/
   internal-admin/
   commerce-payments/
 tests/
+scripts/
+  validate_distribution.py  # 배포 루트 전용 검사기
 ```
 
 ### 사용자 레포에 생성되는 것
@@ -302,8 +321,8 @@ v1 CSP는 AWS만. Azure/GCP는 `layers.yaml` 수준의 거친 커버리지만.
 | 대상 | 라이선스 |
 |---|---|
 | 코드·스크립트·자체작성 룰 | Apache-2.0 |
-| `catalogs/nist-*` | 미국 공공도메인 (명시) |
-| `catalogs/asvs-5/` | CC BY-SA 4.0 + NOTICE (격리) |
+| `plugins/security-requirements/catalogs/nist-*` | 미국 공공도메인 (명시) |
+| `plugins/security-requirements/catalogs/asvs-5/` | CC BY-SA 4.0 + NOTICE (격리) |
 
 CC BY-SA의 share-alike는 각색물에 전파되지 코드 전체를 감염시키지 않는다 (GPL과 다름). ASVS를
 JSONL로 변환한 것은 각색물이므로 해당 파일은 CC BY-SA를 유지하되, 별도 디렉토리에 두어
@@ -353,7 +372,7 @@ v1은 규제 오버레이를 포함하지 않는다. 대신 트리거를 감지�
 → 개인정보보호법 고유식별정보. 미지원, 별도 검토 필요
 ```
 
-`overlays/` 디렉토리는 스키마만 두고 비워둔다. 두 번째 카탈로그는 코어가 실제로 쓰이는 것을
+`plugins/security-requirements/overlays/` 디렉토리는 스키마만 두고 비워둔다. 두 번째 카탈로그는 코어가 실제로 쓰이는 것을
 확인한 뒤 붙인다.
 
 **참고**: 한국 법령·고시는 저작권법 제7조에 따라 보호 대상이 아니므로 번들 가능하다
@@ -407,10 +426,10 @@ v1은 규제 오버레이를 포함하지 않는다. 대신 트리거를 감지�
 
 ### 완료
 
-- `catalogs/data-types/classification.yaml` — 25개 데이터유형 → C/I 기여도, 수식어,
+- `plugins/security-requirements/catalogs/data-types/classification.yaml` — 25개 데이터유형 → C/I 기여도, 수식어,
   규제 트리거 매핑
-- `catalogs/data-types/availability.yaml` — RTO/RPO/가중요인 → A 유도
-- `skills/deriving-security-requirements/references/profile-schema.md` — 프로파일 스키마,
+- `plugins/security-requirements/catalogs/data-types/availability.yaml` — RTO/RPO/가중요인 → A 유도
+- `plugins/security-requirements/skills/deriving-security-requirements/references/profile-schema.md` — 프로파일 스키마,
   출처 분리 원칙, 인터뷰 7문항, 확인 게이트, UNDETERMINED 처리
 
 설계 중 확정된 부가 규칙:
@@ -530,7 +549,7 @@ UNDETERMINED 0이고, 예외 목록은 검토 가능한 길이로 유지된다.
   `inferred` 블록을 채우는 경로는 아직 한 번도 돌지 않았다
 - `threats.yaml`·`draft.json`은 골든 1번만 존재하는 고정 픽스처. 2~4번은 모델
   실행 시 채점용
-- 규제 오버레이 0개. `overlays/SCHEMA.md`만 있음
+- 규제 오버레이 0개. `plugins/security-requirements/overlays/SCHEMA.md`만 있음
 - CSP 큐레이션은 AWS만. Azure·GCP는 배포모델 층으로 폴백
 - `render.py` 259줄은 프롬프트로 대체 가능 — 유지 이유는 산출물 diff 안정성뿐
 
@@ -598,7 +617,7 @@ Week 2까지는 합성 프로파일만 썼다. 이후 로컬 레포 12개에 실
 
 스위프가 단순 수정으로 안 끝나고 구조를 바꾼 게 다섯 개다.
 
-- **`scripts/profile_schema.py` 신설.** 값 공간 재검증에서 나온 9개가 전부
+- **`plugins/security-requirements/scripts/profile_schema.py` 신설.** 값 공간 재검증에서 나온 9개가 전부
   "사용자 문자열을 정확 일치로 비교" 한 부류였다. 호출부마다 `.lower()`를
   뿌리면 다섯을 고치고 여섯째를 남긴다. 정규화를 한 곳으로 올려 부류 자체를
   도달 불가로 만들었다

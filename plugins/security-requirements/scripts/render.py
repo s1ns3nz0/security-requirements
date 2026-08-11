@@ -20,8 +20,17 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from safe_paths import (  # noqa: E402
+    UnsafePathError,
+    preflight_output_paths,
+    safe_mkdir,
+    safe_write_text,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CATALOG_DIR = REPO_ROOT / "catalogs" / "nist-800-53r5"
@@ -360,15 +369,22 @@ def main() -> int:
     titles = catalog_titles()
     meta = catalog_meta()
 
-    args.out.mkdir(parents=True, exist_ok=True)
-    written = []
-    for name, content in (
+    documents = (
         ("requirements.md", render_requirements(doc, titles, meta)),
         ("traceability.md", render_traceability(doc, titles, meta)),
         ("responsibility.md", render_responsibility(doc, meta)),
-    ):
-        path = args.out / name
-        path.write_text(content.rstrip() + "\n", encoding="utf-8")
+    )
+    paths = [args.out / name for name, _ in documents]
+    try:
+        preflight_output_paths(paths)
+        safe_mkdir(args.out)
+    except UnsafePathError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    written = []
+    for (name, content), path in zip(documents, paths):
+        safe_write_text(path, content.rstrip() + "\n", encoding="utf-8")
         written.append(path)
 
     for path in written:

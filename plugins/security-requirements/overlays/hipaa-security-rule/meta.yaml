@@ -7,7 +7,7 @@ criteria_count: 68
 source:
   authority: "45 CFR Part 164, Subpart C"
   retrieved_from: "https://www.ecfr.gov/api/versioner/v1/full/{date}/title-45.xml?part=164"
-  rebuild: 'python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/rebuild_overlay_hipaa.py"'
+  rebuild: 'python3 -I "<absolute plugin root>/scripts/rebuild_overlay_hipaa.py"'
   note: >-
     Derived from the regulation itself rather than from a secondary source. The
     extractor asserts the published shape -- nine administrative standards, four

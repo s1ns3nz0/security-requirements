@@ -37,6 +37,11 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import profile_schema  # noqa: E402
+from safe_paths import (  # noqa: E402
+    UnsafePathError,
+    preflight_output_paths,
+    safe_write_text,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CATALOG_DIR = REPO_ROOT / "catalogs" / "nist-800-53r5"
@@ -545,6 +550,12 @@ def main() -> int:
             if getattr(args, name) is None:
                 ap.error(f"--cross requires --{name}")
 
+        try:
+            preflight_output_paths([args.out])
+        except UnsafePathError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
         # A sentence, not a traceback. Every other input error in this
         # repository names the file and the flag; pointing --controls at the
         # wrong path produced a stack trace ending in FileNotFoundError.
@@ -580,13 +591,21 @@ def main() -> int:
             # improved message arrived wrapped in a stack.
             print(f"error: {exc}", file=sys.stderr)
             return 2
-        args.out.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        safe_write_text(
+            args.out, json.dumps(result, indent=2, ensure_ascii=False) + "\n"
+        )
         print(render_cross(result))
         return 0
 
     for name in ("draft", "existing", "state"):
         if getattr(args, name) is None:
             ap.error(f"--apply requires --{name}")
+
+    try:
+        preflight_output_paths([args.existing, args.state])
+    except UnsafePathError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
 
     draft = json.loads(args.draft.read_text(encoding="utf-8"))
     draft_items = draft["requirements"] if isinstance(draft, dict) else draft
@@ -628,13 +647,17 @@ def main() -> int:
               f"{' ...' if len(result['added']) > 3 else ''}", file=sys.stderr)
         return 2
 
-    args.existing.parent.mkdir(parents=True, exist_ok=True)
-    args.existing.write_text(
+    safe_write_text(
+        args.existing,
         yaml.safe_dump({"requirements": result["requirements"]}, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
+        create_parents=True,
     )
-    args.state.write_text(
-        yaml.safe_dump(state, sort_keys=True, allow_unicode=True), encoding="utf-8"
+    safe_write_text(
+        args.state,
+        yaml.safe_dump(state, sort_keys=True, allow_unicode=True),
+        encoding="utf-8",
+        create_parents=True,
     )
 
     print("Merge result\n")

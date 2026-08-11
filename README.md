@@ -273,8 +273,11 @@ local source.
 
 ### Runtime requirements and state
 
-The payload requires Python 3 and PyYAML. The `init` workflow calls `gh repo
-view --json visibility` only to choose a safe default for sensitive outputs. If
+The payload requires Python 3 and PyYAML. Workflow scripts run with Python's
+isolated mode (`-I`), so PyYAML must be available to that interpreter through
+its system or virtual-environment site-packages, not only a user-site install.
+The `init` workflow calls `gh repo view --json visibility` only to choose a safe
+default for sensitive outputs. If
 `gh` is missing or the repository has no remote, it uses the safety fallback:
 records the visibility as `UNDETERMINED` and treats it as public.
 
@@ -324,7 +327,8 @@ and better for being read.
 ## Design commitments
 
 **Control identifiers are never recalled from memory.** The catalog is derived
-mechanically from NIST's OSCAL release, and `scripts/lint.py` fails the build if
+mechanically from NIST's OSCAL release, and
+`plugins/security-requirements/scripts/lint.py` fails the build if
 a requirement cites an identifier the catalog does not contain. A fabricated
 `SC-28(4)` reads exactly like the three enhancements that are real; one of them
 in a compliance document discredits all of it.
@@ -387,8 +391,8 @@ summarised in our own words with links, never reproduced.
 ## Development
 
 ```bash
-python3 scripts/rebuild_catalogs.py     # rebuild every catalog from upstream
-python3 -m pytest tests/                # deterministic layer, 830 tests
+python3 -I plugins/security-requirements/scripts/rebuild_catalogs.py  # rebuild every catalog from upstream
+python3 -m pytest tests/                # deterministic layer, 906 tests
 python3 -m pytest tests/test_distribution_docs.py -q
 python3 scripts/validate_distribution.py .
 ```
@@ -407,7 +411,7 @@ carry written requirements documents, so they are the three cases
 `eval_golden.py` can score against a derived `requirements.yaml`:
 
 ```bash
-python3 scripts/eval_golden.py golden/b2b-saas-aws .security-requirements/requirements.yaml
+python3 -I plugins/security-requirements/scripts/eval_golden.py golden/b2b-saas-aws .security-requirements/requirements.yaml
 ```
 
 The other four exercise the derivation and their `expected-coverage.yaml`
@@ -424,7 +428,8 @@ pipeline; it also carries the two elective overlays, ISO 27001 and SOC 2, which
 are declared rather than detected, so until a profile named them a third of the
 bundled overlays had never evaluated against anything.
 
-`scripts/axis_coverage.py` reports which values of which input axes any run has
+`plugins/security-requirements/scripts/axis_coverage.py` reports which values
+of which input axes any run has
 ever carried. Adding a repository adds coverage only when it carries one nothing
 has carried before.
 

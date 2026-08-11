@@ -21,7 +21,7 @@ Two rules the classification must not break:
 
 Usage
 -----
-    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/classify_resp.py" PROFILE CONTROLS_JSON [--json OUT]
+    python3 -I "<absolute plugin root>/scripts/classify_resp.py" PROFILE CONTROLS_JSON [--json OUT]
 
 where CONTROLS_JSON is the output of select_baseline.py --json.
 """
@@ -36,8 +36,15 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from profile_schema import normalise
-from runtime_paths import plugin_data_root
+from runtime_paths import inspected_project_root, plugin_data_root
+from safe_paths import (
+    UnsafePathError,
+    preflight_output_paths,
+    safe_path,
+    safe_write_text,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LAYERS = REPO_ROOT / "responsibility" / "layers.yaml"
@@ -233,8 +240,12 @@ def resolve_csp(raw) -> tuple[str | None, list[str], str]:
     return recognised[0], recognised, "single"
 
 
-def load_services(profile: dict, csp: str | None = None,
-                  providers: list[str] | None = None) -> tuple[dict, list[str], list[str], list[str]]:
+def load_services(
+    profile: dict,
+    csp: str | None = None,
+    providers: list[str] | None = None,
+    project_root: Path | None = None,
+) -> tuple[dict, list[str], list[str], list[str]]:
     """Return (service specs, curated ids, uncurated ids, foreign ids).
 
     Each curated file records the provider it describes, and until now nothing
@@ -250,15 +261,25 @@ def load_services(profile: dict, csp: str | None = None,
     """
     declared = (profile.get("inferred") or {}).get("managed_services", []) or []
     known = {p for p in (providers or []) if p} or ({csp} if csp else set())
+    inspected_project = (project_root or Path.cwd()).resolve()
+    state_root = (
+        plugin_data_root(project_root=inspected_project) if declared else None
+    )
     specs, curated, uncurated, foreign = {}, [], [], []
     for entry in declared:
         sid = entry["id"] if isinstance(entry, dict) else entry
         if not isinstance(sid, str) or not SERVICE_ID_RE.fullmatch(sid):
             raise ValueError(f"unsafe managed service identifier: {sid!r}")
         path = service_path(SERVICES_DIR, sid)
-        generated = service_path(
-            plugin_data_root() / "responsibility" / "services", sid
+        generated = safe_path(
+            state_root / "responsibility" / "services" / f"{sid}.yaml",
+            project_root=state_root,
         )
+        resolved_generated = generated.resolve()
+        if resolved_generated == inspected_project or resolved_generated.is_relative_to(
+            inspected_project
+        ):
+            raise ValueError("generated service curation must remain outside the project")
         if not path.exists() and generated and generated.exists():
             path = generated
         if not path.exists():
@@ -348,13 +369,17 @@ def apply_no_provider_rule(responsibility: str, csp: str | None) -> str:
     return responsibility
 
 
-def classify(profile: dict, controls: list[str]) -> dict:
+def classify(
+    profile: dict, controls: list[str], project_root: Path | None = None
+) -> dict:
     profile, _ = normalise(profile)
     layers = yaml.safe_load(LAYERS.read_text(encoding="utf-8"))
     deployment_model = (profile.get("inferred") or {}).get("deployment_model")
     csp, providers, csp_status = resolve_csp((profile.get("inferred") or {}).get("csp"))
 
-    specs, curated, uncurated, foreign = load_services(profile, csp, providers)
+    specs, curated, uncurated, foreign = load_services(
+        profile, csp, providers, project_root=project_root
+    )
     org_controls, unknown_org_controls = normalise_org_controls(
         (profile.get("declared") or {}).get("existing_org_controls"))
     org_covered = {c for key in org_controls for c in ORG_CONTROL_COVERAGE.get(key, [])}
@@ -606,13 +631,28 @@ def main() -> int:
     ap.add_argument("--json", type=Path)
     args = ap.parse_args()
 
+    if args.json:
+        try:
+            preflight_output_paths([args.json])
+        except UnsafePathError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
     profile = yaml.safe_load(args.profile.read_text(encoding="utf-8"))
     controls = json.loads(args.controls.read_text(encoding="utf-8"))["controls"]
 
-    result = classify(profile, controls)
+    try:
+        result = classify(
+            profile, controls, project_root=inspected_project_root(args.profile)
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     print(render(result))
     if args.json:
-        args.json.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        safe_write_text(
+            args.json, json.dumps(result, indent=2, ensure_ascii=False) + "\n"
+        )
     return 0
 
 

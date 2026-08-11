@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import re
+import shlex
 import sys
 
 
@@ -26,11 +27,42 @@ PATH_FIELD_NAMES = {
 }
 INLINE_OR_PATH_FIELDS = {"hooks", "mcpservers", "lspservers"}
 TEXT_PAYLOAD_SUFFIXES = {".json", ".md", ".py", ".toml", ".yaml", ".yml"}
-CWD_RELATIVE_SCRIPT_INVOCATION = re.compile(
-    r"(?<![\w./-])python3?"
-    r"(?:(?:[ \t]+-[^ \t]+)(?:[ \t]+(?!(?:scripts/))[^- \t][^ \t]*)?)*"
-    r"[ \t]+[\"']?scripts/"
+PYTHON_INTERPRETER = re.compile(
+    r'''(?<![\w./-])(?P<quote>["']?)(?:/(?:[^\s/"']+/)*)?'''
+    r"python(?:\d+(?:\.\d+)*)?(?P=quote)(?=[ \t]|$)"
 )
+PYTHON_OPTIONS_WITH_VALUE = {"-W", "-X", "--check-hash-based-pycs"}
+TRUSTED_WORKFLOW_SCRIPTS = {
+    "<trusted packaged script name.py>",
+    "apply_overlay.py",
+    "axis_coverage.py",
+    "classify_resp.py",
+    "confirmation.py",
+    "eval_golden.py",
+    "lint.py",
+    "merge.py",
+    "mutate.py",
+    "profile_locale.py",
+    "rebuild_catalogs.py",
+    "rebuild_overlay_hipaa.py",
+    "render.py",
+    "runtime_paths.py",
+    "safe_paths.py",
+    "select_baseline.py",
+    "semantic_review.py",
+    "validate_overlays.py",
+}
+TRUSTED_SCRIPT_PREFIXES = (
+    "<absolute plugin root>/scripts/",
+    "<exact absolute plugin root>/scripts/",
+    "<derived absolute candidate>/scripts/",
+    "${CLAUDE_PLUGIN_ROOT}/scripts/",
+)
+SAFE_OUTPUTS = {
+    "init": {".security-requirements"},
+    "build": {".security-requirements", "docs/security"},
+    "refresh": {".security-requirements", "docs/security"},
+}
 
 
 def _read_json(path: Path, errors: list[str]) -> dict:
@@ -168,21 +200,212 @@ def _duplicate_runtime_directories(root: Path, payload: Path, errors: list[str])
                 errors.append(f"duplicate runtime directory: {directory} at {path}")
 
 
-def _cwd_relative_script_invocations(payload: Path, errors: list[str]) -> None:
+def _logical_lines(text: str):
+    """Yield shell-style logical lines while retaining their first line number."""
+    buffered = ""
+    start = 1
+    for number, line in enumerate(text.splitlines(), start=1):
+        if not buffered:
+            start = number
+        stripped = line.rstrip()
+        if stripped.endswith("\\"):
+            buffered += stripped[:-1] + " "
+            continue
+        yield start, buffered + line
+        buffered = ""
+    if buffered:
+        yield start, buffered
+
+
+def _python_arguments(command: str, start: int) -> list[str]:
+    """Tokenise one Python invocation from its interpreter to the shell boundary."""
+    fragment = command[start:]
+    prefix = command[:start]
+    if "$(" in prefix:
+        closing = max(fragment.rfind(')"'), fragment.rfind(")'"))
+        if closing >= 0:
+            fragment = fragment[:closing]
+    try:
+        tokens = shlex.split(fragment, posix=True)
+    except ValueError:
+        prefix = prefix.rstrip()
+        stripped = fragment.rstrip()
+        if (
+            prefix.endswith(("'", '"'))
+            and stripped.endswith(prefix[-1])
+        ):
+            try:
+                tokens = shlex.split(stripped[:-1], posix=True)
+            except ValueError:
+                return []
+        else:
+            return []
+    bounded = []
+    for token in tokens:
+        if token in {";", "&&", "||", "|"}:
+            break
+        bounded.append(token.rstrip("`"))
+    return bounded
+
+
+def _python_script(tokens: list[str]) -> tuple[str | None, bool, bool]:
+    """Return (script, isolated, inline) for an already-tokenised invocation."""
+    isolated = False
+    index = 1
+    while index < len(tokens):
+        token = tokens[index]
+        if token == "--":
+            index += 1
+            break
+        if token == "-":
+            break
+        if token == "-c" or token.startswith("-c"):
+            return None, isolated, True
+        if token == "-m" or token.startswith("-m"):
+            return token, isolated, True
+        if token in PYTHON_OPTIONS_WITH_VALUE:
+            index += 2
+            continue
+        if token.startswith("-X") or token.startswith("-W"):
+            index += 1
+            continue
+        if token.startswith("-"):
+            short_options = token[1:] if not token.startswith("--") else ""
+            if token == "-I" or "I" in short_options:
+                isolated = True
+            if "c" in short_options or "m" in short_options:
+                return None, isolated, True
+            index += 1
+            continue
+        break
+    script = tokens[index] if index < len(tokens) else None
+    if script in (None, "-"):
+        return None, isolated, True
+    return script, isolated, False
+
+
+def _trusted_workflow_script(script: str, tokens: list[str]) -> bool:
+    matching_prefix = next(
+        (prefix for prefix in TRUSTED_SCRIPT_PREFIXES if script.startswith(prefix)), None
+    )
+    if matching_prefix is None:
+        return False
+    name = script.removeprefix(matching_prefix)
+    if "/" in name or name not in TRUSTED_WORKFLOW_SCRIPTS:
+        return False
+    if matching_prefix == "${CLAUDE_PLUGIN_ROOT}/scripts/":
+        return name == "runtime_paths.py"
+    if matching_prefix == "<derived absolute candidate>/scripts/":
+        return name == "runtime_paths.py" and "--skill" in tokens
+    return True
+
+
+def _workflow_python_invocations(payload: Path, errors: list[str]) -> None:
     for path in payload.rglob("*"):
         if not path.is_file() or path.suffix.lower() not in TEXT_PAYLOAD_SUFFIXES:
             continue
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()
+            text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as error:
             errors.append(f"cannot inspect payload file: {path}: {error}")
             continue
-        for line_number, line in enumerate(lines, start=1):
-            if CWD_RELATIVE_SCRIPT_INVOCATION.search(line):
-                errors.append(
-                    "cwd-relative payload script invocation: "
-                    f"{path.relative_to(payload)}:{line_number}"
+        relative = path.relative_to(payload)
+        for line_number, command in _logical_lines(text):
+            if command.lstrip().startswith("#!"):
+                continue
+            for match in PYTHON_INTERPRETER.finditer(command):
+                tokens = _python_arguments(command, match.start())
+                if not tokens:
+                    errors.append(
+                        "cannot parse Python invocation in workflow: "
+                        f"{relative}:{line_number}"
+                    )
+                    continue
+                script, isolated, inline = _python_script(tokens)
+                location = f"{relative}:{line_number}"
+                if inline:
+                    errors.append(f"inline Python is not allowed in workflow: {location}")
+                    continue
+                if script.startswith(("scripts/", "./scripts/")):
+                    errors.append(f"cwd-relative payload script invocation: {location}")
+                    continue
+                if not isolated:
+                    errors.append(f"workflow Python invocation must use -I: {location}")
+                if not _trusted_workflow_script(script, tokens):
+                    errors.append(
+                        "workflow Python script is not rooted in the plugin payload: "
+                        f"{location}"
+                    )
+
+
+def _option_value_groups(tokens: list[str], option: str) -> list[list[str]]:
+    groups = []
+    for index, token in enumerate(tokens):
+        if token != option:
+            continue
+        values = []
+        for value in tokens[index + 1 :]:
+            if value.startswith("-") or value in {";", "&&", "||", "|"}:
+                break
+            values.append(value.rstrip("/"))
+        groups.append(values)
+    return groups
+
+
+def _safe_output_preflights(payload: Path, errors: list[str]) -> None:
+    for workflow, required_outputs in SAFE_OUTPUTS.items():
+        path = payload / "commands" / f"sec-req-{workflow}.md"
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        valid = False
+        invalid = False
+        saw_preflight = False
+        for _, command in _logical_lines(text):
+            for match in PYTHON_INTERPRETER.finditer(command):
+                tokens = _python_arguments(command, match.start())
+                script, isolated, inline = _python_script(tokens) if tokens else (None, False, False)
+                if not script or not script.endswith("/scripts/safe_paths.py"):
+                    continue
+                root_groups = _option_value_groups(tokens, "--project-root")
+                output_groups = _option_value_groups(tokens, "--check-output")
+                claims_broad_preflight = any(
+                    required_outputs <= set(outputs) for outputs in output_groups
                 )
+                if not claims_broad_preflight:
+                    continue
+                saw_preflight = True
+                invocation_valid = (
+                    isolated
+                    and not inline
+                    and _trusted_workflow_script(script, tokens)
+                    and root_groups == [["$PWD"]]
+                    and len(output_groups) == 1
+                )
+                valid = valid or invocation_valid
+                invalid = invalid or not invocation_valid
+        relative = path.relative_to(payload)
+        expected = " ".join(sorted(required_outputs, key=lambda value: (value != ".security-requirements", value)))
+        if invalid:
+            errors.append(
+                f"invalid safe output preflight in {relative}: "
+                f"--project-root $PWD --check-output {expected}"
+            )
+        elif valid:
+            continue
+        elif saw_preflight:
+            errors.append(
+                f"invalid safe output preflight in {relative}: "
+                f"--project-root $PWD --check-output {expected}"
+            )
+        else:
+            errors.append(
+                f"missing safe output preflight in {relative}: "
+                f"--project-root $PWD --check-output {expected}"
+            )
 
 
 def validate(root: Path) -> list[str]:
@@ -242,7 +465,8 @@ def validate(root: Path) -> list[str]:
                 errors.append(f"symlink is not allowed in payload: {path.relative_to(root)}")
 
     _duplicate_runtime_directories(root, payload, errors)
-    _cwd_relative_script_invocations(payload, errors)
+    _workflow_python_invocations(payload, errors)
+    _safe_output_preflights(payload, errors)
 
     for workflow in WORKFLOWS:
         command = payload / "commands" / f"sec-req-{workflow}.md"
