@@ -1972,6 +1972,23 @@ def test_generated_service_curation_is_loaded_from_persistent_plugin_data(
     assert not legacy.exists()
 
 
+def test_generated_service_curation_rejects_relative_plugin_data_root(
+    profile, tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", "plugin-data")
+    candidate = copy.deepcopy(profile)
+    candidate["inferred"]["managed_services"] = [{"id": "newcloud-db"}]
+
+    with pytest.raises(
+        ValueError, match="SECURITY_REQUIREMENTS_DATA must be an absolute path"
+    ):
+        classify_resp.load_services(candidate, "aws", ["aws"])
+    assert not (project / "plugin-data").exists()
+
+
 @pytest.mark.parametrize("service_id", ["../outside", "nested/service", "/absolute"])
 def test_managed_service_identifier_cannot_escape_curation_directory(
     profile, service_id

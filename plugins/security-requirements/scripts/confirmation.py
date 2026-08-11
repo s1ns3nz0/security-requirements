@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
     profile = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     try:
         state_path = confirmation_state_path(path)
-    except RuntimeError as exc:
+    except (RuntimeError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 

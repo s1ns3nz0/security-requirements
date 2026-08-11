@@ -2,6 +2,7 @@ import copy
 from pathlib import Path
 import sys
 
+import pytest
 import yaml
 
 
@@ -90,6 +91,59 @@ def test_windows_data_root_uses_local_app_data(tmp_path, monkeypatch):
     assert runtime_paths.plugin_data_root(platform="win32") == (
         local_app_data / "security-requirements" / "v1"
     )
+
+
+@pytest.mark.parametrize("variable", ["SECURITY_REQUIREMENTS_DATA", "CLAUDE_PLUGIN_DATA"])
+def test_relative_explicit_data_root_is_rejected_outside_project_cwd(
+    tmp_path, monkeypatch, variable
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    monkeypatch.delenv("SECURITY_REQUIREMENTS_DATA", raising=False)
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
+    monkeypatch.setenv(variable, "plugin-state")
+
+    with pytest.raises(ValueError, match=rf"{variable} must be an absolute path"):
+        runtime_paths.plugin_data_root()
+
+
+@pytest.mark.parametrize(
+    ("platform", "variable", "expected_parts"),
+    [
+        ("linux", "XDG_STATE_HOME", (".local", "state")),
+        ("win32", "LOCALAPPDATA", ("AppData", "Local")),
+    ],
+)
+def test_relative_os_state_root_falls_back_outside_project_cwd(
+    tmp_path, monkeypatch, platform, variable, expected_parts
+):
+    project = tmp_path / "project"
+    home = tmp_path / "home"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    monkeypatch.delenv("SECURITY_REQUIREMENTS_DATA", raising=False)
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
+    monkeypatch.setenv(variable, "state")
+    monkeypatch.setattr(runtime_paths.Path, "home", lambda: home)
+
+    root = runtime_paths.plugin_data_root(platform=platform)
+
+    assert root == home.joinpath(*expected_parts, "security-requirements", "v1")
+    assert root.is_absolute()
+    assert not root.is_relative_to(project)
+
+
+def test_confirmation_does_not_write_state_for_relative_explicit_root(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    path = project / ".security-requirements" / "profile.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(yaml.safe_dump(profile()), encoding="utf-8")
+    monkeypatch.chdir(project)
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", "plugin-state")
+
+    assert confirmation.main(["--stamp", str(path), "--by", "user"]) == 1
+    assert not (project / "plugin-state").exists()
 
 
 def test_cli_check_rejects_unconfirmed_profile(tmp_path, monkeypatch):

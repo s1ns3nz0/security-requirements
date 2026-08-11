@@ -52,3 +52,45 @@ file list and was left unchanged.
   the containment test now exercises the neutral root.
 - No concern in the implementation. The only remaining suite concern is the
   unrelated stale README test count noted above.
+
+## Round 1: relative state-root hardening
+
+### RED
+
+```text
+$ pytest tests/test_confirmation.py tests/test_pipeline.py -q \
+    -k 'relative or generated_service_curation_rejects'
+6 failed, 759 deselected in 0.27s
+```
+
+The failures established that relative `SECURITY_REQUIREMENTS_DATA`,
+`CLAUDE_PLUGIN_DATA`, `XDG_STATE_HOME`, and `LOCALAPPDATA` paths were accepted
+under the current working directory, including confirmation state writes.
+
+### GREEN
+
+```text
+$ pytest tests/test_confirmation.py tests/test_pipeline.py -q \
+    -k 'relative or generated_service_curation_rejects'
+6 passed, 759 deselected in 0.16s
+
+$ pytest tests/test_confirmation.py tests/test_pipeline.py -q \
+    -k 'not test_the_test_count_on_the_front_page_is_the_test_count'
+764 passed, 1 deselected in 18.56s
+```
+
+`git diff --check` passed.
+
+### Fix and self-review
+
+- Explicit neutral and legacy plugin roots are now expanded and required to be
+  absolute; a relative value raises a clear `ValueError` naming the variable.
+  Confirmation handles that error as a normal command failure before it stamps
+  or writes state.
+- Relative `XDG_STATE_HOME` and `LOCALAPPDATA` values are ignored. The resolver
+  uses its absolute, home-derived platform default instead.
+- New tests change into a project directory and prove explicit roots cannot
+  create confirmation or generated-service state there. They also prove
+  Linux/Windows OS-state fallbacks are absolute and outside the project.
+- Precedence, confirmation digest/validation, and generated-service path
+  containment are unchanged.

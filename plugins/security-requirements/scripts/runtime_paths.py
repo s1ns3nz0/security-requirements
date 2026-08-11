@@ -8,6 +8,14 @@ from pathlib import Path
 import sys
 
 
+def absolute_path(value: str | None) -> Path | None:
+    """Expand an absolute path, returning ``None`` for a relative value."""
+    if not value:
+        return None
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else None
+
+
 def plugin_data_root(
     env: Mapping[str, str] | None = None, platform: str | None = None
 ) -> Path:
@@ -19,13 +27,20 @@ def plugin_data_root(
     variables = os.environ if env is None else env
     for name in ("SECURITY_REQUIREMENTS_DATA", "CLAUDE_PLUGIN_DATA"):
         if value := variables.get(name):
-            return Path(value).expanduser()
+            path = absolute_path(value)
+            if path is None:
+                raise ValueError(f"{name} must be an absolute path")
+            return path
 
     current_platform = sys.platform if platform is None else platform
     if current_platform.startswith("win"):
-        base = Path(variables.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+        base = absolute_path(variables.get("LOCALAPPDATA"))
+        if base is None:
+            base = Path.home() / "AppData" / "Local"
     elif current_platform == "darwin":
         base = Path.home() / "Library" / "Application Support"
     else:
-        base = Path(variables.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
+        base = absolute_path(variables.get("XDG_STATE_HOME"))
+        if base is None:
+            base = Path.home() / ".local" / "state"
     return base.expanduser() / "security-requirements" / "v1"
