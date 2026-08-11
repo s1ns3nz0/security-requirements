@@ -63,7 +63,15 @@ def validate(profile: dict, trusted_confirmation: dict | None) -> list[str]:
 def confirmation_state_path(profile_path: Path) -> Path:
     project_root = inspected_project_root(profile_path)
     key = hashlib.sha256(str(project_root).encode("utf-8")).hexdigest()
-    return plugin_data_root(project_root=project_root) / "confirmations" / f"{key}.yaml"
+    state_path = (
+        plugin_data_root(project_root=project_root)
+        / "confirmations"
+        / f"{key}.yaml"
+    )
+    resolved_state = state_path.resolve()
+    if resolved_state == project_root or resolved_state.is_relative_to(project_root):
+        raise ValueError("confirmation state must remain outside the project")
+    return state_path
 
 
 def main(argv: list[str] | None = None) -> int:

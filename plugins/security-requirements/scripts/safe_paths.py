@@ -14,6 +14,34 @@ class UnsafePathError(ValueError):
     """A target path could follow a repository-controlled symlink."""
 
 
+class SafePathsArgumentError(ValueError):
+    """The safe-path command line does not match its strict grammar."""
+
+
+class _StrictArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        raise SafePathsArgumentError(message)
+
+
+class _StoreOnce(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None) -> None:
+        if getattr(namespace, self.dest, None) is not None:
+            raise argparse.ArgumentError(
+                self, f"{option_string or self.dest} may be specified only once"
+            )
+        setattr(namespace, self.dest, values)
+
+
+def argument_parser() -> argparse.ArgumentParser:
+    """Return the shared strict parser for runtime and distribution checks."""
+    parser = _StrictArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument("--project-root", type=Path, action=_StoreOnce)
+    parser.add_argument(
+        "--check-output", type=Path, nargs="+", required=True, action=_StoreOnce
+    )
+    return parser
+
+
 def _absolute_lexical(path: Path, base: Path | None = None) -> Path:
     value = path.expanduser()
     if not value.is_absolute():
@@ -99,13 +127,11 @@ def safe_write_text(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--project-root", type=Path, default=Path.cwd())
-    parser.add_argument("--check-output", type=Path, nargs="+", required=True)
-    args = parser.parse_args(argv)
     try:
-        preflight_output_paths(args.check_output, project_root=args.project_root)
-    except UnsafePathError as exc:
+        args = argument_parser().parse_args(argv)
+        project_root = args.project_root or Path.cwd()
+        preflight_output_paths(args.check_output, project_root=project_root)
+    except (SafePathsArgumentError, UnsafePathError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     return 0

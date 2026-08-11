@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -367,6 +368,45 @@ def test_confirmation_rejects_absolute_authoritative_state_inside_project(
     assert confirmation.main(["--stamp", str(path), "--by", "user"]) == 1
     assert path.read_text(encoding="utf-8") == original
     assert not state.exists()
+
+
+def test_confirmation_stamp_rejects_final_state_artifact_inside_project(
+    tmp_path, monkeypatch, capsys
+):
+    state_root = tmp_path / "data-root"
+    project = state_root / "confirmations"
+    path = project / ".security-requirements" / "profile.yaml"
+    path.parent.mkdir(parents=True)
+    original = yaml.safe_dump(profile())
+    path.write_text(original, encoding="utf-8")
+    key = hashlib.sha256(str(project.resolve()).encode("utf-8")).hexdigest()
+    authority = project / f"{key}.yaml"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(state_root))
+
+    assert confirmation.main(["--stamp", str(path), "--by", "user"]) == 1
+
+    assert "confirmation state must remain outside the project" in capsys.readouterr().err
+    assert path.read_text(encoding="utf-8") == original
+    assert not authority.exists()
+
+
+def test_confirmation_check_rejects_matching_forged_state_inside_project(
+    tmp_path, monkeypatch, capsys
+):
+    state_root = tmp_path / "data-root"
+    project = state_root / "confirmations"
+    path = project / ".security-requirements" / "profile.yaml"
+    path.parent.mkdir(parents=True)
+    forged = confirmation.stamp(profile(), "attacker", "2026-08-12T00:00:00Z")
+    path.write_text(yaml.safe_dump(forged), encoding="utf-8")
+    key = hashlib.sha256(str(project.resolve()).encode("utf-8")).hexdigest()
+    authority = project / f"{key}.yaml"
+    authority.write_text(yaml.safe_dump(forged["confirmation"]), encoding="utf-8")
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(state_root))
+
+    assert confirmation.main(["--check", str(path)]) == 1
+
+    assert "confirmation state must remain outside the project" in capsys.readouterr().err
 
 
 def test_cli_check_rejects_unconfirmed_profile(tmp_path, monkeypatch):

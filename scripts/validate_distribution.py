@@ -63,6 +63,12 @@ SAFE_OUTPUTS = {
     "build": {".security-requirements", "docs/security"},
     "refresh": {".security-requirements", "docs/security"},
 }
+PLUGIN_SCRIPTS = Path(__file__).resolve().parent.parent / PAYLOAD / "scripts"
+sys.path.insert(0, str(PLUGIN_SCRIPTS))
+from safe_paths import (  # noqa: E402
+    SafePathsArgumentError,
+    argument_parser as safe_paths_parser,
+)
 
 
 def _read_json(path: Path, errors: list[str]) -> dict:
@@ -338,20 +344,6 @@ def _workflow_python_invocations(payload: Path, errors: list[str]) -> None:
                     )
 
 
-def _option_value_groups(tokens: list[str], option: str) -> list[list[str]]:
-    groups = []
-    for index, token in enumerate(tokens):
-        if token != option:
-            continue
-        values = []
-        for value in tokens[index + 1 :]:
-            if value.startswith("-") or value in {";", "&&", "||", "|"}:
-                break
-            values.append(value.rstrip("/"))
-        groups.append(values)
-    return groups
-
-
 def _safe_output_preflights(payload: Path, errors: list[str]) -> None:
     for workflow, required_outputs in SAFE_OUTPUTS.items():
         path = payload / "commands" / f"sec-req-{workflow}.md"
@@ -370,11 +362,15 @@ def _safe_output_preflights(payload: Path, errors: list[str]) -> None:
                 script, isolated, inline = _python_script(tokens) if tokens else (None, False, False)
                 if not script or not script.endswith("/scripts/safe_paths.py"):
                     continue
-                root_groups = _option_value_groups(tokens, "--project-root")
-                output_groups = _option_value_groups(tokens, "--check-output")
-                claims_broad_preflight = any(
-                    required_outputs <= set(outputs) for outputs in output_groups
-                )
+                try:
+                    script_index = tokens.index(script)
+                    args = safe_paths_parser().parse_args(tokens[script_index + 1 :])
+                except (SafePathsArgumentError, ValueError):
+                    saw_preflight = True
+                    invalid = True
+                    continue
+                outputs = [str(output).rstrip("/") for output in args.check_output]
+                claims_broad_preflight = required_outputs <= set(outputs)
                 if not claims_broad_preflight:
                     continue
                 saw_preflight = True
@@ -382,8 +378,9 @@ def _safe_output_preflights(payload: Path, errors: list[str]) -> None:
                     isolated
                     and not inline
                     and _trusted_workflow_script(script, tokens)
-                    and root_groups == [["$PWD"]]
-                    and len(output_groups) == 1
+                    and args.project_root == Path("$PWD")
+                    and len(outputs) == len(required_outputs)
+                    and set(outputs) == required_outputs
                 )
                 valid = valid or invocation_valid
                 invalid = invalid or not invocation_valid

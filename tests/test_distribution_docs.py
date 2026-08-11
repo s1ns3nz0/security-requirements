@@ -12,6 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_NAME = "security-requirements"
 QUALIFIED_PLUGIN_NAME = f"{PLUGIN_NAME}@{PLUGIN_NAME}"
 VALIDATOR = REPO_ROOT / "scripts" / "validate_distribution.py"
+SAFE_PATHS = REPO_ROOT / "plugins" / PLUGIN_NAME / "scripts" / "safe_paths.py"
 
 
 def _read(path: Path) -> str:
@@ -20,6 +21,16 @@ def _read(path: Path) -> str:
 
 def _load_validator():
     spec = importlib.util.spec_from_file_location("validate_distribution", VALIDATOR)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_safe_paths():
+    spec = importlib.util.spec_from_file_location(
+        "safe_paths_for_distribution_test", SAFE_PATHS
+    )
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
     spec.loader.exec_module(module)
@@ -495,6 +506,71 @@ def test_distribution_validator_accepts_output_preflight_bound_to_target_cwd(tmp
         "safe output preflight" in error and "commands/sec-req-build.md" in error
         for error in errors
     ), errors
+
+
+@pytest.mark.parametrize(
+    "root_arguments",
+    (
+        '--project-root "$PWD" --project-root=/private/tmp',
+        '--project-root=/private/tmp --project-root "$PWD"',
+        '--project-r=/private/tmp --project-root "$PWD"',
+        '--p=/private/tmp --project-root "$PWD"',
+    ),
+)
+def test_distribution_validator_rejects_hidden_project_root_overrides(
+    tmp_path, root_arguments
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    command = clone / "plugins" / PLUGIN_NAME / "commands" / "sec-req-build.md"
+    command.write_text(
+        'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
+        f'{root_arguments} --check-output .security-requirements docs/security\n',
+        encoding="utf-8",
+    )
+
+    errors = module.validate(clone)
+
+    assert any(
+        "invalid safe output preflight" in error
+        and "commands/sec-req-build.md" in error
+        for error in errors
+    ), errors
+
+
+@pytest.mark.parametrize(
+    "root_arguments",
+    (
+        ("--project-root", "$PROJECT", "--project-root=/private/tmp"),
+        ("--project-root=/private/tmp", "--project-root", "$PROJECT"),
+        ("--project-r=/private/tmp", "--project-root", "$PROJECT"),
+        ("--p=/private/tmp", "--project-root", "$PROJECT"),
+    ),
+)
+def test_safe_paths_parser_rejects_repeated_and_abbreviated_project_roots(
+    tmp_path, root_arguments
+):
+    module = _load_safe_paths()
+    project = tmp_path / "project"
+    project.mkdir()
+    arguments = [
+        str(project) if value == "$PROJECT" else value for value in root_arguments
+    ]
+
+    assert module.main([*arguments, "--check-output", ".security-requirements"]) == 2
+
+
+def test_safe_paths_parser_accepts_one_equals_form_project_root(tmp_path):
+    module = _load_safe_paths()
+    project = tmp_path / "project"
+    project.mkdir()
+
+    assert module.main(
+        [
+            f"--project-root={project}",
+            "--check-output=.security-requirements",
+        ]
+    ) == 0
 
 
 def test_distribution_validator_ignores_scoped_safe_path_checks_beside_broad_preflight(
