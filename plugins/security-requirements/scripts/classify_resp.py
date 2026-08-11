@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 from pathlib import Path
@@ -38,6 +37,7 @@ from pathlib import Path
 import yaml
 
 from profile_schema import normalise
+from runtime_paths import plugin_data_root
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LAYERS = REPO_ROOT / "responsibility" / "layers.yaml"
@@ -256,12 +256,8 @@ def load_services(profile: dict, csp: str | None = None,
         if not isinstance(sid, str) or not SERVICE_ID_RE.fullmatch(sid):
             raise ValueError(f"unsafe managed service identifier: {sid!r}")
         path = service_path(SERVICES_DIR, sid)
-        plugin_data = os.environ.get("CLAUDE_PLUGIN_DATA")
-        generated = (
-            service_path(
-                Path(plugin_data) / "responsibility" / "services", sid
-            )
-            if plugin_data else None
+        generated = service_path(
+            plugin_data_root() / "responsibility" / "services", sid
         )
         if not path.exists() and generated and generated.exists():
             path = generated

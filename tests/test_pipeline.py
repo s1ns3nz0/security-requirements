@@ -1957,7 +1957,9 @@ def test_generated_service_curation_is_loaded_from_persistent_plugin_data(
         }),
         encoding="utf-8",
     )
-    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path))
+    legacy = tmp_path / "legacy"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path))
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(legacy))
     candidate = copy.deepcopy(profile)
     candidate["inferred"]["managed_services"] = [{"id": "newcloud-db"}]
 
@@ -1967,6 +1969,7 @@ def test_generated_service_curation_is_loaded_from_persistent_plugin_data(
     assert "newcloud-db" in specs
     assert curated == []
     assert uncurated == ["newcloud-db"]
+    assert not legacy.exists()
 
 
 @pytest.mark.parametrize("service_id", ["../outside", "nested/service", "/absolute"])
@@ -1987,7 +1990,8 @@ def test_generated_service_symlink_cannot_escape_plugin_data(
     service_dir = tmp_path / "data" / "responsibility" / "services"
     service_dir.mkdir(parents=True)
     (service_dir / "escaped.yaml").symlink_to(outside)
-    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path / "legacy"))
     candidate = copy.deepcopy(profile)
     candidate["inferred"]["managed_services"] = [{"id": "escaped"}]
 

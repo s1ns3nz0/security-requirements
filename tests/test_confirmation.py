@@ -10,6 +10,7 @@ PLUGIN_ROOT = REPO_ROOT / "plugins" / "security-requirements"
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
 import confirmation  # noqa: E402
+import runtime_paths  # noqa: E402
 
 
 def profile():
@@ -50,6 +51,47 @@ def test_missing_confirmation_is_rejected():
     ]
 
 
+def test_neutral_data_root_precedes_legacy_claude_root(tmp_path, monkeypatch):
+    neutral = tmp_path / "neutral"
+    legacy = tmp_path / "legacy"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(neutral))
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(legacy))
+
+    assert runtime_paths.plugin_data_root() == neutral
+
+
+def test_default_data_root_is_external_and_stable(tmp_path, monkeypatch):
+    monkeypatch.delenv("SECURITY_REQUIREMENTS_DATA", raising=False)
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    expected = tmp_path / "state" / "security-requirements" / "v1"
+
+    assert runtime_paths.plugin_data_root(platform="linux") == expected
+    assert runtime_paths.plugin_data_root(platform="linux") == expected
+    assert not expected.exists()
+
+
+def test_macos_data_root_uses_application_support(tmp_path, monkeypatch):
+    monkeypatch.delenv("SECURITY_REQUIREMENTS_DATA", raising=False)
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
+    monkeypatch.setattr(runtime_paths.Path, "home", lambda: tmp_path)
+
+    assert runtime_paths.plugin_data_root(platform="darwin") == (
+        tmp_path / "Library" / "Application Support" / "security-requirements" / "v1"
+    )
+
+
+def test_windows_data_root_uses_local_app_data(tmp_path, monkeypatch):
+    monkeypatch.delenv("SECURITY_REQUIREMENTS_DATA", raising=False)
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
+    local_app_data = tmp_path / "AppData" / "Local"
+    monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
+
+    assert runtime_paths.plugin_data_root(platform="win32") == (
+        local_app_data / "security-requirements" / "v1"
+    )
+
+
 def test_cli_check_rejects_unconfirmed_profile(tmp_path, monkeypatch):
     path = tmp_path / "profile.yaml"
     path.write_text(yaml.safe_dump(profile()), encoding="utf-8")
@@ -80,3 +122,33 @@ def test_cli_stamp_writes_authoritative_state_outside_repository(tmp_path, monke
     states = list((data / "confirmations").glob("*.yaml"))
     assert len(states) == 1
     assert not str(states[0]).startswith(str(path.parent.parent))
+
+
+def test_cli_stamp_and_check_use_neutral_data_root(tmp_path, monkeypatch):
+    path = tmp_path / "project" / ".security-requirements" / "profile.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(yaml.safe_dump(profile()), encoding="utf-8")
+    neutral = tmp_path / "neutral"
+    legacy = tmp_path / "legacy"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(neutral))
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(legacy))
+
+    assert confirmation.main(["--stamp", str(path), "--by", "user"]) == 0
+    assert confirmation.main(["--check", str(path)]) == 0
+    assert list((neutral / "confirmations").glob("*.yaml"))
+    assert not legacy.exists()
+
+
+def test_cli_stamp_and_check_use_default_data_root(tmp_path, monkeypatch):
+    path = tmp_path / "project" / ".security-requirements" / "profile.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(yaml.safe_dump(profile()), encoding="utf-8")
+    state_home = tmp_path / "state"
+    monkeypatch.delenv("SECURITY_REQUIREMENTS_DATA", raising=False)
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
+    monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+    monkeypatch.setattr(runtime_paths.sys, "platform", "linux")
+
+    assert confirmation.main(["--stamp", str(path), "--by", "user"]) == 0
+    assert confirmation.main(["--check", str(path)]) == 0
+    assert list((state_home / "security-requirements" / "v1" / "confirmations").glob("*.yaml"))

@@ -7,11 +7,12 @@ import argparse
 import copy
 from datetime import datetime, timezone
 import hashlib
-import os
 from pathlib import Path
 import sys
 
 import yaml
+
+from runtime_paths import plugin_data_root
 
 
 def profile_digest(profile: dict) -> str:
@@ -53,16 +54,13 @@ def validate(profile: dict, trusted_confirmation: dict | None) -> list[str]:
 
 
 def confirmation_state_path(profile_path: Path) -> Path:
-    data_root = os.environ.get("CLAUDE_PLUGIN_DATA")
-    if not data_root:
-        raise RuntimeError("CLAUDE_PLUGIN_DATA is required for confirmation state")
     project_root = (
         profile_path.parent.parent
         if profile_path.parent.name == ".security-requirements"
         else profile_path.parent
     ).resolve()
     key = hashlib.sha256(str(project_root).encode("utf-8")).hexdigest()
-    return Path(data_root) / "confirmations" / f"{key}.yaml"
+    return plugin_data_root() / "confirmations" / f"{key}.yaml"
 
 
 def main(argv: list[str] | None = None) -> int:
