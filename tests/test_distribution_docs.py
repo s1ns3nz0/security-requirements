@@ -115,6 +115,21 @@ def test_distribution_validator_accepts_the_repository_and_is_read_only(tmp_path
     assert result.stderr == ""
 
 
+def test_distribution_validator_rejects_cwd_relative_payload_script_invocations(tmp_path):
+    module = _load_validator()
+    clone = tmp_path / "clone"
+    shutil.copytree(REPO_ROOT, clone, ignore=shutil.ignore_patterns(".git", ".pytest_cache", "__pycache__"))
+    stale_example = clone / "plugins" / PLUGIN_NAME / "skills" / "stale-example.md"
+    stale_example.write_text("python3 scripts/lint.py requirements.yaml\n", encoding="utf-8")
+
+    errors = module.validate(clone)
+    assert any(
+        "cwd-relative payload script invocation" in error
+        and "skills/stale-example.md:1" in error
+        for error in errors
+    )
+
+
 def test_distribution_validator_reports_all_fixture_errors(tmp_path):
     assert VALIDATOR.is_file(), "distribution validator must exist"
     clone = tmp_path / "clone"

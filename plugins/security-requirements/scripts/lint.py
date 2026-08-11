@@ -16,9 +16,9 @@ atomic, states a property rather than an implementation.
 
 Usage
 -----
-    python3 scripts/lint.py .security-requirements/requirements.yaml
-    python3 scripts/lint.py requirements.yaml --threats threats.yaml
-    python3 scripts/lint.py requirements.yaml --strict   # warnings fail too
+    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/lint.py" .security-requirements/requirements.yaml
+    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/lint.py" requirements.yaml --threats threats.yaml
+    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/lint.py" requirements.yaml --strict   # warnings fail too
 """
 
 from __future__ import annotations

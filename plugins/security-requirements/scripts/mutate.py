@@ -73,9 +73,9 @@ It is a copy and deleting it is safe.
 
 Usage
 -----
-    python3 scripts/mutate.py                    # the gate scripts
-    python3 scripts/mutate.py --file lint.py     # one of them
-    python3 scripts/mutate.py --sample 40        # a sample, to gauge the shape
+    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/mutate.py"                    # the gate scripts
+    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/mutate.py" --file lint.py     # one of them
+    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/mutate.py" --sample 40        # a sample, to gauge the shape
 """
 
 from __future__ import annotations

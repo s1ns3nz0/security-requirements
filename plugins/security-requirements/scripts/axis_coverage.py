@@ -41,8 +41,8 @@ nobody asked for.
 
 Usage
 -----
-    python3 scripts/axis_coverage.py
-    python3 scripts/axis_coverage.py --strict   # empty axes fail
+    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/axis_coverage.py"
+    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/axis_coverage.py" --strict   # empty axes fail
 """
 
 from __future__ import annotations

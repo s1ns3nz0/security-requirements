@@ -15,7 +15,7 @@ suite stops measuring anything.
 
 Usage
 -----
-    python3 scripts/eval_golden.py golden/b2b-saas-aws requirements.yaml
+    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/eval_golden.py" golden/b2b-saas-aws requirements.yaml
 """
 
 from __future__ import annotations

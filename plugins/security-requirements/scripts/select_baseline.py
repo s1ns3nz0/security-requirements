@@ -11,8 +11,8 @@ down -- was already collected during the interview and lives in the profile.
 
 Usage
 -----
-    python3 scripts/select_baseline.py .security-requirements/profile.yaml
-    python3 scripts/select_baseline.py profile.yaml --json controls.json
+    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/select_baseline.py" .security-requirements/profile.yaml
+    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/select_baseline.py" profile.yaml --json controls.json
 
 Exit codes
 ----------

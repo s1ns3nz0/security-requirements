@@ -21,7 +21,7 @@ Two rules the classification must not break:
 
 Usage
 -----
-    python3 scripts/classify_resp.py PROFILE CONTROLS_JSON [--json OUT]
+    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/classify_resp.py" PROFILE CONTROLS_JSON [--json OUT]
 
 where CONTROLS_JSON is the output of select_baseline.py --json.
 """

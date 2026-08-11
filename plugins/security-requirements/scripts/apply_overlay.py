@@ -14,7 +14,7 @@ launder a fabricated identifier into the deliverable through the side door.
 
 Usage
 -----
-    python3 scripts/apply_overlay.py pipa-isms-p PROFILE CONTROLS_JSON [--json OUT]
+    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/apply_overlay.py" pipa-isms-p PROFILE CONTROLS_JSON [--json OUT]
 """
 
 from __future__ import annotations

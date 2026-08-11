@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 import sys
 
 
@@ -24,6 +25,8 @@ PATH_FIELD_NAMES = {
     "path", "paths", "screenshots", "skills", "scripts", "files", "directories", "source",
 }
 INLINE_OR_PATH_FIELDS = {"hooks", "mcpservers", "lspservers"}
+TEXT_PAYLOAD_SUFFIXES = {".json", ".md", ".py", ".toml", ".yaml", ".yml"}
+CWD_RELATIVE_SCRIPT_INVOCATION = re.compile(r"python3[ \t]+scripts/")
 
 
 def _read_json(path: Path, errors: list[str]) -> dict:
@@ -161,6 +164,23 @@ def _duplicate_runtime_directories(root: Path, payload: Path, errors: list[str])
                 errors.append(f"duplicate runtime directory: {directory} at {path}")
 
 
+def _cwd_relative_script_invocations(payload: Path, errors: list[str]) -> None:
+    for path in payload.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in TEXT_PAYLOAD_SUFFIXES:
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError) as error:
+            errors.append(f"cannot inspect payload file: {path}: {error}")
+            continue
+        for line_number, line in enumerate(lines, start=1):
+            if CWD_RELATIVE_SCRIPT_INVOCATION.search(line):
+                errors.append(
+                    "cwd-relative payload script invocation: "
+                    f"{path.relative_to(payload)}:{line_number}"
+                )
+
+
 def validate(root: Path) -> list[str]:
     """Return every detected packaging error without changing *root*."""
     root = root.resolve()
@@ -218,6 +238,7 @@ def validate(root: Path) -> list[str]:
                 errors.append(f"symlink is not allowed in payload: {path.relative_to(root)}")
 
     _duplicate_runtime_directories(root, payload, errors)
+    _cwd_relative_script_invocations(payload, errors)
 
     for workflow in WORKFLOWS:
         command = payload / "commands" / f"sec-req-{workflow}.md"

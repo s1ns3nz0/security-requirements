@@ -12,8 +12,8 @@ result rather than trusting a snapshot.
 
 Usage
 -----
-    python3 scripts/rebuild_overlay_hipaa.py
-    python3 scripts/rebuild_overlay_hipaa.py --offline --source path/to/title-45.xml
+    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/rebuild_overlay_hipaa.py"
+    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/rebuild_overlay_hipaa.py" --offline --source path/to/title-45.xml
 """
 
 from __future__ import annotations
