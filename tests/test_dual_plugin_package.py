@@ -6,6 +6,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_ROOT = REPO_ROOT / "plugins" / "security-requirements"
 RUNTIME_DIRECTORIES = ("scripts", "catalogs", "overlays", "responsibility")
+SHARED_DERIVATION_SKILL = Path("skills") / "deriving-security-requirements"
 
 
 def read_json(path: Path) -> dict:
@@ -48,6 +49,25 @@ def test_runtime_payload_uses_no_symlinks_or_duplicate_directories():
             if path.is_dir()
         ]
         assert locations == [Path("plugins") / PLUGIN_ROOT.name / directory]
+
+
+def test_shared_derivation_skill_has_exactly_one_payload_copy():
+    locations = [
+        path.relative_to(REPO_ROOT)
+        for path in REPO_ROOT.rglob(SHARED_DERIVATION_SKILL.name)
+        if path.is_dir()
+    ]
+    assert locations == [
+        Path("plugins") / PLUGIN_ROOT.name / SHARED_DERIVATION_SKILL
+    ]
+
+
+def test_payload_excludes_mcp_app_and_hook_components():
+    codex = read_json(PLUGIN_ROOT / ".codex-plugin" / "plugin.json")
+    for field in ("mcpServers", "apps", "hooks"):
+        assert field not in codex
+    for relative in (".mcp.json", ".app.json", "hooks", "apps"):
+        assert not (PLUGIN_ROOT / relative).exists()
 
 
 def test_codex_marketplace_declares_installation_policy():
