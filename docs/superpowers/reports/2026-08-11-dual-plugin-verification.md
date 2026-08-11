@@ -8,15 +8,17 @@ Security-fix commits:
 
 - `b0aed64 fix: harden dual-host plugin execution`
 - `0596650 fix: root loaded runtime guidance`
+- `727f0ec fix: close confirmation and preflight bypasses`
 
 ## Verdict
 
 **PASS.** The final review's Critical, Important, migration-remnant, minor, and
-evidence findings are closed. The exact prepared Python 3.12 suite passes, both
-distribution validators and both authoritative Claude strict validations pass,
-and installed Claude and Codex adapters executed trusted packaged scripts from
-an unrelated hostile working directory without importing repository shadow
-modules.
+evidence findings are closed, including the two follow-up bypasses in final
+confirmation-state placement and safe-output preflight parsing. The exact
+Python 3.12 suite passes, both distribution validators and both authoritative
+Claude strict validations pass, and installed Claude and Codex adapters
+executed trusted packaged scripts from an unrelated hostile working directory
+without importing repository shadow modules.
 
 This update supersedes the earlier evidence in this file. In particular, the
 old read-only host checks and the old cross-call `export` adapter examples are
@@ -42,14 +44,14 @@ The prescribed literal `python3` commands used a temporary PATH shim:
 ### Complete suite
 
 ```bash
-export PATH="/tmp/security-requirements-python312-b0aed64:$PATH"
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q
+PYTHONDONTWRITEBYTECODE=1 /Users/s1ns3nz0/.pyenv/versions/3.12.11/bin/python \
+  -m pytest -p no:cacheprovider -q
 ```
 
 Result:
 
 ```text
-907 passed in 25.51s
+918 passed in 25.66s
 ```
 
 ### Distribution and host-schema validators
@@ -75,6 +77,47 @@ Validating marketplace manifest: .../.claude-plugin/marketplace.json
 `git diff --check` and `find plugins/security-requirements -type l -print`
 both returned no output with exit `0`.
 
+### Follow-up bypass regression evidence
+
+Before `727f0ec`, the focused regression selection produced the expected RED:
+
+```text
+10 failed, 1 passed, 108 deselected in 0.58s
+```
+
+The failures proved that stamping and checking both accepted an authority file
+under `D/confirmations`, the validator accepted both equals-form override
+orders and the `--project-r`/`--p` abbreviations, and the runtime parser itself
+accepted all four unsafe argument lists. The one passing case preserved a
+single equals-form `--project-root=<root>` invocation.
+
+After the minimal fixes, the same selection was GREEN:
+
+```text
+11 passed, 108 deselected in 0.35s
+```
+
+The exact ancestor-state forgery tests were rerun independently:
+
+```text
+2 passed in 0.12s
+```
+
+Both `/private/tmp` last-wins orders now fail at the runtime parser before path
+validation:
+
+```text
+error: argument --project-root: --project-root may be specified only once
+exit 2
+```
+
+The validator and parser regression group for duplicates and abbreviations also
+passes independently:
+
+```text
+8 passed, 78 deselected in 1.08s
+```
+
 ## Final-review security closure
 
 | Finding | Resolution and evidence |
@@ -82,15 +125,16 @@ both returned no output with exit `0`.
 | Inspected cwd could shadow Python startup/imports | All workflow Python calls are `python3 -I` plus an absolute packaged script. Inline `-c`, stdin, cwd-relative, arbitrary absolute, versioned-interpreter, multiline, and YAML-quoted bypasses are rejected by the validator. `test_packaged_cli_starts_in_isolated_mode_from_a_hostile_project` executes the packaged CLIs with poisoned `sitecustomize.py`, `pathlib.py`, and `yaml.py`. |
 | Exports did not persist across tool calls and non-shell tools could not expand them | Claude captures exact roots once and every operation independently prefixes the exact literals. Codex derives the immutable root from the loader-selected `SKILL.md` before every call and rejects a mismatched ambient root. Read/Write/Edit instructions use exact literal paths. Structural tests cover every fenced block and confirmation-gate resume. |
 | Neutral precedence could be overwritten | `plugin_data_root` retains `SECURITY_REQUIREMENTS_DATA > CLAUDE_PLUGIN_DATA > OS default`. Adapters explicitly forbid pre-setting the neutral variable during resolution. Unit tests exercise neutral, legacy, and default paths. |
-| Authoritative state could live in or be redirected through the inspected project | Runtime resolution compares lexical and resolved paths with the inspected project. Confirmation and generated-service loading bind the project explicitly. Generated state is checked with the centralized symlink-safe helper before reading. Direct, ancestor, and project-owned redirect tests pass. |
+| Authoritative state could live in or be redirected through the inspected project | Runtime resolution compares lexical and resolved paths with the inspected project. Confirmation and generated-service loading bind the project explicitly. `confirmation_state_path` now also resolves the final `confirmations/<project-hash>.yaml` artifact and rejects it if an ancestor data root would place that artifact in the project. Generated state is checked with the centralized symlink-safe helper before reading. Direct, ancestor, forged-authority, and project-owned redirect tests pass. |
 | Target output symlinks could be followed | `safe_paths.py` rejects project-root, ancestor, direct, and broken symlinks, preflights complete output batches before the first write, and uses atomic replacement. Confirmation, baseline, classification, overlay, merge, and render sinks use the helper. Workflow model writes receive a fresh exact-target preflight immediately before every Write/Edit. |
 | Shared skill trusted ambient redirection | `runtime_paths.py --skill` validates that the selected absolute `SKILL.md` belongs to its own payload and requires exact lexical/resolved agreement with any ambient root. |
 | Migration remnants | Claude cross-command names are namespaced; baseline overlay commands are absolute and isolated; README, CONTRIBUTING, DESIGN, loaded reference files, HIPAA metadata, and missing-catalog remediation commands use moved/absolute trusted paths. `.gitignore` exposes only `.agents/plugins/marketplace.json`. |
 | Mutation tool path escape/interruption | `--file` accepts only a contained, non-symlink packaged relative file. The copied file is restored in `finally`, including `KeyboardInterrupt`. Behavioral tests cover absolute, traversal, symlink, and interrupted runner cases. |
-| Validator evasion | The validator fail-closes parse errors and inspects every detected Python execution in payload text, including Python docstrings, YAML quoting, command substitution, combined flags, stdin, and commands outside a `/scripts/` spelling. It validates the complete safe-output preflight rather than accepting a decoy. |
+| Validator evasion | The validator fail-closes parse errors and inspects every detected Python execution in payload text, including Python docstrings, YAML quoting, command substitution, combined flags, stdin, and commands outside a `/scripts/` spelling. Runtime and distribution validation now share `safe_paths.argument_parser()`, with abbreviation disabled and duplicate options rejected. A broad preflight requires exactly one semantic `$PWD` root, exactly the expected output set, and no unknown or extra arguments. |
 
-An independent adversarial review after the fixes reported no remaining
-Critical, Important, or Minor finding within the enumerated threat model.
+The follow-up closes the two residual bypasses found after the original
+adversarial review. It does not claim a new independent review of unrelated
+surfaces.
 
 ## Installed-host execution from a hostile cwd
 
@@ -189,13 +233,16 @@ The full suite includes separate-process confirmation tests. The load-bearing
 case stamps in one clean subprocess, checks in a second, mutates and rejects in
 a third, and proves that a later call succeeds only when the exact external
 state root is rebound. Other tests repeat neutral, legacy-only, and default-root
-behavior and reject repository-only approval forgery.
+behavior, reject repository-only approval forgery, and reject both stamping and
+checking when an ancestor state root makes the final authority artifact
+project-owned.
 
 ## Residual limitations
 
-No security finding remains within the approved final-review scope. YAML-using
-runtime scripts require PyYAML in the isolated interpreter's system or virtual
-environment; user-site-only packages are deliberately ignored by `-I`, and the
-README documents that prerequisite. The installed-host checks intentionally
-executed the safe, read-only path and output preflight scripts rather than a
-side-effecting end-to-end service interview and publication.
+The two known follow-up bypasses are closed. YAML-using runtime scripts require
+PyYAML in the isolated interpreter's system or virtual environment;
+user-site-only packages are deliberately ignored by `-I`, and the README
+documents that prerequisite. The installed-host checks intentionally executed
+the safe, read-only path and output preflight scripts rather than a side-effecting
+end-to-end service interview and publication. No new independent review of
+unrelated surfaces was performed for this follow-up.
