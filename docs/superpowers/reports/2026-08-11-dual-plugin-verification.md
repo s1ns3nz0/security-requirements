@@ -8,28 +8,45 @@ Validated commit before this report: `2564c09` (`fix: reject cwd-relative payloa
 
 ## Verdict
 
-**INCOMPLETE.** Every repository-controlled test, validator, state smoke test,
-and Codex clean-clone installation check passed. The overall migration goal is
-not marked complete because the current Claude user profile already contained a
-same-name marketplace and installed plugin. The safety constraint prohibited
-replacing them, so a Claude install from this exact local clone and live Claude
-slash-command execution were not exercised. Codex installation was exercised,
-but interactive skill selection and starter-prompt dispatch were not.
-
-Structural evidence for those host behaviors is recorded below; it is not
-promoted to live-host evidence.
+**INCOMPLETE.** Every repository-controlled test and validator passed. Both
+hosts installed the exact local clone in isolated/reversible state, and both
+completed non-mutating live discovery and payload-resolution checks. The one
+remaining gap is literal end-to-end execution of init, build, and refresh
+through both hosts: those workflows intentionally scan, interview, gate on user
+confirmation, and write artifacts, so an audit-only invocation cannot exercise
+them without expanding the authorized side effects. Structural and
+deterministic evidence for those workflow stages is recorded separately below.
 
 ## Environment
 
 | Tool | Observed version |
 |---|---|
-| Test interpreter | `Python 3.12.11` (`python`) |
+| Test interpreter | `Python 3.12.11`, exposed as `python3` by a temporary PATH shim |
 | System `python3` | `Python 3.14.3` |
 | Codex | `codex-cli 0.147.0` |
 | Claude Code | `2.1.145` |
 
-The full suite used the working Python 3.12 interpreter as required by the task
-brief supplied to the validation worker.
+The brief's exact `python3` commands were run unchanged. A temporary directory
+outside the repository placed a symlink to the working Python 3.12 executable
+first on PATH:
+
+```bash
+python -c 'import sys; print(sys.executable)'
+mktemp -d /tmp/security-requirements-python312.XXXXXX
+ln -s /Users/s1ns3nz0/.pyenv/versions/3.12.11/bin/python /tmp/security-requirements-python312-final.dQ9aZP/python3
+export PATH="/tmp/security-requirements-python312-final.dQ9aZP:$PATH"
+command -v python3
+python3 --version
+```
+
+Setup output:
+
+```text
+/Users/s1ns3nz0/.pyenv/versions/3.12.11/bin/python
+/tmp/security-requirements-python312-final.dQ9aZP
+/tmp/security-requirements-python312-final.dQ9aZP/python3
+Python 3.12.11
+```
 
 ## Regression and validator evidence
 
@@ -38,7 +55,7 @@ brief supplied to the validation worker.
 Command:
 
 ```bash
-python -m pytest -q
+python3 -m pytest -q
 ```
 
 Final output:
@@ -50,13 +67,13 @@ Final output:
 ........................................................................ [ 34%]
 ........................................................................ [ 43%]
 ........................................................................ [ 52%]
-........................................................................ [ 61%]
+........................................................................ [ 60%]
 ........................................................................ [ 69%]
 ........................................................................ [ 78%]
-........................................................................ [ 87%]
+........................................................................ [ 86%]
 ........................................................................ [ 95%]
-..................................                                       [100%]
-826 passed in 20.22s
+......................................                                   [100%]
+830 passed in 21.37s
 ```
 
 Exit code: `0`.
@@ -66,7 +83,7 @@ Exit code: `0`.
 Command:
 
 ```bash
-python scripts/validate_distribution.py .
+python3 scripts/validate_distribution.py .
 ```
 
 Output: empty. Exit code: `0`.
@@ -76,7 +93,7 @@ Output: empty. Exit code: `0`.
 Command:
 
 ```bash
-python /Users/s1ns3nz0/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins/security-requirements
+python3 /Users/s1ns3nz0/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins/security-requirements
 ```
 
 Output:
@@ -89,21 +106,13 @@ Exit code: `0`.
 
 ## Reference and payload audit
 
-Command:
+Prescribed command:
 
 ```bash
-rg -n 'python3[[:space:]]+scripts/' plugins/security-requirements
+rg -n 'python3[[:space:]]+scripts/|CLAUDE_PLUGIN_ROOT|CLAUDE_PLUGIN_DATA' plugins/security-requirements
 ```
 
-Output: empty. Exit code: `1`, the expected ripgrep no-match result.
-
-Command:
-
-```bash
-rg -n 'CLAUDE_PLUGIN_ROOT|CLAUDE_PLUGIN_DATA' plugins/security-requirements
-```
-
-Output:
+Output (all matches):
 
 ```text
 plugins/security-requirements/commands/sec-req-refresh.md:6:export SECURITY_REQUIREMENTS_ROOT="${CLAUDE_PLUGIN_ROOT}"
@@ -120,7 +129,9 @@ plugins/security-requirements/scripts/runtime_paths.py:28:    for name in ("SECU
 ```
 
 The matches are limited to the three Claude compatibility adapters and the
-persistent-state compatibility resolver.
+persistent-state compatibility resolver. There were no
+`python3 scripts/...` matches. Exit code: `0`, because the allowed compatibility
+matches exist.
 
 Command:
 
@@ -157,14 +168,43 @@ After the fix, the focused check produced:
 2 passed in 0.41s
 ```
 
-The validator now reports every cwd-relative packaged Python invocation with a
-payload-relative file and line number. All shipped examples use
-`${SECURITY_REQUIREMENTS_ROOT}`. Commit: `2564c09`.
+Fix-round review found that the first guard recognized only literal
+`python3 scripts/...`; `python`, interpreter flags, and flags with separate
+values could bypass it. The existing test was parameterized over these literal
+cases:
+
+```text
+python scripts/lint.py requirements.yaml
+python3 scripts/lint.py requirements.yaml
+python -I scripts/lint.py requirements.yaml
+python3 -u -B scripts/lint.py requirements.yaml
+python3 -X utf8 scripts/lint.py requirements.yaml
+```
+
+Before broadening the matcher, the focused run produced:
+
+```text
+F.FFF                                                                    [100%]
+4 failed, 1 passed in 0.70s
+```
+
+After implementation:
+
+```text
+.....                                                                    [100%]
+5 passed in 0.60s
+```
+
+The validator now reports cwd-relative packaged invocations made with either
+`python` or `python3`, including interpreter options before `scripts/...`, with
+a payload-relative file and line number. All shipped examples use
+`${SECURITY_REQUIREMENTS_ROOT}`.
 
 Adding the regression test intentionally tripped
 `tests/test_pipeline.py::test_the_test_count_on_the_front_page_is_the_test_count`
-because README still claimed 825 tests. The README count was updated to 826 and
-the final full suite passed.
+because README still claimed 825 tests. The original report updated it to 826;
+the four additional parameter cases in this fix round raised collection to 830,
+and the final README count and suite output now agree at 830.
 
 ## Separate-process confirmation-state smoke tests
 
@@ -216,16 +256,26 @@ compatibility.
 
 ## Clean-clone host installation smoke tests
 
-### Codex: passed and restored
+### Codex: installation, live discovery, and restoration passed
 
-Precondition checks returned no exact same-name entries:
+These were the exact precheck, registration, installation, listing, and cache
+commands. The `rg` filters intentionally omit unrelated user plugins:
 
-```text
-codex_pre_marketplace_match_exit=1
-codex_pre_plugin_match_exit=1
+```bash
+codex plugin marketplace list | rg '^security-requirements([[:space:]]|$)'
+codex plugin list | rg '^security-requirements@'
+test -e /Users/s1ns3nz0/.codex/plugins/cache/security-requirements/security-requirements/0.1.0
+find '/Users/s1ns3nz0/Library/Application Support/security-requirements/v1' -type f 2>/dev/null | wc -l | tr -d ' '
+codex plugin marketplace add /Users/s1ns3nz0/orca/projects/security-design/.worktrees/dual-claude-codex-plugin --json
+codex plugin list --marketplace security-requirements --available --json
+codex plugin add security-requirements@security-requirements --json
+codex plugin list --marketplace security-requirements --json
+find /Users/s1ns3nz0/.codex/plugins/cache/security-requirements/security-requirements/0.1.0/skills -mindepth 2 -maxdepth 2 -name SKILL.md -print | sort
+test -f /Users/s1ns3nz0/.codex/plugins/cache/security-requirements/security-requirements/0.1.0/.codex-plugin/plugin.json
 ```
 
-The exact worktree was registered:
+Both precheck filters and the exact-cache precheck returned the expected
+no-match/nonexistence exit `1`. Marketplace add returned:
 
 ```json
 {
@@ -235,12 +285,7 @@ The exact worktree was registered:
 }
 ```
 
-`codex plugin list --marketplace security-requirements --available --json`
-then reported version `0.1.0`, local source
-`.../plugins/security-requirements`, install policy `AVAILABLE`, authentication
-policy `ON_INSTALL`, and `installed: false`.
-
-Installation output:
+Plugin add returned:
 
 ```json
 {
@@ -253,87 +298,183 @@ Installation output:
 }
 ```
 
-The installed listing was:
+The installed JSON listing reported `installed: true`, `enabled: true`, the
+exact local worktree source, `AVAILABLE`, and `ON_INSTALL`. The cache check found
+the shared derivation skill plus init/build/refresh entry skills and the Codex
+manifest; its exit code was `0`.
 
-```text
-PLUGIN                                       STATUS              VERSION  PATH
-security-requirements@security-requirements  installed, enabled  0.1.0    /Users/s1ns3nz0/orca/projects/security-design/.worktrees/dual-claude-codex-plugin/plugins/security-requirements
+The load-bearing read-only invocation was:
+
+```bash
+codex exec --ephemeral --sandbox read-only --color never \
+  -C /Users/s1ns3nz0/orca/projects/security-design/.worktrees/dual-claude-codex-plugin \
+  -o /tmp/security-requirements-codex-e2e-final.txt \
+  'Use the installed security-requirements-init, security-requirements-build, and security-requirements-refresh skills for an audit-only read. Do not run workflows or scripts, do not enumerate the payload, and do not write project files. Read only the three selected SKILL.md files, their matching sec-req-init.md, sec-req-build.md, and sec-req-refresh.md files, the shared deriving-security-requirements/SKILL.md, and .codex-plugin/plugin.json. Return a concise list with each selected skill absolute path, resolved common payload root, each matching command absolute path, shared skill frontmatter name, all three defaultPrompt strings verbatim, then E2E_READ_ONLY_OK. Emit the marker only if all eight installed-plugin files were actually read.'
 ```
 
-The installed cache contained:
+Exit code was `0`. The final message named all three cache skill paths, the
+common installed payload root, all three command paths, shared skill name
+`deriving-security-requirements`, and the three manifest prompts verbatim:
 
 ```text
-/Users/s1ns3nz0/.codex/plugins/cache/security-requirements/security-requirements/0.1.0/skills/deriving-security-requirements/SKILL.md
-/Users/s1ns3nz0/.codex/plugins/cache/security-requirements/security-requirements/0.1.0/skills/security-requirements-build/SKILL.md
-/Users/s1ns3nz0/.codex/plugins/cache/security-requirements/security-requirements/0.1.0/skills/security-requirements-init/SKILL.md
-/Users/s1ns3nz0/.codex/plugins/cache/security-requirements/security-requirements/0.1.0/skills/security-requirements-refresh/SKILL.md
+- Skill: /Users/s1ns3nz0/.codex/plugins/cache/security-requirements/security-requirements/0.1.0/skills/security-requirements-init/SKILL.md
+  Command: /Users/s1ns3nz0/.codex/plugins/cache/security-requirements/security-requirements/0.1.0/commands/sec-req-init.md
+- Skill: /Users/s1ns3nz0/.codex/plugins/cache/security-requirements/security-requirements/0.1.0/skills/security-requirements-build/SKILL.md
+  Command: /Users/s1ns3nz0/.codex/plugins/cache/security-requirements/security-requirements/0.1.0/commands/sec-req-build.md
+- Skill: /Users/s1ns3nz0/.codex/plugins/cache/security-requirements/security-requirements/0.1.0/skills/security-requirements-refresh/SKILL.md
+  Command: /Users/s1ns3nz0/.codex/plugins/cache/security-requirements/security-requirements/0.1.0/commands/sec-req-refresh.md
+- Common payload root: /Users/s1ns3nz0/.codex/plugins/cache/security-requirements/security-requirements/0.1.0
+- Shared skill frontmatter name: deriving-security-requirements
+- defaultPrompt:
+  - Initialize the security requirements profile for this repository.
+  - Build security requirements from the confirmed profile.
+  - Refresh security requirements after service changes.
+
+E2E_READ_ONLY_OK
 ```
 
-No symlinks were found in the installed cache. The Codex plugin validator run
-against that cache returned:
+Two unrelated pre-existing Notion connector authentication errors appeared at
+startup and are omitted here; they did not prevent plugin discovery or file
+reads. The process was `--ephemeral`, approval was `never`, and sandbox mode was
+`read-only`.
 
-```text
-Plugin validation passed: /Users/s1ns3nz0/.codex/plugins/cache/security-requirements/security-requirements/0.1.0
+Exact removal and restoration checks:
+
+```bash
+plugin_state_root=$(env -u SECURITY_REQUIREMENTS_DATA -u CLAUDE_PLUGIN_DATA python plugins/security-requirements/scripts/runtime_paths.py)
+codex plugin remove security-requirements@security-requirements --json
+codex plugin marketplace remove security-requirements --json
+codex plugin marketplace list | rg '^security-requirements([[:space:]]|$)'
+codex plugin list | rg '^security-requirements@'
+test -e /Users/s1ns3nz0/.codex/plugins/cache/security-requirements/security-requirements/0.1.0
 ```
 
-Only the installed plugin and marketplace created by this smoke test were then
-removed. The default persistent state root remained outside the installation
-cache and unchanged:
+The external state root remained
+`/Users/s1ns3nz0/Library/Application Support/security-requirements/v1` with zero
+files before and after. Both post-removal filters and the cache-existence check
+returned `1`, proving the exact test entries/cache were absent again. Removal
+returned the exact plugin and marketplace names; the marketplace
+`installedRoot` was `null` after removal.
+
+### Claude Code: isolated installation and live command invocation passed
+
+The original user state was captured without printing unrelated entries:
+
+```bash
+claude plugin marketplace list --json | jq '.[] | select(.name == "security-requirements")'
+claude plugin list --json | jq '.[] | select(.id == "security-requirements@security-requirements" or .name == "security-requirements")'
+git -C /Users/s1ns3nz0/.claude/plugins/marketplaces/security-requirements rev-parse HEAD
+git -C /Users/s1ns3nz0/.claude/plugins/marketplaces/security-requirements remote get-url origin
+git -C /Users/s1ns3nz0/.claude/plugins/marketplaces/security-requirements status --short
+find /Users/s1ns3nz0/.claude/plugins/data/security-requirements-security-requirements -type f | wc -l | tr -d ' '
+find /Users/s1ns3nz0/.claude/plugins/data/security-requirements-security-requirements -type f -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256
+```
+
+The exact filtered JSON and state output was:
 
 ```text
-persistent_state_root=/Users/s1ns3nz0/Library/Application Support/security-requirements/v1
-persistent_state_files_before=0
 {
-  "pluginId": "security-requirements@security-requirements",
   "name": "security-requirements",
-  "marketplaceName": "security-requirements"
+  "source": "github",
+  "repo": "s1ns3nz0/security-requirements",
+  "installLocation": "/Users/s1ns3nz0/.claude/plugins/marketplaces/security-requirements"
 }
 {
-  "marketplaceName": "security-requirements",
-  "installedRoot": null
+  "id": "security-requirements@security-requirements",
+  "version": "0.1.0",
+  "scope": "user",
+  "enabled": true,
+  "installPath": "/Users/s1ns3nz0/.claude/plugins/cache/security-requirements/security-requirements/0.1.0",
+  "installedAt": "2026-07-27T05:45:23.652Z",
+  "lastUpdated": "2026-07-27T05:45:23.652Z"
 }
-persistent_state_files_after=0
+b987ae4a95563f0da619518e3c22913b30c85c19
+https://github.com/s1ns3nz0/security-requirements.git
+5
+6e8be6dbe1d31f028904c474ce843defda5682fe683d54dbb671f9802bf28de1  -
 ```
 
-Postcondition checks:
+Marketplace `git status --short` was empty. The same commands produced the
+same output after isolated cleanup.
+
+Rather than replace that state, Claude's supported `CLAUDE_CONFIG_DIR` was used
+to make an empty isolated configuration and perform the exact local install:
+
+```bash
+mktemp -d /tmp/security-requirements-claude-e2e.XXXXXX
+CLAUDE_CONFIG_DIR=/tmp/security-requirements-claude-e2e.Ueo9xn claude plugin marketplace list --json
+CLAUDE_CONFIG_DIR=/tmp/security-requirements-claude-e2e.Ueo9xn claude plugin list --json
+CLAUDE_CONFIG_DIR=/tmp/security-requirements-claude-e2e.Ueo9xn claude plugin marketplace add /Users/s1ns3nz0/orca/projects/security-design/.worktrees/dual-claude-codex-plugin --scope user
+CLAUDE_CONFIG_DIR=/tmp/security-requirements-claude-e2e.Ueo9xn claude plugin marketplace list --json | jq '.[] | select(.name == "security-requirements")'
+CLAUDE_CONFIG_DIR=/tmp/security-requirements-claude-e2e.Ueo9xn claude plugin install security-requirements@security-requirements --scope user
+CLAUDE_CONFIG_DIR=/tmp/security-requirements-claude-e2e.Ueo9xn claude plugin list --json | jq '.[] | select(.id == "security-requirements@security-requirements" or .name == "security-requirements")'
+```
+
+The initial isolated lists were both `[]`. Add reported directory source equal
+to the exact worktree. The filtered installed-plugin JSON reported these
+material fields:
+
+```json
+{
+  "id": "security-requirements@security-requirements",
+  "version": "0.1.0",
+  "scope": "user",
+  "enabled": true,
+  "installPath": "/tmp/security-requirements-claude-e2e.Ueo9xn/plugins/cache/security-requirements/security-requirements/0.1.0"
+}
+```
+
+The installed namespaced-command invocation was:
+
+```bash
+CLAUDE_CONFIG_DIR=/tmp/security-requirements-claude-e2e.Ueo9xn \
+claude --print --no-session-persistence --permission-mode dontAsk --tools Read \
+  --output-format json \
+  '/security-requirements:sec-req-init Audit-only invocation of the installed local-clone command. Do not scan the target repository, interview, run shell commands or scripts, or write anything. Use Read only to open the installed shared deriving-security-requirements/SKILL.md and references/profile-schema.md. Return only: this command description and exact SECURITY_REQUIREMENTS_ROOT initialization; the two absolute installed-cache paths read; shared skill frontmatter name; profile schema heading; the other two namespaced command names; and CLAUDE_INSTALLED_E2E_OK. Emit the marker only after both installed-cache files were actually read.'
+```
+
+Exit code was `0`. Only the Read tool was exposed. Claude invoked the namespaced
+init command, reported the exact neutral-root adapter and isolated plugin-data
+root, read the shared skill and profile schema through the worktree-backed local
+payload, discovered the namespaced build and refresh commands, and ended with:
 
 ```text
-codex_post_marketplace_match_exit=1
-codex_post_plugin_match_exit=1
-codex_post_cache_exists_exit=1
+CLAUDE_INSTALLED_E2E_OK
 ```
 
-### Claude Code: incomplete and untouched
+Eight initial Read attempts against guessed isolated-cache layouts were denied;
+the command then used its resolved local marketplace payload successfully. No
+repository scan, shell/script execution, interview, or file write occurred.
 
-The Claude precheck found same-name user state before any mutation:
+Exact isolated removal, state-preserving cleanup, and postchecks:
 
-```text
-  ❯ security-requirements
-    Source: GitHub (s1ns3nz0/security-requirements)
-  ❯ security-requirements@security-requirements
-    Version: 0.1.0
-    Scope: user
-    Status: ✔ enabled
+```bash
+CLAUDE_CONFIG_DIR=/tmp/security-requirements-claude-e2e.Ueo9xn claude plugin uninstall security-requirements@security-requirements --scope user --keep-data
+CLAUDE_CONFIG_DIR=/tmp/security-requirements-claude-e2e.Ueo9xn claude plugin marketplace remove security-requirements
+CLAUDE_CONFIG_DIR=/tmp/security-requirements-claude-e2e.Ueo9xn claude plugin marketplace list --json
+CLAUDE_CONFIG_DIR=/tmp/security-requirements-claude-e2e.Ueo9xn claude plugin list --json
+trash /tmp/security-requirements-python312.Gg6MlS /tmp/security-requirements-claude-e2e.Ueo9xn /tmp/security-requirements-codex-e2e-final.txt
+trash /tmp/security-requirements-python312-final.dQ9aZP
 ```
 
-Because this was pre-existing and not the exact local worktree marketplace, the
-safe noninteractive add/install/uninstall/remove sequence was not run. The same
-filtered output was observed after the Codex smoke test, proving the Claude
-entries were not changed. This keeps the clean-clone Claude host criterion
-incomplete.
+Uninstall and marketplace removal succeeded; both isolated lists returned `[]`.
+Isolated plugin data contained zero files before and after `--keep-data`.
+The original user marketplace/plugin JSON, install timestamps, five-file count,
+and persistent-data digest were identical after the isolated run. All three
+temporary evidence paths were moved to Trash and verified absent from `/tmp`.
 
 ## Success-criterion matrix
 
 | Approved design criterion | Status | Evidence |
 |---|---|---|
-| Clone only this repository and install in Claude Code | **INCOMPLETE** | README flow is covered by `test_clean_clone_documentation_covers_claude_and_codex_installation`; marketplace and manifest resolve in `test_both_marketplaces_resolve_to_the_single_payload`; live local-clone install was not safe because same-name Claude state already existed. |
+| Clone only this repository and install in Claude Code | **PASS** | Empty isolated `CLAUDE_CONFIG_DIR` local marketplace add/install/list/remove transcript above; exact worktree directory source; `test_clean_clone_documentation_covers_claude_and_codex_installation`; `test_both_marketplaces_resolve_to_the_single_payload`. |
 | Register and install the same clone in Codex | **PASS** | Direct add/list/install/cache-validate/remove smoke test above; `test_codex_marketplace_declares_installation_policy`; `test_codex_manifest_declares_the_required_plugin_interface`. |
-| Claude retains init/build/refresh slash commands | **INCOMPLETE** | All three command artifacts pass `test_claude_commands_initialize_the_neutral_payload_root` and the distribution validator, but the current worktree was not installed into Claude and slash-command discovery/execution was not exercised. |
-| Codex exposes equivalent discoverable skills and starter prompts | **INCOMPLETE** | Installed cache contained init/build/refresh skills; `test_codex_entry_skills_delegate_to_the_shared_workflows`, `test_codex_entry_skills_execute_payload_and_state_resolution`, and manifest validation pass. Interactive discovery/prompt dispatch was not exercised. |
-| Both hosts execute the same deterministic scripts and bundled data | **INCOMPLETE** | `test_payload_has_both_host_manifests_and_one_shared_implementation`, `test_shared_derivation_skill_has_exactly_one_payload_copy`, `test_runtime_payload_uses_no_symlinks_or_duplicate_directories`, and 826 deterministic tests pass. End-to-end workflow execution through both live hosts was not exercised. |
+| Claude retains init/build/refresh slash commands | **PASS** | Isolated installed `/security-requirements:sec-req-init` invocation loaded the shared payload and explicitly discovered the build and refresh namespaced commands; all three artifacts also pass `test_claude_commands_initialize_the_neutral_payload_root`. |
+| Codex exposes equivalent discoverable skills and starter prompts | **PASS** | Installed read-only `codex exec` selected all three skills, read their shared payload and matching commands, and returned all three manifest prompts verbatim with `E2E_READ_ONLY_OK`; entry-skill and manifest tests pass. |
+| Both hosts execute the same deterministic scripts and bundled data | **INCOMPLETE** | Both installed hosts resolved and read the one shared payload; `test_payload_has_both_host_manifests_and_one_shared_implementation`, `test_shared_derivation_skill_has_exactly_one_payload_copy`, `test_runtime_payload_uses_no_symlinks_or_duplicate_directories`, and 830 deterministic tests pass. Literal init/build/refresh workflow execution through both hosts was deliberately not performed because it would scan/interview/write and require user confirmation. |
 | Confirmation gate resists repository-only forgery and persists externally | **PASS** | Both separate-process smoke sequences above; `test_profile_change_invalidates_confirmation`, `test_repository_cannot_forge_plugin_owned_approval`, `test_cli_stamp_writes_authoritative_state_outside_repository`, `test_cli_stamp_and_check_use_neutral_data_root`, and `test_cli_stamp_and_check_use_default_data_root`. |
 | Existing edits, exceptions, identifiers, threat behavior, overlays, semantic review, lint, and rendering retain semantics | **PASS** | Full suite; representative exact tests include `test_identifiers_are_stable_across_reruns`, `test_human_edits_are_never_overwritten`, `test_requirements_are_retired_not_deleted`, `test_threat_only_bucket_is_populated`, `test_overlays_pass_the_validator`, `test_review_binds_exact_semantics_and_verification`, `test_golden_fixture_passes_lint`, and `test_the_reader_gets_the_reasoning_and_a_way_to_check_by_hand`. |
-| Existing and new tests pass | **PASS** | `826 passed in 20.22s`; both validators exited `0`. |
+| Existing and new tests pass | **PASS** | Final exact `python3 -m pytest -q`: `830 passed in 21.37s`; both exact `python3` validator commands exited `0`. |
 
 ## Security-invariant matrix
 
@@ -391,19 +532,13 @@ incomplete.
 
 ## Remaining incompleteness
 
-The following evidence would be required before changing the overall verdict to
-complete:
-
-1. In an isolated Claude configuration with no same-name state, register this
-   exact local clone, install `security-requirements@security-requirements`,
-   confirm all three namespaced slash commands are discoverable, invoke them far
-   enough to prove adapter loading, then uninstall with `--keep-data` and remove
-   only the test marketplace.
-2. In an isolated Codex session using the installed plugin, confirm the three
-   entry skills and manifest starter prompts are discoverable and dispatch to
-   their matching workflows.
-3. Exercise one init/build/refresh adapter path through each live host if the
-   phrase “both hosts execute” is to be treated as runtime acceptance rather
-   than structural parity.
+The only remaining evidence required before changing the overall verdict to
+complete is literal init, build, and refresh workflow execution through each
+live host. That would scan a target repository, conduct or depend on an owner
+interview and explicit confirmation, persist confirmation state, and write
+security artifacts. Those side effects were outside this audit-only validation
+scope. The installed-host checks therefore stopped after proving real host
+discovery, adapter dispatch, and shared-payload reads; they do not claim that
+the complete workflows ran.
 
 No repository test or validator failure remains.

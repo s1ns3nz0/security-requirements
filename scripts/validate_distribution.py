@@ -26,7 +26,11 @@ PATH_FIELD_NAMES = {
 }
 INLINE_OR_PATH_FIELDS = {"hooks", "mcpservers", "lspservers"}
 TEXT_PAYLOAD_SUFFIXES = {".json", ".md", ".py", ".toml", ".yaml", ".yml"}
-CWD_RELATIVE_SCRIPT_INVOCATION = re.compile(r"python3[ \t]+scripts/")
+CWD_RELATIVE_SCRIPT_INVOCATION = re.compile(
+    r"(?<![\w./-])python3?"
+    r"(?:(?:[ \t]+-[^ \t]+)(?:[ \t]+(?!(?:scripts/))[^- \t][^ \t]*)?)*"
+    r"[ \t]+[\"']?scripts/"
+)
 
 
 def _read_json(path: Path, errors: list[str]) -> dict:

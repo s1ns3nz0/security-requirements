@@ -115,12 +115,24 @@ def test_distribution_validator_accepts_the_repository_and_is_read_only(tmp_path
     assert result.stderr == ""
 
 
-def test_distribution_validator_rejects_cwd_relative_payload_script_invocations(tmp_path):
+@pytest.mark.parametrize(
+    "invocation",
+    (
+        "python scripts/lint.py requirements.yaml",
+        "python3 scripts/lint.py requirements.yaml",
+        "python -I scripts/lint.py requirements.yaml",
+        "python3 -u -B scripts/lint.py requirements.yaml",
+        "python3 -X utf8 scripts/lint.py requirements.yaml",
+    ),
+)
+def test_distribution_validator_rejects_cwd_relative_payload_script_invocations(
+    tmp_path, invocation
+):
     module = _load_validator()
     clone = tmp_path / "clone"
     shutil.copytree(REPO_ROOT, clone, ignore=shutil.ignore_patterns(".git", ".pytest_cache", "__pycache__"))
     stale_example = clone / "plugins" / PLUGIN_NAME / "skills" / "stale-example.md"
-    stale_example.write_text("python3 scripts/lint.py requirements.yaml\n", encoding="utf-8")
+    stale_example.write_text(f"{invocation}\n", encoding="utf-8")
 
     errors = module.validate(clone)
     assert any(
