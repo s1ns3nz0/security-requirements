@@ -15,6 +15,24 @@ CODEX_ENTRY_SKILLS = {
     for workflow in ("init", "build", "refresh")
 }
 
+CODEX_ROOT_INITIALIZATION = '''SECURITY_REQUIREMENTS_SKILL_PATH="<absolute path of this selected SKILL.md>"
+SECURITY_REQUIREMENTS_ROOT="$(
+  python3 -c 'from pathlib import Path; import sys; path=Path(sys.argv[1]).expanduser(); path.is_absolute() or sys.exit("selected SKILL.md path must be absolute"); print(path.resolve().parent.parent.parent)' \\
+    "${SECURITY_REQUIREMENTS_SKILL_PATH}"
+)" || exit
+export SECURITY_REQUIREMENTS_ROOT'''
+
+STATE_INITIALIZATION = """if [ -z "${SECURITY_REQUIREMENTS_DATA:-}" ]; then
+  SECURITY_REQUIREMENTS_DATA="$(
+    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/runtime_paths.py"
+  )" || exit
+  export SECURITY_REQUIREMENTS_DATA
+fi"""
+
+PAYLOAD_VALIDATION = '''test -f "${SECURITY_REQUIREMENTS_ROOT}/scripts/runtime_paths.py" || exit
+test -f "${SECURITY_REQUIREMENTS_ROOT}/scripts/select_baseline.py" || exit
+test -d "${SECURITY_REQUIREMENTS_ROOT}/catalogs" || exit'''
+
 
 def read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -93,15 +111,12 @@ def test_codex_entry_skills_delegate_to_the_shared_workflows():
     assert len(names) == len(set(names))
 
 
-def test_codex_entry_skills_resolve_immutable_payload_and_external_state():
+def test_codex_entry_skills_execute_payload_and_state_resolution():
     for path in CODEX_ENTRY_SKILLS.values():
         text = path.read_text(encoding="utf-8")
-        assert "absolute path of this selected `SKILL.md`" in text
-        assert "`../..`" in text
-        assert "SECURITY_REQUIREMENTS_ROOT" in text
-        assert "immutable" in text
-        assert "runtime_paths.py" in text
-        assert "plugin_data_root" in text
+        assert CODEX_ROOT_INITIALIZATION in text
+        assert PAYLOAD_VALIDATION in text
+        assert STATE_INITIALIZATION in text
         assert "Do not derive either path from the current working directory" in text
 
 
@@ -113,7 +128,14 @@ def test_codex_entry_skills_preserve_confirmation_and_do_not_copy_pipeline():
         assert "--stamp" in text
         assert "--check" in text
         assert "Do not execute its Claude-only initialization block" in text
-        assert "${SECURITY_REQUIREMENTS_ROOT}/scripts/" not in text
+        script_references = re.findall(
+            r"\$\{SECURITY_REQUIREMENTS_ROOT\}/scripts/([a-z_]+\.py)", text
+        )
+        assert script_references == [
+            "runtime_paths.py",
+            "select_baseline.py",
+            "runtime_paths.py",
+        ]
 
 
 def test_payload_excludes_mcp_app_and_hook_components():

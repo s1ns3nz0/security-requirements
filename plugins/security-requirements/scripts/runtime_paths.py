@@ -44,3 +44,18 @@ def plugin_data_root(
         if base is None:
             base = Path.home() / ".local" / "state"
     return base.expanduser() / "security-requirements" / "v1"
+
+
+def main() -> int:
+    """Print the canonical persistent-state root for shell adapters."""
+    try:
+        root = plugin_data_root().resolve()
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        return 1
+    print(root)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

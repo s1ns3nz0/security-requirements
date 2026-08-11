@@ -1,5 +1,7 @@
 import copy
+import os
 from pathlib import Path
+import subprocess
 import sys
 
 import pytest
@@ -70,6 +72,47 @@ def test_default_data_root_is_external_and_stable(tmp_path, monkeypatch):
     assert runtime_paths.plugin_data_root(platform="linux") == expected
     assert runtime_paths.plugin_data_root(platform="linux") == expected
     assert not expected.exists()
+
+
+def test_runtime_paths_cli_prints_resolved_external_default(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    home = tmp_path / "home"
+    state_home = tmp_path / "state" / ".." / "external-state"
+    env = os.environ.copy()
+    env.pop("SECURITY_REQUIREMENTS_DATA", None)
+    env.pop("CLAUDE_PLUGIN_DATA", None)
+    env["HOME"] = str(home)
+    if sys.platform.startswith("win"):
+        env["LOCALAPPDATA"] = str(state_home)
+        expected = state_home / "security-requirements" / "v1"
+    elif sys.platform == "darwin":
+        expected = (
+            home
+            / "Library"
+            / "Application Support"
+            / "security-requirements"
+            / "v1"
+        )
+    else:
+        env["XDG_STATE_HOME"] = str(state_home)
+        expected = state_home / "security-requirements" / "v1"
+    expected = expected.resolve()
+
+    result = subprocess.run(
+        [sys.executable, str(PLUGIN_ROOT / "scripts" / "runtime_paths.py")],
+        cwd=project,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert Path(result.stdout.strip()) == expected
+    assert expected.is_absolute()
+    assert not expected.is_relative_to(project)
 
 
 def test_macos_data_root_uses_application_support(tmp_path, monkeypatch):

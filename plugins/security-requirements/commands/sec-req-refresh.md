@@ -7,6 +7,12 @@ export SECURITY_REQUIREMENTS_ROOT="${CLAUDE_PLUGIN_ROOT}"
 if [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
   export SECURITY_REQUIREMENTS_DATA="${CLAUDE_PLUGIN_DATA}"
 fi
+if [ -z "${SECURITY_REQUIREMENTS_DATA:-}" ]; then
+  SECURITY_REQUIREMENTS_DATA="$(
+    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/runtime_paths.py"
+  )" || exit
+  export SECURITY_REQUIREMENTS_DATA
+fi
 ```
 
 Re-runs the derivation against the current state of the repository while

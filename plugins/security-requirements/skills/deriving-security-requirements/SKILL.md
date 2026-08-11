@@ -5,6 +5,33 @@ description: Use when a service needs security requirements defined for a compli
 
 # Deriving security requirements
 
+## Runtime bootstrap
+
+Before using any bundled resource, replace the placeholder below with the
+absolute path supplied by the loader for this selected `SKILL.md`. Resolve the
+payload as `../..` from the skill directory; never derive it from the current
+working directory.
+
+```bash
+if [ -z "${SECURITY_REQUIREMENTS_ROOT:-}" ]; then
+  SECURITY_REQUIREMENTS_SKILL_PATH="<absolute path of this selected SKILL.md>"
+  SECURITY_REQUIREMENTS_ROOT="$(
+    python3 -c 'from pathlib import Path; import sys; path=Path(sys.argv[1]).expanduser(); path.is_absolute() or sys.exit("selected SKILL.md path must be absolute"); print(path.resolve().parent.parent.parent)' \
+      "${SECURITY_REQUIREMENTS_SKILL_PATH}"
+  )" || exit
+  export SECURITY_REQUIREMENTS_ROOT
+fi
+test -f "${SECURITY_REQUIREMENTS_ROOT}/scripts/runtime_paths.py" || exit
+test -f "${SECURITY_REQUIREMENTS_ROOT}/scripts/select_baseline.py" || exit
+test -d "${SECURITY_REQUIREMENTS_ROOT}/catalogs" || exit
+if [ -z "${SECURITY_REQUIREMENTS_DATA:-}" ]; then
+  SECURITY_REQUIREMENTS_DATA="$(
+    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/runtime_paths.py"
+  )" || exit
+  export SECURITY_REQUIREMENTS_DATA
+fi
+```
+
 Most security tooling is **discovery**: read the code, find the flaw. This is
 **prescription**: say what the service must satisfy, before or independently of
 any code existing.

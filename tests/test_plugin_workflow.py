@@ -16,6 +16,26 @@ if [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
   export SECURITY_REQUIREMENTS_DATA="${CLAUDE_PLUGIN_DATA}"
 fi"""
 
+STATE_INITIALIZATION = """if [ -z "${SECURITY_REQUIREMENTS_DATA:-}" ]; then
+  SECURITY_REQUIREMENTS_DATA="$(
+    python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/runtime_paths.py"
+  )" || exit
+  export SECURITY_REQUIREMENTS_DATA
+fi"""
+
+SHARED_ROOT_INITIALIZATION = """if [ -z "${SECURITY_REQUIREMENTS_ROOT:-}" ]; then
+  SECURITY_REQUIREMENTS_SKILL_PATH="<absolute path of this selected SKILL.md>"
+  SECURITY_REQUIREMENTS_ROOT="$(
+    python3 -c 'from pathlib import Path; import sys; path=Path(sys.argv[1]).expanduser(); path.is_absolute() or sys.exit("selected SKILL.md path must be absolute"); print(path.resolve().parent.parent.parent)' \\
+      "${SECURITY_REQUIREMENTS_SKILL_PATH}"
+  )" || exit
+  export SECURITY_REQUIREMENTS_ROOT
+fi"""
+
+PAYLOAD_VALIDATION = '''test -f "${SECURITY_REQUIREMENTS_ROOT}/scripts/runtime_paths.py" || exit
+test -f "${SECURITY_REQUIREMENTS_ROOT}/scripts/select_baseline.py" || exit
+test -d "${SECURITY_REQUIREMENTS_ROOT}/catalogs" || exit'''
+
 
 def workflow_text() -> str:
     return "\n".join(path.read_text(encoding="utf-8") for path in [*COMMANDS, SKILL])
@@ -44,6 +64,27 @@ def test_claude_commands_initialize_the_neutral_payload_root():
         assert text.index(CLAUDE_INITIALIZATION) < text.index(
             "${SECURITY_REQUIREMENTS_ROOT}/"
         )
+
+
+def test_claude_commands_bind_external_state_with_the_runtime_helper():
+    for command in COMMANDS:
+        text = command.read_text(encoding="utf-8")
+        assert f"{CLAUDE_INITIALIZATION}\n{STATE_INITIALIZATION}" in text
+
+
+def test_shared_skill_bootstraps_payload_and_state_before_resource_use():
+    text = SKILL.read_text(encoding="utf-8")
+    assert SHARED_ROOT_INITIALIZATION in text
+    assert PAYLOAD_VALIDATION in text
+    assert STATE_INITIALIZATION in text
+    bootstrap_position = text.index(SHARED_ROOT_INITIALIZATION)
+    workflow_position = text.index(
+        "${SECURITY_REQUIREMENTS_ROOT}/skills/deriving-security-requirements/"
+        "references/repository-trust.md"
+    )
+    assert bootstrap_position < workflow_position
+    assert "CLAUDE_PLUGIN_ROOT" not in text
+    assert "CLAUDE_PLUGIN_DATA" not in text
 
 
 def test_bundled_references_are_rooted_at_plugin_installation():
@@ -114,7 +155,9 @@ def test_profile_confirmation_is_persisted_and_enforced():
     ).read_text(encoding="utf-8")
 
     write_position = init.index("Write `.security-requirements/profile.yaml`")
-    derive_position = init.index("/scripts/select_baseline.py")
+    derive_position = init.index(
+        'python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/select_baseline.py"'
+    )
     assert write_position < derive_position
     assert '/scripts/confirmation.py" --stamp' in init
     assert '/scripts/confirmation.py" --check' in build
@@ -124,7 +167,7 @@ def test_profile_confirmation_is_persisted_and_enforced():
 def test_refresh_rebuilds_and_republishes_the_complete_pipeline():
     refresh = host_workflow_text("refresh")
     ordered = (
-        '/scripts/select_baseline.py"',
+        'python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/select_baseline.py"',
         '/scripts/classify_resp.py"',
         '/scripts/merge.py" --cross',
         '/scripts/merge.py" --apply',
@@ -139,7 +182,9 @@ def test_refresh_rebuilds_and_republishes_the_complete_pipeline():
     assert "forces_requirements" in refresh
     assert '/scripts/confirmation.py" --stamp' in refresh
     assert '/scripts/confirmation.py" --check' in refresh
-    assert refresh.index('/scripts/select_baseline.py"') < refresh.index(
+    assert refresh.index(
+        'python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/select_baseline.py"'
+    ) < refresh.index(
         '/scripts/confirmation.py" --stamp'
     )
     assert refresh.index('/scripts/apply_overlay.py"') < refresh.index(
