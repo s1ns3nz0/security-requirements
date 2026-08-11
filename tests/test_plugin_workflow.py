@@ -6,10 +6,27 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 ROOT = REPO_ROOT / "plugins" / "security-requirements"
 COMMANDS = sorted((ROOT / "commands").glob("*.md"))
 SKILL = ROOT / "skills" / "deriving-security-requirements" / "SKILL.md"
+ENTRY_SKILLS = {
+    workflow: ROOT / "skills" / f"security-requirements-{workflow}" / "SKILL.md"
+    for workflow in ("init", "build", "refresh")
+}
+
+CLAUDE_INITIALIZATION = """export SECURITY_REQUIREMENTS_ROOT="${CLAUDE_PLUGIN_ROOT}"
+if [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
+  export SECURITY_REQUIREMENTS_DATA="${CLAUDE_PLUGIN_DATA}"
+fi"""
 
 
 def workflow_text() -> str:
     return "\n".join(path.read_text(encoding="utf-8") for path in [*COMMANDS, SKILL])
+
+
+def host_workflow_text(workflow: str) -> str:
+    command = ROOT / "commands" / f"sec-req-{workflow}.md"
+    return "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (ENTRY_SKILLS[workflow], command, SKILL)
+    )
 
 
 def test_bundled_scripts_are_rooted_at_plugin_installation():
@@ -23,7 +40,10 @@ def test_claude_commands_initialize_the_neutral_payload_root():
     assert len(COMMANDS) == 3
     for command in COMMANDS:
         text = command.read_text(encoding="utf-8")
-        assert 'SECURITY_REQUIREMENTS_ROOT="${CLAUDE_PLUGIN_ROOT}"' in text
+        assert CLAUDE_INITIALIZATION in text
+        assert text.index(CLAUDE_INITIALIZATION) < text.index(
+            "${SECURITY_REQUIREMENTS_ROOT}/"
+        )
 
 
 def test_bundled_references_are_rooted_at_plugin_installation():
@@ -83,8 +103,8 @@ def test_repository_scan_loads_the_untrusted_input_policy():
 
 
 def test_profile_confirmation_is_persisted_and_enforced():
-    init = (ROOT / "commands" / "sec-req-init.md").read_text(encoding="utf-8")
-    build = (ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
+    init = host_workflow_text("init")
+    build = host_workflow_text("build")
     schema = (
         ROOT
         / "skills"
@@ -102,7 +122,7 @@ def test_profile_confirmation_is_persisted_and_enforced():
 
 
 def test_refresh_rebuilds_and_republishes_the_complete_pipeline():
-    refresh = (ROOT / "commands" / "sec-req-refresh.md").read_text(encoding="utf-8")
+    refresh = host_workflow_text("refresh")
     ordered = (
         '/scripts/select_baseline.py"',
         '/scripts/classify_resp.py"',
@@ -128,14 +148,14 @@ def test_refresh_rebuilds_and_republishes_the_complete_pipeline():
 
 
 def test_build_lints_requirement_threat_references():
-    build = (ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
+    build = host_workflow_text("build")
     lint_command = build[build.index('/scripts/lint.py"') :]
     lint_command = lint_command[: lint_command.index("```")]
     assert "--threats .security-requirements/threats.yaml" in lint_command
 
 
 def test_workflow_documents_the_independent_semantic_gate():
-    build = (ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
+    build = host_workflow_text("build")
     style = (
         ROOT
         / "skills"

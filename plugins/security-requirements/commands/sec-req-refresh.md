@@ -2,6 +2,13 @@
 description: Re-derive requirements after the service changed, preserving human edits and exception approvals
 ---
 
+```bash
+export SECURITY_REQUIREMENTS_ROOT="${CLAUDE_PLUGIN_ROOT}"
+if [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
+  export SECURITY_REQUIREMENTS_DATA="${CLAUDE_PLUGIN_DATA}"
+fi
+```
+
 Re-runs the derivation against the current state of the repository while
 protecting everything a person wrote.
 
@@ -39,7 +46,7 @@ it again.
 ## 2. Re-derive
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/select_baseline.py" \
+python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/select_baseline.py" \
     .security-requirements/profile.yaml \
     --json .security-requirements/controls.json
 ```
@@ -49,16 +56,16 @@ invalidates its stored digest. After explicit confirmation, persist the approval
 in plugin-owned state and enforce it:
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/confirmation.py" --stamp \
+python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/confirmation.py" --stamp \
     .security-requirements/profile.yaml --by user
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/confirmation.py" --check \
+python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/confirmation.py" --check \
     .security-requirements/profile.yaml
 ```
 
 Only then continue:
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/classify_resp.py" \
+python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/classify_resp.py" \
     .security-requirements/profile.yaml \
     .security-requirements/controls.json \
     --json .security-requirements/responsibility.json
@@ -74,7 +81,7 @@ types even when no threat matches them.
 ## 3. Cross, author, and merge
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/merge.py" --cross \
+python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/merge.py" --cross \
     --controls .security-requirements/controls.json \
     --responsibility .security-requirements/responsibility.json \
     --threats .security-requirements/threats.yaml \
@@ -86,7 +93,7 @@ overlay-standalone and `forces_requirements` work. Do not reuse the old draft
 unchanged.
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/merge.py" --apply \
+python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/merge.py" --apply \
     --draft .security-requirements/draft.json \
     --existing .security-requirements/requirements.yaml \
     --state .security-requirements/state.yaml
@@ -102,7 +109,7 @@ exception approval that references it silently starts pointing somewhere else.
 locale=$(python3 -c "import yaml,sys; print((yaml.safe_load(open(sys.argv[1])) or {}).get('locale','en'))" \
     .security-requirements/profile.yaml)
 
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/lint.py" \
+python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/lint.py" \
     .security-requirements/requirements.yaml \
     --threats .security-requirements/threats.yaml --locale "$locale"
 ```
@@ -110,7 +117,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/lint.py" \
 Re-run every applicable overlay against the written document:
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/apply_overlay.py" <overlay-id> \
+python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/apply_overlay.py" <overlay-id> \
     .security-requirements/profile.yaml \
     .security-requirements/controls.json \
     --requirements .security-requirements/requirements.yaml \
@@ -120,7 +127,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/apply_overlay.py" <overlay-id> \
 Only after every overlay succeeds, publish:
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/render.py" \
+python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/render.py" \
     .security-requirements/requirements.yaml --out docs/security/
 ```
 

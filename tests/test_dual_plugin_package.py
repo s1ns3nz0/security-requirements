@@ -7,6 +7,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_ROOT = REPO_ROOT / "plugins" / "security-requirements"
 RUNTIME_DIRECTORIES = ("scripts", "catalogs", "overlays", "responsibility")
 SHARED_DERIVATION_SKILL = Path("skills") / "deriving-security-requirements"
+CODEX_ENTRY_SKILLS = {
+    workflow: PLUGIN_ROOT
+    / "skills"
+    / f"security-requirements-{workflow}"
+    / "SKILL.md"
+    for workflow in ("init", "build", "refresh")
+}
 
 
 def read_json(path: Path) -> dict:
@@ -60,6 +67,53 @@ def test_shared_derivation_skill_has_exactly_one_payload_copy():
     assert locations == [
         Path("plugins") / PLUGIN_ROOT.name / SHARED_DERIVATION_SKILL
     ]
+
+
+def test_codex_entry_skills_delegate_to_the_shared_workflows():
+    names = []
+    for workflow, path in CODEX_ENTRY_SKILLS.items():
+        assert path.is_file()
+        text = path.read_text(encoding="utf-8")
+        expected_name = f"security-requirements-{workflow}"
+        names.append(re.search(r"(?m)^name: ([a-z0-9-]+)$", text).group(1))
+
+        assert f"name: {expected_name}" in text
+        assert re.search(r"(?m)^description: Use when .+", text)
+        assert (
+            "${SECURITY_REQUIREMENTS_ROOT}/skills/"
+            "deriving-security-requirements/SKILL.md"
+        ) in text
+        assert (
+            f"${{SECURITY_REQUIREMENTS_ROOT}}/commands/sec-req-{workflow}.md"
+        ) in text
+
+    assert names == [
+        f"security-requirements-{workflow}" for workflow in CODEX_ENTRY_SKILLS
+    ]
+    assert len(names) == len(set(names))
+
+
+def test_codex_entry_skills_resolve_immutable_payload_and_external_state():
+    for path in CODEX_ENTRY_SKILLS.values():
+        text = path.read_text(encoding="utf-8")
+        assert "absolute path of this selected `SKILL.md`" in text
+        assert "`../..`" in text
+        assert "SECURITY_REQUIREMENTS_ROOT" in text
+        assert "immutable" in text
+        assert "runtime_paths.py" in text
+        assert "plugin_data_root" in text
+        assert "Do not derive either path from the current working directory" in text
+
+
+def test_codex_entry_skills_preserve_confirmation_and_do_not_copy_pipeline():
+    for path in CODEX_ENTRY_SKILLS.values():
+        text = path.read_text(encoding="utf-8")
+        assert "stop and wait" in text
+        assert "explicit user confirmation" in text
+        assert "--stamp" in text
+        assert "--check" in text
+        assert "Do not execute its Claude-only initialization block" in text
+        assert "${SECURITY_REQUIREMENTS_ROOT}/scripts/" not in text
 
 
 def test_payload_excludes_mcp_app_and_hook_components():

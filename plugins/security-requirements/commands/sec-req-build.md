@@ -2,25 +2,32 @@
 description: Derive security requirements from a confirmed profile - threat model, responsibility split, requirement authoring
 ---
 
+```bash
+export SECURITY_REQUIREMENTS_ROOT="${CLAUDE_PLUGIN_ROOT}"
+if [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
+  export SECURITY_REQUIREMENTS_DATA="${CLAUDE_PLUGIN_DATA}"
+fi
+```
+
 Requires a confirmed `.security-requirements/profile.yaml`. If it does not
 exist, or the gate was not passed, run `/sec-req-init` first.
 
 Enforce the persisted gate before doing any work:
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/confirmation.py" --check \
+python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/confirmation.py" --check \
     .security-requirements/profile.yaml
 ```
 
 A missing, incomplete, or stale confirmation is a blocker. Do not infer
 approval from conversation history or trust a confirmation block stored only in
 the repository. `--check` requires its matching plugin-owned record under
-`${CLAUDE_PLUGIN_DATA}`.
+`${SECURITY_REQUIREMENTS_DATA}`.
 
 ## 1. Threat model
 
 Follow
-`${CLAUDE_PLUGIN_ROOT}/skills/deriving-security-requirements/references/threat-modeling.md`.
+`${SECURITY_REQUIREMENTS_ROOT}/skills/deriving-security-requirements/references/threat-modeling.md`.
 
 Build the DFD first. Threats listed without a structure are recalled, not
 derived, and recalled threats are the ones the baseline already covers.
@@ -37,7 +44,7 @@ Write `.security-requirements/threats.yaml`.
 ## 2. Responsibility split
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/classify_resp.py" \
+python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/classify_resp.py" \
     .security-requirements/profile.yaml \
     .security-requirements/controls.json \
     --json .security-requirements/responsibility.json
@@ -45,14 +52,14 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/classify_resp.py" \
 
 Read the uncurated service list from the output. Those need model judgement:
 for each, produce a draft mapping and write it to
-`${CLAUDE_PLUGIN_DATA}/responsibility/services/<id>.yaml` with
+`${SECURITY_REQUIREMENTS_DATA}/responsibility/services/<id>.yaml` with
 `reviewed: false`. Plugin data persists across plugin upgrades; the installed
 plugin directory does not. It is shown as unverified wherever it appears.
 
 ## 3. Regulatory overlay, where one applies
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/apply_overlay.py" pipa-isms-p \
+python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/apply_overlay.py" pipa-isms-p \
     .security-requirements/profile.yaml \
     .security-requirements/controls.json \
     --json .security-requirements/overlay.json
@@ -69,7 +76,7 @@ when you carry it into the document.
 ## 4. Cross and prioritise
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/merge.py" --cross \
+python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/merge.py" --cross \
     --controls .security-requirements/controls.json \
     --responsibility .security-requirements/responsibility.json \
     --threats .security-requirements/threats.yaml \
@@ -83,7 +90,7 @@ baseline.
 ## 5. Write the requirements
 
 Follow
-`${CLAUDE_PLUGIN_ROOT}/skills/deriving-security-requirements/references/requirement-style.md`.
+`${SECURITY_REQUIREMENTS_ROOT}/skills/deriving-security-requirements/references/requirement-style.md`.
 Verifiable, atomic, property not
 implementation.
 
@@ -99,7 +106,7 @@ where no threat matched them.
 ## 6. Merge and render
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/merge.py" --apply \
+python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/merge.py" --apply \
     --draft .security-requirements/draft.json \
     --existing .security-requirements/requirements.yaml \
     --state .security-requirements/state.yaml
@@ -128,11 +135,11 @@ built for a Korean regime came to be unable to publish a Korean document.
 locale=$(python3 -c "import yaml,sys; print((yaml.safe_load(open(sys.argv[1])) or {}).get('locale','en'))" \
     .security-requirements/profile.yaml)
 
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/lint.py" --locale "$locale" \
+python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/lint.py" --locale "$locale" \
     .security-requirements/requirements.yaml \
     --threats .security-requirements/threats.yaml
 
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/render.py" \
+python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/render.py" \
     .security-requirements/requirements.yaml \
     --out docs/security/
 ```
@@ -148,7 +155,7 @@ which controls the tailoring selected. Now that `requirements.yaml` is written,
 run each applicable overlay again with the document and the work list:
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/apply_overlay.py" pipa-isms-p \
+python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/apply_overlay.py" pipa-isms-p \
     .security-requirements/profile.yaml \
     .security-requirements/controls.json \
     --requirements .security-requirements/requirements.yaml \
@@ -172,7 +179,7 @@ as described in the requirement style reference. Before making any semantic
 coverage claim, run:
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/semantic_review.py" --check \
+python3 "${SECURITY_REQUIREMENTS_ROOT}/scripts/semantic_review.py" --check \
     .security-requirements/requirements.yaml
 ```
 
