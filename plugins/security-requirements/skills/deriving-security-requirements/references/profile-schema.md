@@ -60,7 +60,8 @@ Render questions in the profile `locale`. Wording below is illustrative.
 
 > Select everything that applies.
 
-Present the `types` list from `catalogs/data-types/classification.yaml`. For
+Present the `types` list from
+`<exact absolute plugin root>/catalogs/data-types/classification.yaml`. For
 each selection, follow up on modifiers ("do you hold the card number itself, or
 only a PSP token?").
 
@@ -94,7 +95,8 @@ card-number one.
 > And how much data may be lost?
 
 Present `rto_buckets` and `rpo_buckets` from
-`catalogs/data-types/availability.yaml`, then `amplifiers` as a multi-select.
+`<exact absolute plugin root>/catalogs/data-types/availability.yaml`, then
+`amplifiers` as a multi-select.
 
 - **Consumed by**: availability derivation, backup and recovery requirements
 - **Note**: `safety_critical` sets availability to High regardless of the other
@@ -241,7 +243,7 @@ inferred:
       evidence: "infra/storage.tf:12"
     - id: aws-bedrock
       evidence: "src/llm/client.ts:8"
-      curated: false              # no responsibility/services file -> unverified
+      curated: false              # no trusted curation record -> unverified
   stack: [typescript, node20]
   auth_mechanism: oidc_cognito
   entrypoints:
@@ -328,12 +330,14 @@ Impact derivation
 An adjustment records `overridden_by_user: true` and the reason. "Why Moderate?"
 must have an answer at audit.
 
-After explicit confirmation, use `scripts/confirmation.py --stamp` as directed
-by the command. A later change anywhere in the profile invalidates the digest
-and requires this gate again. Builds use `--check`; conversation memory is not
-an approval record. The profile block is an audit copy, not an authority:
-`--stamp` also writes a matching record under `${SECURITY_REQUIREMENTS_DATA}`, and
-`--check` rejects a repository-only or forged block.
+After explicit confirmation, follow the command's trusted isolated
+`python3 -I "<exact absolute plugin root>/scripts/confirmation.py" --stamp ...`
+step. A later change anywhere in the profile invalidates the digest and requires
+this gate again. Builds use `--check`; conversation memory is not an approval
+record. The profile block is an audit copy, not an authority: `--stamp` also
+writes a matching record under
+`<exact absolute data root returned by runtime_paths.py>`, and `--check` rejects
+a repository-only or forged block.
 
 ---
 

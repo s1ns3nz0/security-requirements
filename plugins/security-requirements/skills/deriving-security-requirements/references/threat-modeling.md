@@ -169,8 +169,9 @@ not a threat.
 `related_controls` is where judgement stops and arithmetic begins. Deciding
 which controls address a threat needs understanding; crossing that against the
 baseline afterwards does not. Populate it by consulting the bundled catalog, not
-from memory — `scripts/lint.py` rejects identifiers the catalog does not
-contain, and `scripts/merge.py --cross` uses the field to compute:
+from memory — `<exact absolute plugin root>/scripts/lint.py` rejects identifiers
+the catalog does not contain, and
+`<exact absolute plugin root>/scripts/merge.py --cross` uses the field to compute:
 
 - threat with related controls **in** the baseline -> raised priority
 - threat with **no** related control in the baseline -> additional requirement

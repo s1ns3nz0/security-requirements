@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shlex
 import sys
 from pathlib import Path
 
@@ -33,6 +32,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import profile_schema  # noqa: E402
 from profile_schema import EEA_MEMBERS, SchemaError, expand_regions, normalise
+from runtime_paths import isolated_script_command  # noqa: E402
 from safe_paths import UnsafePathError, safe_write_text  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -876,7 +876,10 @@ def detect_cross_border(profile: dict, user_regions: set[str]) -> dict | None:
 
 def load_catalog() -> dict[str, dict]:
     if not CATALOG_DIR.exists():
-        raise ProfileError(f"catalog not built; run scripts/rebuild_catalogs.py")
+        raise ProfileError(
+            "catalog not built; run "
+            + isolated_script_command("rebuild_catalogs.py")
+        )
     records = {}
     for path in sorted(CATALOG_DIR.glob("*.jsonl")):
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -1443,11 +1446,7 @@ def render_gate(result: dict) -> str:
         out += ["", "Regulatory overlays that apply"]
         for item in result["overlay_triggers"]:
             reasons = item["triggers"]
-            command = (
-                f"{shlex.quote(str(Path(sys.executable).resolve()))} -I "
-                f"{shlex.quote(str((REPO_ROOT / 'scripts' / 'apply_overlay.py').resolve()))} "
-                f"{shlex.quote(item['id'])}"
-            )
+            command = isolated_script_command("apply_overlay.py", item["id"])
             out.append(f"  + {reasons[0]['label']}  ->  {command}")
             for extra in reasons[1:]:
                 out.append(f"      also reached by: {extra['label']}")

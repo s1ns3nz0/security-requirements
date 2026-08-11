@@ -2,7 +2,8 @@
 
 A requirement that cannot be checked is not a requirement, it is a sentiment.
 Model output drifts toward sentiment unless the rules below are enforced, and
-`scripts/lint.py` mechanically rejects the most common failures.
+`<exact absolute plugin root>/scripts/lint.py` mechanically rejects the most
+common failures.
 
 ---
 
@@ -160,7 +161,8 @@ clients the service does ship, may be.
 
 If a requirement is inserted and everything below it shifts, then existing
 tickets, audit evidence, and exception approvals all point at the wrong thing.
-`scripts/merge.py` keeps the issued identifiers in `state.yaml` and reuses them.
+`<exact absolute plugin root>/scripts/merge.py` keeps the issued identifiers in
+`state.yaml` and reuses them.
 
 ### Field ownership
 

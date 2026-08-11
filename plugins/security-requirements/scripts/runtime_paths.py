@@ -6,10 +6,24 @@ import argparse
 import os
 from collections.abc import Mapping
 from pathlib import Path
+import shlex
 import sys
 
 
 PAYLOAD_ROOT = Path(__file__).resolve().parent.parent
+
+
+def isolated_script_command(script_name: str, *arguments: str) -> str:
+    """Return a shell-safe command for one trusted packaged script."""
+    if Path(script_name).name != script_name:
+        raise ValueError("packaged script name must not contain a path")
+    scripts = (PAYLOAD_ROOT / "scripts").resolve()
+    script = (scripts / script_name).resolve(strict=True)
+    if not script.is_file() or not script.is_relative_to(scripts):
+        raise ValueError("packaged script must remain under the trusted scripts root")
+    return shlex.join(
+        [str(Path(sys.executable).resolve()), "-I", str(script), *arguments]
+    )
 
 
 def absolute_path(value: str | None) -> Path | None:

@@ -33,6 +33,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import profile_schema  # noqa: E402
+from runtime_paths import isolated_script_command  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CATALOG_DIR = REPO_ROOT / "catalogs" / "nist-800-53r5"
@@ -173,7 +174,10 @@ class Finding:
 
 def load_catalog_ids() -> set[str]:
     if not CATALOG_DIR.exists():
-        raise SystemExit("catalog not built; run scripts/rebuild_catalogs.py")
+        raise SystemExit(
+            "catalog not built; run "
+            + isolated_script_command("rebuild_catalogs.py")
+        )
     ids = set()
     for path in CATALOG_DIR.glob("*.jsonl"):
         for line in path.read_text(encoding="utf-8").splitlines():

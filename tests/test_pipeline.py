@@ -136,6 +136,29 @@ def test_enhancement_identifiers_use_audit_notation():
     assert "sc-28.1" not in ids
 
 
+def test_missing_catalog_errors_emit_only_a_trusted_isolated_rebuild_command(
+    tmp_path, monkeypatch
+):
+    missing = tmp_path / "missing-catalog"
+    monkeypatch.setattr(lint_mod, "CATALOG_DIR", missing)
+    monkeypatch.setattr(sb, "CATALOG_DIR", missing)
+
+    with pytest.raises(SystemExit) as lint_error:
+        lint_mod.load_catalog_ids()
+    with pytest.raises(sb.ProfileError) as baseline_error:
+        sb.load_catalog()
+
+    expected = [
+        str(Path(sys.executable).resolve()),
+        "-I",
+        str((PLUGIN_ROOT / "scripts" / "rebuild_catalogs.py").resolve()),
+    ]
+    for error in (lint_error.value, baseline_error.value):
+        message = str(error)
+        assert "catalog not built; run " in message
+        assert shlex.split(message.partition("run ")[2]) == expected
+
+
 # ---------------------------------------------------------------------------
 # impact derivation
 # ---------------------------------------------------------------------------

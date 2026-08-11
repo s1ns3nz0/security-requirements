@@ -13,11 +13,14 @@ ENTRY_SKILLS = {
     workflow: ROOT / "skills" / f"security-requirements-{workflow}" / "SKILL.md"
     for workflow in ("init", "build", "refresh")
 }
+REFERENCE_FILES = sorted(
+    (ROOT / "skills" / "deriving-security-requirements" / "references").glob("*.md")
+)
 
 PLUGIN_ROOT_LITERAL = "<exact absolute plugin root>"
 DATA_ROOT_LITERAL = "<exact absolute data root returned by runtime_paths.py>"
 SELECTED_SKILL_LITERAL = "<absolute path of this selected SKILL.md>"
-WORKFLOW_FILES = [*COMMANDS, *ENTRY_SKILLS.values(), SKILL]
+WORKFLOW_FILES = [*COMMANDS, *ENTRY_SKILLS.values(), SKILL, *REFERENCE_FILES]
 
 def workflow_text() -> str:
     return "\n".join(path.read_text(encoding="utf-8") for path in [*COMMANDS, SKILL])
@@ -143,7 +146,7 @@ def test_bundled_references_are_rooted_at_plugin_installation():
 def test_every_bundled_resource_named_by_the_workflow_is_plugin_rooted():
     prefixes = ("scripts/", "catalogs/", "overlays/", "responsibility/")
     offenders = []
-    for path in [*COMMANDS, SKILL]:
+    for path in WORKFLOW_FILES:
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if any(prefix in line for prefix in prefixes):
                 if not any(
