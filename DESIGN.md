@@ -536,7 +536,7 @@ UNDETERMINED 0이고, 예외 목록은 검토 가능한 길이로 유지된다.
 
 ### 다음 (당시 계획)
 
-1. 실제 레포에 `/sec-req-init` 실행
+1. 실제 레포에 `/security-requirements:sec-req-init` 실행
 2. ISMS-P 오버레이
 3. Azure·GCP 서비스 큐레이션
 

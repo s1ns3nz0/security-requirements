@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_NAME = "security-requirements"
@@ -39,9 +41,8 @@ def test_clean_clone_documentation_covers_claude_and_codex_installation():
     ):
         assert command in readme
 
-    assert "/sec-req-init" in readme
-    assert "/sec-req-build" in readme
-    assert "/sec-req-refresh" in readme
+    for workflow in ("init", "build", "refresh"):
+        assert f"/security-requirements:sec-req-{workflow}" in readme
     for prompt in (
         "Initialize the security requirements profile",
         "Build security requirements from the confirmed profile",
@@ -57,7 +58,7 @@ def test_clean_clone_documentation_covers_updates_dependencies_and_state():
 
     for command in (
         "/plugin update security-requirements",
-        "/plugin uninstall security-requirements",
+        "claude plugin uninstall security-requirements@security-requirements --keep-data",
         f"codex plugin remove {QUALIFIED_PLUGIN_NAME}",
         "codex plugin marketplace remove security-requirements",
         "git pull --ff-only",
@@ -69,11 +70,18 @@ def test_clean_clone_documentation_covers_updates_dependencies_and_state():
 
     assert "python3 scripts/validate_distribution.py ." in text
     assert "python3 -m pytest tests/test_distribution_docs.py -q" in text
+    claude_update = text[text.index("For Claude Code, run"):text.index("### Runtime requirements")]
+    assert "--keep-data" in claude_update
+    assert "/plugin marketplace add ." not in claude_update
 
 
 def test_distribution_validator_accepts_the_repository_and_is_read_only(tmp_path):
     assert VALIDATOR.is_file(), "distribution validator must exist"
     module = _load_validator()
+    marketplace = json.loads(
+        (REPO_ROOT / ".agents" / "plugins" / "marketplace.json").read_text(encoding="utf-8")
+    )
+    assert marketplace["name"] == PLUGIN_NAME
 
     before = {
         path.relative_to(REPO_ROOT): path.stat().st_mtime_ns
@@ -114,7 +122,12 @@ def test_distribution_validator_reports_all_fixture_errors(tmp_path):
     data["skills"] = "./missing-skills/"
     codex_manifest.write_text(json.dumps(data), encoding="utf-8")
 
-    duplicate = clone / "duplicate" / "scripts"
+    codex_marketplace = clone / ".agents" / "plugins" / "marketplace.json"
+    data = json.loads(codex_marketplace.read_text(encoding="utf-8"))
+    data["name"] = "wrong-marketplace"
+    codex_marketplace.write_text(json.dumps(data), encoding="utf-8")
+
+    duplicate = clone / "plugins" / "duplicate" / "scripts"
     duplicate.mkdir(parents=True)
     (duplicate / "runtime_paths.py").write_text("", encoding="utf-8")
     (clone / "plugins" / PLUGIN_NAME / "catalogs-link").symlink_to(
@@ -131,8 +144,91 @@ def test_distribution_validator_reports_all_fixture_errors(tmp_path):
     for expected in (
         "Claude marketplace",
         "Codex manifest name",
+        "Codex marketplace name",
         "missing-skills",
         "duplicate runtime directory: scripts",
         "symlink",
     ):
         assert expected in result.stderr
+
+
+@pytest.mark.parametrize("value", ("../outside", "./../outside", "skills/", "/absolute"))
+def test_distribution_validator_rejects_noncanonical_manifest_paths(tmp_path, value):
+    module = _load_validator()
+    clone = tmp_path / "clone"
+    shutil.copytree(REPO_ROOT, clone, ignore=shutil.ignore_patterns(".git", ".pytest_cache", "__pycache__"))
+    manifest_path = clone / "plugins" / PLUGIN_NAME / ".codex-plugin" / "plugin.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["skills"] = value
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    errors = module.validate(clone)
+    assert any("Codex manifest.skills" in error for error in errors)
+
+
+def test_distribution_validator_checks_nested_path_valued_manifest_fields(tmp_path):
+    module = _load_validator()
+    clone = tmp_path / "clone"
+    shutil.copytree(REPO_ROOT, clone, ignore=shutil.ignore_patterns(".git", ".pytest_cache", "__pycache__"))
+    manifest_path = clone / "plugins" / PLUGIN_NAME / ".codex-plugin" / "plugin.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["interface"]["assetPath"] = "./missing-asset"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert any("Codex manifest.interface.assetPath" in error for error in module.validate(clone))
+
+
+@pytest.mark.parametrize("component", ("mcpServers", "apps", "hooks"))
+def test_distribution_validator_rejects_unsupported_codex_components(tmp_path, component):
+    module = _load_validator()
+    clone = tmp_path / "clone"
+    shutil.copytree(REPO_ROOT, clone, ignore=shutil.ignore_patterns(".git", ".pytest_cache", "__pycache__"))
+    manifest_path = clone / "plugins" / PLUGIN_NAME / ".codex-plugin" / "plugin.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest[component] = {}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert f"Codex manifest must not declare {component}" in module.validate(clone)
+
+
+@pytest.mark.parametrize("component", ("hooks", "apps", ".mcp.json", ".app.json"))
+def test_distribution_validator_rejects_unsupported_codex_payload_components(tmp_path, component):
+    module = _load_validator()
+    clone = tmp_path / "clone"
+    shutil.copytree(REPO_ROOT, clone, ignore=shutil.ignore_patterns(".git", ".pytest_cache", "__pycache__"))
+    component_path = clone / "plugins" / PLUGIN_NAME / component
+    if component.startswith("."):
+        component_path.write_text("{}", encoding="utf-8")
+    else:
+        component_path.mkdir()
+
+    assert any(component in error for error in module.validate(clone))
+
+
+def test_distribution_validator_rejects_metadata_symlinks_and_aggregates_parser_errors(tmp_path):
+    module = _load_validator()
+    clone = tmp_path / "clone"
+    shutil.copytree(REPO_ROOT, clone, ignore=shutil.ignore_patterns(".git", ".pytest_cache", "__pycache__"))
+
+    claude_marketplace = clone / ".claude-plugin" / "marketplace.json"
+    claude_marketplace.unlink()
+    claude_marketplace.symlink_to(clone / ".agents" / "plugins" / "marketplace.json")
+
+    claude_manifest = clone / "plugins" / PLUGIN_NAME / ".claude-plugin" / "plugin.json"
+    claude_manifest.unlink()
+    claude_manifest.mkdir()
+
+    codex_manifest = clone / "plugins" / PLUGIN_NAME / ".codex-plugin" / "plugin.json"
+    codex_manifest.write_bytes(b"\x80")
+
+    codex_marketplace = clone / ".agents" / "plugins" / "marketplace.json"
+    codex_marketplace.write_text("[]", encoding="utf-8")
+
+    errors = module.validate(clone)
+    for expected in (
+        "symlink is not allowed in distribution metadata",
+        "cannot read JSON file",
+        "cannot decode JSON file",
+        "JSON object required",
+    ):
+        assert any(expected in error for error in errors), errors

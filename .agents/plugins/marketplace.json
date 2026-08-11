@@ -1,4 +1,5 @@
 {
+  "name": "security-requirements",
   "plugins": [
     {
       "name": "security-requirements",

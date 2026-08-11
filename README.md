@@ -215,9 +215,9 @@ Claude keeps the three slash-command entry points. In the repository whose
 requirements you are deriving, run:
 
 ```text
-/sec-req-init      scan the repository, interview the gaps, confirm impact
-/sec-req-build     threat model, responsibility split, write requirements
-/sec-req-refresh   re-derive after a change, preserving human edits
+/security-requirements:sec-req-init      scan the repository, interview the gaps, confirm impact
+/security-requirements:sec-req-build     threat model, responsibility split, write requirements
+/security-requirements:sec-req-refresh   re-derive after a change, preserving human edits
 ```
 
 You can also register the published repository directly with
@@ -253,9 +253,11 @@ codex plugin marketplace add .
 codex plugin add security-requirements@security-requirements
 ```
 
-For Claude Code, run `/plugin update security-requirements`; if the installed
-copy does not refresh, run `/plugin uninstall security-requirements` and repeat
-the local marketplace registration and install commands above. For a Git
+For Claude Code, run `/plugin update security-requirements`; the marketplace is
+already registered, so do not add it again. If a reinstall is necessary, run
+`claude plugin uninstall security-requirements@security-requirements --keep-data`
+so `${CLAUDE_PLUGIN_DATA}` and its confirmation records remain, then run only
+`/plugin install security-requirements@security-requirements`. For a Git
 marketplace configured directly in Codex, `codex plugin marketplace upgrade
 security-requirements` refreshes its snapshot; that command does not update a
 local source.
@@ -282,7 +284,8 @@ The sequence underneath them:
 5. Draft atomic requirements, lint identifiers and links, then render.
 6. Re-run overlays against the written requirements to expose the assurance gap.
 
-Where a profile triggers a regulation an overlay covers, `/sec-req-build` reports
+Where a profile triggers a regulation an overlay covers,
+`/security-requirements:sec-req-build` reports
 the clauses no control reaches — the ones an audit asks about and an SP 800-53
 derivation cannot produce. The clause mapping is this repository's reading, not a
 published crosswalk, and says so.
@@ -376,7 +379,7 @@ summarised in our own words with links, never reproduced.
 
 ```bash
 python3 scripts/rebuild_catalogs.py     # rebuild every catalog from upstream
-python3 -m pytest tests/                # deterministic layer, 796 tests
+python3 -m pytest tests/                # deterministic layer, 809 tests
 python3 -m pytest tests/test_distribution_docs.py -q
 python3 scripts/validate_distribution.py .
 ```

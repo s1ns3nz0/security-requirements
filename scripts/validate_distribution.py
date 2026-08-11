@@ -12,16 +12,32 @@ PLUGIN_NAME = "security-requirements"
 PAYLOAD = Path("plugins") / PLUGIN_NAME
 RUNTIME_DIRECTORIES = ("scripts", "catalogs", "overlays", "responsibility")
 WORKFLOWS = ("init", "build", "refresh")
+FORBIDDEN_CODEX_COMPONENTS = ("mcpServers", "apps", "hooks")
+METADATA_FILES = (
+    Path(".claude-plugin") / "marketplace.json",
+    Path(".agents") / "plugins" / "marketplace.json",
+    PAYLOAD / ".claude-plugin" / "plugin.json",
+    PAYLOAD / ".codex-plugin" / "plugin.json",
+)
+PATH_FIELD_NAMES = {
+    "path", "paths", "skills", "commands", "scripts", "files", "directories", "source",
+}
 
 
 def _read_json(path: Path, errors: list[str]) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        errors.append(f"missing JSON file: {path}")
+    except UnicodeDecodeError as error:
+        errors.append(f"cannot decode JSON file: {path}: {error.reason}")
+        return {}
+    except OSError as error:
+        errors.append(f"cannot read JSON file: {path}: {error.strerror or error}")
         return {}
     except json.JSONDecodeError as error:
         errors.append(f"invalid JSON in {path}: {error.msg}")
+        return {}
+    except TypeError as error:
+        errors.append(f"invalid JSON input for {path}: {error}")
         return {}
     if not isinstance(data, dict):
         errors.append(f"JSON object required: {path}")
@@ -45,6 +61,10 @@ def _relative_path(value: object, base: Path, label: str, errors: list[str]) -> 
     if not isinstance(value, str) or not value.startswith("./"):
         errors.append(f"{label} must be a relative path beginning with ./: {value!r}")
         return
+    relative = Path(value)
+    if relative.is_absolute() or ".." in relative.parts:
+        errors.append(f"{label} must not use an absolute or traversal path: {value}")
+        return
     path = base / value
     try:
         path.resolve().relative_to(base.resolve())
@@ -52,18 +72,49 @@ def _relative_path(value: object, base: Path, label: str, errors: list[str]) -> 
         errors.append(f"{label} escapes its payload: {value}")
         return
     if not path.exists():
-        errors.append(f"missing manifest-declared path: {path}")
+        errors.append(f"missing manifest-declared path for {label}: {path}")
 
 
-def _manifest_paths(value: object, payload: Path, label: str, errors: list[str]) -> None:
+def _is_path_field(name: str) -> bool:
+    lowered = name.replace("-", "_").lower()
+    return lowered in PATH_FIELD_NAMES or lowered.endswith(
+        ("path", "paths", "file", "files", "directory", "directories")
+    )
+
+
+def _manifest_paths(value: object, payload: Path, label: str, errors: list[str], field: str = "") -> None:
     if isinstance(value, dict):
         for key, nested in value.items():
-            _manifest_paths(nested, payload, f"{label}.{key}", errors)
+            _manifest_paths(nested, payload, f"{label}.{key}", errors, key)
     elif isinstance(value, list):
         for index, nested in enumerate(value):
-            _manifest_paths(nested, payload, f"{label}[{index}]", errors)
-    elif isinstance(value, str) and value.startswith("./"):
+            _manifest_paths(nested, payload, f"{label}[{index}]", errors, field)
+    elif _is_path_field(field) or isinstance(value, str) and value.startswith("./"):
         _relative_path(value, payload, label, errors)
+
+
+def _metadata_symlinks(root: Path, errors: list[str]) -> None:
+    found: set[Path] = set()
+    for relative in METADATA_FILES:
+        path = root / relative
+        while path != root:
+            if path.is_symlink() and path not in found:
+                errors.append(
+                    f"symlink is not allowed in distribution metadata: {path.relative_to(root)}"
+                )
+                found.add(path)
+            path = path.parent
+
+
+def _duplicate_runtime_directories(payload: Path, errors: list[str]) -> None:
+    for directory in RUNTIME_DIRECTORIES:
+        expected = payload / directory
+        if not expected.is_dir():
+            errors.append(f"missing runtime directory: {expected}")
+            continue
+        for path in payload.parent.rglob(directory):
+            if path.is_dir() and path != expected:
+                errors.append(f"duplicate runtime directory: {directory} at {path}")
 
 
 def validate(root: Path) -> list[str]:
@@ -75,6 +126,7 @@ def validate(root: Path) -> list[str]:
     codex_marketplace_path = root / ".agents" / "plugins" / "marketplace.json"
     claude_marketplace = _read_json(claude_marketplace_path, errors)
     codex_marketplace = _read_json(codex_marketplace_path, errors)
+    _metadata_symlinks(root, errors)
     claude_entry = _plugin_entry(claude_marketplace, "Claude", errors)
     codex_entry = _plugin_entry(codex_marketplace, "Codex", errors)
 
@@ -86,6 +138,11 @@ def validate(root: Path) -> list[str]:
         errors.append("Codex marketplace source must be a local source")
     elif codex_source.get("path") != expected_source:
         errors.append(f"Codex marketplace source path must be {expected_source}")
+
+    if codex_marketplace.get("name") != PLUGIN_NAME:
+        errors.append(f"Codex marketplace name must equal qualified install marketplace: {PLUGIN_NAME}")
+    if f"{codex_entry.get('name')}@{codex_marketplace.get('name')}" != f"{PLUGIN_NAME}@{PLUGIN_NAME}":
+        errors.append(f"Codex marketplace must resolve {PLUGIN_NAME}@{PLUGIN_NAME}")
 
     for host, entry in (("Claude", claude_entry), ("Codex", codex_entry)):
         if entry.get("name") not in (None, payload.name):
@@ -100,18 +157,23 @@ def validate(root: Path) -> list[str]:
             errors.append(f"{host} manifest name must equal payload folder: {payload.name}")
         _manifest_paths(manifest, payload, f"{host} manifest", errors)
 
-    for path in payload.rglob("*") if payload.exists() else ():
-        if path.is_symlink():
-            errors.append(f"symlink is not allowed in payload: {path.relative_to(root)}")
+    for component in FORBIDDEN_CODEX_COMPONENTS:
+        if component in manifests["Codex"]:
+            errors.append(f"Codex manifest must not declare {component}")
+        if (payload / component).exists():
+            errors.append(f"Codex payload must not include {component}")
+    for component in (".mcp.json", ".app.json"):
+        if (payload / component).exists():
+            errors.append(f"Codex payload must not include {component}")
 
-    for directory in RUNTIME_DIRECTORIES:
-        locations = [path for path in root.rglob(directory) if path.is_dir()]
-        expected = payload / directory
-        unexpected = [path for path in locations if path != expected and path != root / "scripts"]
-        if not expected.is_dir():
-            errors.append(f"missing runtime directory: {expected.relative_to(root)}")
-        for path in unexpected:
-            errors.append(f"duplicate runtime directory: {directory} at {path.relative_to(root)}")
+    if payload.is_symlink():
+        errors.append(f"symlink is not allowed in payload: {PAYLOAD}")
+    elif payload.exists():
+        for path in payload.rglob("*"):
+            if path.is_symlink():
+                errors.append(f"symlink is not allowed in payload: {path.relative_to(root)}")
+
+    _duplicate_runtime_directories(payload, errors)
 
     for workflow in WORKFLOWS:
         command = payload / "commands" / f"sec-req-{workflow}.md"
