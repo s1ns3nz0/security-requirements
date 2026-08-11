@@ -59,16 +59,21 @@ TRUSTED_SCRIPT_PREFIXES = (
     "${CLAUDE_PLUGIN_ROOT}/scripts/",
 )
 SAFE_OUTPUTS = {
-    "init": {".security-requirements"},
-    "build": {".security-requirements", "docs/security"},
-    "refresh": {".security-requirements", "docs/security"},
+    "init": (".security-requirements",),
+    "build": (".security-requirements", "docs/security"),
+    "refresh": (".security-requirements", "docs/security"),
 }
-PLUGIN_SCRIPTS = Path(__file__).resolve().parent.parent / PAYLOAD / "scripts"
-sys.path.insert(0, str(PLUGIN_SCRIPTS))
-from safe_paths import (  # noqa: E402
-    SafePathsArgumentError,
-    argument_parser as safe_paths_parser,
-)
+CANONICAL_SAFE_OUTPUT_PREFLIGHTS = {
+    workflow: (
+        'python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/safe_paths.py" '
+        f'--project-root "$PWD" --check-output {" ".join(outputs)}'
+    )
+    for workflow, outputs in SAFE_OUTPUTS.items()
+}
+CANONICAL_SAFE_OUTPUT_PREFLIGHTS_BY_PATH = {
+    Path("commands") / f"sec-req-{workflow}.md": command
+    for workflow, command in CANONICAL_SAFE_OUTPUT_PREFLIGHTS.items()
+}
 
 
 def _read_json(path: Path, errors: list[str]) -> dict:
@@ -316,6 +321,7 @@ def _workflow_python_invocations(payload: Path, errors: list[str]) -> None:
             errors.append(f"cannot inspect payload file: {path}: {error}")
             continue
         relative = path.relative_to(payload)
+        canonical_preflight = CANONICAL_SAFE_OUTPUT_PREFLIGHTS_BY_PATH.get(relative)
         for line_number, command in _logical_lines(text):
             if command.lstrip().startswith("#!"):
                 continue
@@ -337,11 +343,120 @@ def _workflow_python_invocations(payload: Path, errors: list[str]) -> None:
                     continue
                 if not isolated:
                     errors.append(f"workflow Python invocation must use -I: {location}")
-                if not _trusted_workflow_script(script, tokens):
-                    errors.append(
+                if (
+                    not _trusted_workflow_script(script, tokens)
+                    and command != canonical_preflight
+                ):
+                    error = (
                         "workflow Python script is not rooted in the plugin payload: "
                         f"{location}"
                     )
+                    if error not in errors:
+                        errors.append(error)
+
+            try:
+                semantic_tokens = shlex.split(command, posix=True)
+            except ValueError:
+                continue
+            claude_safe_paths_mention = any(
+                "CLAUDE_PLUGIN_ROOT" in token.rstrip("`")
+                and Path(token.rstrip("`")).name == "safe_paths.py"
+                for token in semantic_tokens
+            )
+            if claude_safe_paths_mention and command != canonical_preflight:
+                error = (
+                    "workflow Python script is not rooted in the plugin payload: "
+                    f"{relative}:{line_number}"
+                )
+                if error not in errors:
+                    errors.append(error)
+
+
+def _contains_broad_safe_output_preflight(
+    command: str, required_outputs: tuple[str, ...]
+) -> bool:
+    raw_outputs = all(
+        re.search(
+            rf"(?<![A-Za-z0-9_.-]){re.escape(output)}/?"
+            r"(?![A-Za-z0-9_./-])",
+            command,
+        )
+        for output in required_outputs
+    )
+    if raw_outputs and (
+        "safe_paths.py" in command or "--check-output" in command
+    ):
+        return True
+
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return False
+    cleaned = [token.rstrip("`") for token in tokens]
+    safe_paths_mention = any(Path(token).name == "safe_paths.py" for token in cleaned)
+    output_values: list[str] = []
+    for index, token in enumerate(cleaned):
+        if token == "--check-output":
+            output_values = cleaned[index + 1 :]
+            break
+        if token.startswith("--check-output="):
+            output_values = [token.partition("=")[2], *cleaned[index + 1 :]]
+            break
+    dynamic_output = any(
+        re.search(r"[$`*?{}\[\]()]|^~", value) for value in output_values
+    )
+    if safe_paths_mention and (not output_values or dynamic_output):
+        return True
+    normalized = {Path(token).as_posix() for token in cleaned}
+    normalized.update(
+        Path(token.partition("=")[2]).as_posix()
+        for token in cleaned
+        if token.startswith("--check-output=")
+    )
+    if not set(required_outputs) <= normalized:
+        return False
+    output_claim = any(
+        token == "--check-output" or token.startswith("--check-output=")
+        for token in cleaned
+    )
+    return safe_paths_mention or output_claim
+
+
+def _bash_blocks(text: str) -> list[list[str]]:
+    """Return executable Markdown bash blocks, excluding comments/nested fences."""
+    blocks: list[list[str]] = []
+    fence: tuple[str, int, str] | None = None
+    content: list[str] = []
+    in_html_comment = False
+
+    for line in text.splitlines():
+        if fence is not None:
+            character, minimum, language = fence
+            if re.fullmatch(rf"{re.escape(character)}{{{minimum},}}[ \t]*", line):
+                if language == "bash":
+                    blocks.append(content)
+                fence = None
+                content = []
+            else:
+                content.append(line)
+            continue
+
+        if in_html_comment:
+            if "-->" in line:
+                in_html_comment = False
+            continue
+        if "<!--" in line:
+            if "-->" not in line.split("<!--", 1)[1]:
+                in_html_comment = True
+            continue
+
+        opening = re.fullmatch(r"(?P<marker>`{3,}|~{3,})(?P<info>.*)", line)
+        if opening:
+            marker = opening.group("marker")
+            fence = (marker[0], len(marker), opening.group("info").strip())
+            content = []
+
+    return blocks
 
 
 def _safe_output_preflights(payload: Path, errors: list[str]) -> None:
@@ -353,47 +468,21 @@ def _safe_output_preflights(payload: Path, errors: list[str]) -> None:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        valid = False
-        invalid = False
-        saw_preflight = False
-        for _, command in _logical_lines(text):
-            for match in PYTHON_INTERPRETER.finditer(command):
-                tokens = _python_arguments(command, match.start())
-                script, isolated, inline = _python_script(tokens) if tokens else (None, False, False)
-                if not script or not script.endswith("/scripts/safe_paths.py"):
-                    continue
-                try:
-                    script_index = tokens.index(script)
-                    args = safe_paths_parser().parse_args(tokens[script_index + 1 :])
-                except (SafePathsArgumentError, ValueError):
-                    saw_preflight = True
-                    invalid = True
-                    continue
-                outputs = [str(output).rstrip("/") for output in args.check_output]
-                claims_broad_preflight = required_outputs <= set(outputs)
-                if not claims_broad_preflight:
-                    continue
-                saw_preflight = True
-                invocation_valid = (
-                    isolated
-                    and not inline
-                    and _trusted_workflow_script(script, tokens)
-                    and args.project_root == Path("$PWD")
-                    and len(outputs) == len(required_outputs)
-                    and set(outputs) == required_outputs
-                )
-                valid = valid or invocation_valid
-                invalid = invalid or not invocation_valid
+        canonical = CANONICAL_SAFE_OUTPUT_PREFLIGHTS[workflow]
+        candidates = [
+            command
+            for _, command in _logical_lines(text)
+            if _contains_broad_safe_output_preflight(command, required_outputs)
+        ]
+        valid = (
+            candidates == [canonical]
+            and _bash_blocks(text).count([canonical]) == 1
+        )
         relative = path.relative_to(payload)
-        expected = " ".join(sorted(required_outputs, key=lambda value: (value != ".security-requirements", value)))
-        if invalid:
-            errors.append(
-                f"invalid safe output preflight in {relative}: "
-                f"--project-root $PWD --check-output {expected}"
-            )
-        elif valid:
+        expected = " ".join(required_outputs)
+        if valid:
             continue
-        elif saw_preflight:
+        if candidates:
             errors.append(
                 f"invalid safe output preflight in {relative}: "
                 f"--project-root $PWD --check-output {expected}"

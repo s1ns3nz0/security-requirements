@@ -22,14 +22,17 @@ prefixes them; exports from another call do not persist. For Read, Write, or
 Edit, pass the exact literal path because those tools do not expand shell
 syntax. Never derive either root from the inspected repository or cwd.
 
+The only exception is the initial broad check below: preserve this one canonical
+broad preflight exactly as written. The Claude host provides
+`${CLAUDE_PLUGIN_ROOT}`; the Codex adapter replaces only that token with its
+loader-verified literal. Later scoped checks still use both captured exact
+literals.
+
 Before reading or writing workflow outputs, reject repository-controlled
-symlinked output trees:
+symlinked or junction-backed output trees:
 
 ```bash
-SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
-SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
-python3 -I "<exact absolute plugin root>/scripts/safe_paths.py" \
-    --project-root "$PWD" --check-output .security-requirements docs/security
+python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/safe_paths.py" --project-root "$PWD" --check-output .security-requirements docs/security
 ```
 
 Re-runs the derivation against the current state of the repository while

@@ -3,7 +3,7 @@ import json
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 
@@ -13,6 +13,18 @@ PLUGIN_NAME = "security-requirements"
 QUALIFIED_PLUGIN_NAME = f"{PLUGIN_NAME}@{PLUGIN_NAME}"
 VALIDATOR = REPO_ROOT / "scripts" / "validate_distribution.py"
 SAFE_PATHS = REPO_ROOT / "plugins" / PLUGIN_NAME / "scripts" / "safe_paths.py"
+CANONICAL_BUILD_PREFLIGHT = (
+    'python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/safe_paths.py" '
+    '--project-root "$PWD" --check-output .security-requirements docs/security'
+)
+LEGACY_BUILD_PREFLIGHT = (
+    'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
+    '--project-root "$PWD" --check-output .security-requirements docs/security'
+)
+
+
+def _bash_block(command: str) -> str:
+    return f"```bash\n{command}\n```\n"
 
 
 def _read(path: Path) -> str:
@@ -490,20 +502,316 @@ def test_distribution_validator_requires_safe_output_preflight(
     ) in errors
 
 
-def test_distribution_validator_accepts_output_preflight_bound_to_target_cwd(tmp_path):
+@pytest.mark.parametrize(
+    ("workflow", "outputs"),
+    (
+        ("init", ".security-requirements"),
+        ("build", ".security-requirements docs/security"),
+        ("refresh", ".security-requirements docs/security"),
+    ),
+)
+def test_distribution_validator_accepts_exact_canonical_output_preflight(
+    tmp_path, workflow, outputs
+):
     module = _load_validator()
     clone = _distribution_clone(tmp_path)
-    command = clone / "plugins" / PLUGIN_NAME / "commands" / "sec-req-build.md"
+    command = (
+        clone
+        / "plugins"
+        / PLUGIN_NAME
+        / "commands"
+        / f"sec-req-{workflow}.md"
+    )
     command.write_text(
-        'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
-        '--project-root "$PWD" --check-output .security-requirements docs/security\n',
+        _bash_block(
+            'python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/safe_paths.py" '
+            f'--project-root "$PWD" --check-output {outputs}'
+        ),
         encoding="utf-8",
     )
 
     errors = module.validate(clone)
 
     assert not any(
-        "safe output preflight" in error and "commands/sec-req-build.md" in error
+        f"commands/sec-req-{workflow}.md" in error for error in errors
+    ), errors
+
+
+@pytest.mark.parametrize(
+    "document",
+    (
+        pytest.param(
+            f"<!--\n```bash\n{CANONICAL_BUILD_PREFLIGHT}\n```\n-->\n",
+            id="html-comment",
+        ),
+        pytest.param(
+            f"```text\n{CANONICAL_BUILD_PREFLIGHT}\n```\n",
+            id="text-fence",
+        ),
+        pytest.param(
+            "```bash\n"
+            "cat <<'EOF'\n"
+            f"{CANONICAL_BUILD_PREFLIGHT}\n"
+            "EOF\n"
+            "```\n",
+            id="heredoc",
+        ),
+        pytest.param(
+            "```bash\n: '\n"
+            + f"{CANONICAL_BUILD_PREFLIGHT}\n"
+            + "'\n```\n",
+            id="shell-noop-string",
+        ),
+    ),
+)
+def test_distribution_validator_rejects_an_inert_exact_canonical_preflight(
+    tmp_path, document
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    command = clone / "plugins" / PLUGIN_NAME / "commands" / "sec-req-build.md"
+    command.write_text(document, encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any(
+        "invalid safe output preflight" in error
+        and "commands/sec-req-build.md" in error
+        for error in errors
+    ), errors
+
+
+@pytest.mark.parametrize(
+    "preflight",
+    (
+        pytest.param(
+            CANONICAL_BUILD_PREFLIGHT.replace('"$PWD"', "$PWD"),
+            id="unquoted-pwd",
+        ),
+        pytest.param(
+            CANONICAL_BUILD_PREFLIGHT.replace('"$PWD"', "'$PWD'"),
+            id="single-quoted-pwd",
+        ),
+        pytest.param(
+            CANONICAL_BUILD_PREFLIGHT.replace('"$PWD"', r"\$PWD"),
+            id="escaped-pwd",
+        ),
+        pytest.param(
+            CANONICAL_BUILD_PREFLIGHT.replace("python3 -I", "python3 -I -h"),
+            id="interpreter-short-help",
+        ),
+        pytest.param(
+            CANONICAL_BUILD_PREFLIGHT.replace("python3 -I", "python3 -I --help"),
+            id="interpreter-long-help",
+        ),
+        pytest.param(
+            CANONICAL_BUILD_PREFLIGHT.replace("python3 -I", "python3 -I -V"),
+            id="interpreter-short-version",
+        ),
+        pytest.param(
+            CANONICAL_BUILD_PREFLIGHT.replace("python3 -I", "python3 -I --version"),
+            id="interpreter-long-version",
+        ),
+        pytest.param(
+            CANONICAL_BUILD_PREFLIGHT.replace("safe_paths.py\"", 'safe_paths.py" -h'),
+            id="script-short-help",
+        ),
+        pytest.param(
+            CANONICAL_BUILD_PREFLIGHT.replace(
+                "safe_paths.py\"", 'safe_paths.py" --help'
+            ),
+            id="script-long-help",
+        ),
+        pytest.param(f"cd /private/tmp && {CANONICAL_BUILD_PREFLIGHT}", id="cd-prefix"),
+        pytest.param(
+            f"env SECURITY_REQUIREMENTS_ROOT=/private/tmp {CANONICAL_BUILD_PREFLIGHT}",
+            id="env-prefix",
+        ),
+        pytest.param(f"true && {CANONICAL_BUILD_PREFLIGHT}", id="true-prefix"),
+        pytest.param(f"true || {CANONICAL_BUILD_PREFLIGHT}", id="dead-true-or-prefix"),
+        pytest.param(f"{CANONICAL_BUILD_PREFLIGHT} || true", id="status-masking"),
+        pytest.param(f"{CANONICAL_BUILD_PREFLIGHT} | cat", id="pipe-suffix"),
+        pytest.param(f"{CANONICAL_BUILD_PREFLIGHT}; true", id="semicolon-suffix"),
+        pytest.param(f"# {CANONICAL_BUILD_PREFLIGHT}", id="commented-out"),
+        pytest.param(
+            f"{CANONICAL_BUILD_PREFLIGHT}\n{CANONICAL_BUILD_PREFLIGHT}",
+            id="duplicate",
+        ),
+        pytest.param(
+            CANONICAL_BUILD_PREFLIGHT.replace(
+                'safe_paths.py" --project-root',
+                'safe_paths.py" \\' + "\n" + "--project-root",
+            ),
+            id="line-continuation",
+        ),
+        pytest.param(
+            CANONICAL_BUILD_PREFLIGHT.replace(
+                ".security-requirements docs/security",
+                "docs/security .security-requirements",
+            ),
+            id="reversed-outputs",
+        ),
+        pytest.param(
+            CANONICAL_BUILD_PREFLIGHT.replace("python3 -I", "python3 -I -B"),
+            id="extra-interpreter-option",
+        ),
+        pytest.param(LEGACY_BUILD_PREFLIGHT, id="legacy-script-root"),
+    ),
+)
+def test_distribution_validator_rejects_noncanonical_broad_preflight_source(
+    tmp_path, preflight
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    command = clone / "plugins" / PLUGIN_NAME / "commands" / "sec-req-build.md"
+    command.write_text(_bash_block(preflight), encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any(
+        "invalid safe output preflight" in error
+        and "commands/sec-req-build.md" in error
+        for error in errors
+    ), errors
+
+
+@pytest.mark.parametrize(
+    "extra_preflight",
+    (
+        pytest.param(
+            CANONICAL_BUILD_PREFLIGHT.replace('"$PWD"', "/private/tmp").replace(
+                ".security-requirements", '.security-"requirements"'
+            ),
+            id="quote-spliced-output",
+        ),
+        pytest.param(
+            CANONICAL_BUILD_PREFLIGHT.replace('"$PWD"', "/private/tmp").replace(
+                "safe_paths.py", 'safe_""paths.py'
+            ),
+            id="quote-spliced-script",
+        ),
+        pytest.param(
+            CANONICAL_BUILD_PREFLIGHT.replace('"$PWD"', "/private/tmp").replace(
+                ".security-requirements", r".security\-requirements"
+            ),
+            id="escaped-output",
+        ),
+        pytest.param(
+            'py"thon3" -I '
+            '"${CLAUDE_PLUGIN_ROOT}/scripts/safe_""paths.py" '
+            '--project-root /private/tmp '
+            '--check-output .security-requirements docs/security',
+            id="combined-quote-splicing",
+        ),
+        pytest.param(
+            'py"thon3" -I safe_""paths.py '
+            '--project-root /private/tmp '
+            '--check-output .security-requirements docs/security',
+            id="relative-quote-spliced-script",
+        ),
+        pytest.param(
+            'python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/safe_"paths.py '
+            '--project-root /private/tmp '
+            '--check-output .security-requirements docs/security"',
+            id="malformed-quote-spliced-script",
+        ),
+        pytest.param(
+            CANONICAL_BUILD_PREFLIGHT.replace('"$PWD"', "/private/tmp").replace(
+                ".security-requirements docs/security",
+                ".security-requirements/. docs//security",
+            ),
+            id="path-equivalent-outputs",
+        ),
+        pytest.param(
+            "```bash\n"
+            'OUTPUTS=".security-requirements docs/security"\n'
+            'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
+            '--project-root /private/tmp --check-output $OUTPUTS\n'
+            "```",
+            id="dynamic-output-set",
+        ),
+    ),
+)
+def test_distribution_validator_rejects_a_shell_equivalent_broad_candidate_beside_canonical(
+    tmp_path, extra_preflight
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    command = clone / "plugins" / PLUGIN_NAME / "commands" / "sec-req-build.md"
+    command.write_text(
+        _bash_block(CANONICAL_BUILD_PREFLIGHT) + f"{extra_preflight}\n",
+        encoding="utf-8",
+    )
+
+    errors = module.validate(clone)
+
+    assert any(
+        "invalid safe output preflight" in error
+        and "commands/sec-req-build.md" in error
+        for error in errors
+    ), errors
+
+
+def test_distribution_validator_rejects_claude_root_for_a_scoped_preflight(
+    tmp_path,
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    command = clone / "plugins" / PLUGIN_NAME / "commands" / "sec-req-build.md"
+    command.write_text(
+        _bash_block(CANONICAL_BUILD_PREFLIGHT)
+        + 'python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/safe_paths.py" '
+        '--project-root "$PWD" '
+        '--check-output .security-requirements/requirements.yaml\n',
+        encoding="utf-8",
+    )
+
+    errors = module.validate(clone)
+
+    assert any(
+        "workflow Python script is not rooted in the plugin payload" in error
+        and "commands/sec-req-build.md:4" in error
+        for error in errors
+    ), errors
+
+
+def test_distribution_validator_rejects_quote_spliced_claude_root_scoped_preflight(
+    tmp_path,
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    command = clone / "plugins" / PLUGIN_NAME / "commands" / "sec-req-build.md"
+    command.write_text(
+        _bash_block(CANONICAL_BUILD_PREFLIGHT)
+        + 'py"thon3" -I '
+        '"${CLAUDE_PLUGIN_ROOT}/scripts/safe_""paths.py" '
+        '--project-root "$PWD" '
+        '--check-output .security-requirements/profile.yaml\n',
+        encoding="utf-8",
+    )
+
+    errors = module.validate(clone)
+
+    assert any(
+        "workflow Python script is not rooted in the plugin payload" in error
+        and "commands/sec-req-build.md:4" in error
+        for error in errors
+    ), errors
+
+
+def test_distribution_validator_rejects_canonical_claude_preflight_outside_its_command(
+    tmp_path,
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    workflow = clone / "plugins" / PLUGIN_NAME / "skills" / "stale-example.md"
+    workflow.write_text(f"{CANONICAL_BUILD_PREFLIGHT}\n", encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any(
+        "workflow Python script is not rooted in the plugin payload" in error
+        and "skills/stale-example.md:1" in error
         for error in errors
     ), errors
 
@@ -524,8 +832,10 @@ def test_distribution_validator_rejects_hidden_project_root_overrides(
     clone = _distribution_clone(tmp_path)
     command = clone / "plugins" / PLUGIN_NAME / "commands" / "sec-req-build.md"
     command.write_text(
-        'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
-        f'{root_arguments} --check-output .security-requirements docs/security\n',
+        _bash_block(
+            'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
+            f"{root_arguments} --check-output .security-requirements docs/security"
+        ),
         encoding="utf-8",
     )
 
@@ -573,6 +883,104 @@ def test_safe_paths_parser_accepts_one_equals_form_project_root(tmp_path):
     ) == 0
 
 
+@pytest.mark.parametrize(
+    "redirect_location",
+    ("project-parent", "project-root", "output-ancestor", "output-target"),
+)
+def test_safe_path_rejects_a_simulated_junction_at_every_boundary(
+    tmp_path, monkeypatch, redirect_location
+):
+    module = _load_safe_paths()
+    project = tmp_path / "project"
+    target = project / "docs" / "security" / "requirements.md"
+    project.mkdir()
+    redirects = {
+        "project-parent": project.parent,
+        "project-root": project,
+        "output-ancestor": project / "docs",
+        "output-target": target,
+    }
+    redirect = redirects[redirect_location]
+
+    monkeypatch.setattr(
+        Path,
+        "is_junction",
+        lambda path: path == redirect,
+        raising=False,
+    )
+
+    with pytest.raises(module.UnsafePathError, match="junction"):
+        module.safe_path(target, project_root=project)
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("win") or not hasattr(Path, "is_junction"),
+    reason="requires Windows with pathlib junction support",
+)
+def test_safe_path_rejects_a_real_windows_junction(tmp_path):
+    module = _load_safe_paths()
+    project = tmp_path / "project"
+    outside = tmp_path / "outside"
+    project.mkdir()
+    outside.mkdir()
+    junction = project / "docs"
+    subprocess.run(
+        ["cmd.exe", "/d", "/c", "mklink", "/J", str(junction), str(outside)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert junction.is_junction()
+
+    with pytest.raises(module.UnsafePathError, match="junction"):
+        module.safe_path(
+            junction / "security" / "requirements.md",
+            project_root=project,
+        )
+
+
+def test_safe_paths_cli_rejects_parent_segments_before_symlink_resolution(tmp_path):
+    project = tmp_path / "project"
+    outside = tmp_path / "outside"
+    redirected_child = outside / "child"
+    project.mkdir()
+    redirected_child.mkdir(parents=True)
+    link = project / "link"
+    link.symlink_to(redirected_child, target_is_directory=True)
+    raw_target = link / ".." / "escaped.txt"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(SAFE_PATHS),
+            "--project-root",
+            str(project),
+            "--check-output",
+            str(raw_target),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "parent path segment" in result.stderr
+    assert not (outside / "escaped.txt").exists()
+
+
+def test_exact_containment_rejects_windows_case_variant_sibling():
+    module = _load_safe_paths()
+    project = PureWindowsPath(r"C:\work\repo")
+    case_variant_sibling = PureWindowsPath(r"C:\work\REPO\escaped.txt")
+
+    # pathlib's Windows containment comparison is case-insensitive, including
+    # when the backing NTFS directory is configured for case sensitivity.
+    assert case_variant_sibling.is_relative_to(project)
+    with pytest.raises(ValueError, match="exact component prefix"):
+        module._relative_parts_exact(case_variant_sibling, project)
+
+
 def test_distribution_validator_ignores_scoped_safe_path_checks_beside_broad_preflight(
     tmp_path,
 ):
@@ -580,9 +988,8 @@ def test_distribution_validator_ignores_scoped_safe_path_checks_beside_broad_pre
     clone = _distribution_clone(tmp_path)
     command = clone / "plugins" / PLUGIN_NAME / "commands" / "sec-req-build.md"
     command.write_text(
-        'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
-        '--project-root "$PWD" --check-output .security-requirements docs/security\n'
-        'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
+        _bash_block(CANONICAL_BUILD_PREFLIGHT)
+        + 'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
         '--project-root "$PWD" '
         '--check-output .security-requirements/requirements.yaml\n'
         'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
@@ -623,7 +1030,7 @@ def test_distribution_validator_rejects_preflight_not_bound_to_trusted_payload_a
     module = _load_validator()
     clone = _distribution_clone(tmp_path)
     command = clone / "plugins" / PLUGIN_NAME / "commands" / "sec-req-build.md"
-    command.write_text(f"{preflight}\n", encoding="utf-8")
+    command.write_text(_bash_block(preflight), encoding="utf-8")
 
     errors = module.validate(clone)
 
@@ -640,9 +1047,8 @@ def test_distribution_validator_rejects_an_invalid_preflight_beside_a_valid_one(
     clone = _distribution_clone(tmp_path)
     command = clone / "plugins" / PLUGIN_NAME / "commands" / "sec-req-build.md"
     command.write_text(
-        'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
-        '--project-root "$PWD" --check-output .security-requirements docs/security\n'
-        'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
+        _bash_block(CANONICAL_BUILD_PREFLIGHT)
+        + 'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
         '--project-root /tmp --check-output .security-requirements docs/security\n',
         encoding="utf-8",
     )

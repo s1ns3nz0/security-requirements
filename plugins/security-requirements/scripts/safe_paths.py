@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Validate and atomically write target-project output paths without symlinks."""
+"""Validate and atomically write output paths without filesystem redirects."""
 
 from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
+from pathlib import Path, PurePath
 import tempfile
 import sys
 
 
 class UnsafePathError(ValueError):
-    """A target path could follow a repository-controlled symlink."""
+    """A target path could follow a repository-controlled redirect."""
 
 
 class SafePathsArgumentError(ValueError):
@@ -49,6 +49,20 @@ def _absolute_lexical(path: Path, base: Path | None = None) -> Path:
     return Path(os.path.abspath(value))
 
 
+def _reject_parent_segments(path: Path, label: str) -> None:
+    if ".." in path.expanduser().parts:
+        raise UnsafePathError(f"{label} contains a parent path segment: {path}")
+
+
+def _relative_parts_exact(path: PurePath, anchor: PurePath) -> tuple[str, ...]:
+    """Return relative parts only when every anchor component matches exactly."""
+    anchor_parts = anchor.parts
+    path_parts = path.parts
+    if path_parts[: len(anchor_parts)] != anchor_parts:
+        raise ValueError(f"{path} lacks exact component prefix {anchor}")
+    return path_parts[len(anchor_parts) :]
+
+
 def _inferred_project_root(target: Path) -> Path:
     parts = target.parts
     for index, part in enumerate(parts):
@@ -59,25 +73,55 @@ def _inferred_project_root(target: Path) -> Path:
     return target.parent
 
 
+def _is_redirect(path: Path) -> bool:
+    """Return whether *path* is a symlink or a supported junction."""
+    is_junction = getattr(path, "is_junction", None)
+    return path.is_symlink() or bool(is_junction and is_junction())
+
+
+def _first_redirect(path: Path) -> Path | None:
+    """Return the first redirected ancestor or *path* itself."""
+    for ancestor in reversed(path.parents):
+        if _is_redirect(ancestor):
+            return ancestor
+    return path if _is_redirect(path) else None
+
+
 def safe_path(path: Path, project_root: Path | None = None) -> Path:
-    """Return an absolute lexical path after rejecting symlinks below its root."""
+    """Return a contained absolute path after rejecting filesystem redirects."""
+    _reject_parent_segments(path, "output path")
+    if project_root is not None:
+        _reject_parent_segments(project_root, "project root")
     root = _absolute_lexical(project_root) if project_root is not None else None
-    if root is not None and root.is_symlink():
-        raise UnsafePathError(f"project root is a symlink: {root}")
     target = _absolute_lexical(path, root)
     anchor = root or _inferred_project_root(target)
-    if anchor.is_symlink():
-        raise UnsafePathError(f"project root is a symlink: {anchor}")
     try:
-        relative = target.relative_to(anchor)
+        relative_parts = _relative_parts_exact(target, anchor)
     except ValueError as exc:
         raise UnsafePathError(f"output path escapes project root: {target}") from exc
 
+    if redirect := _first_redirect(anchor):
+        raise UnsafePathError(
+            "project root is a symlink or junction, or has one in an ancestor: "
+            f"{redirect}"
+        )
+
     current = anchor
-    for part in relative.parts:
+    for part in relative_parts:
         current = current / part
-        if current.is_symlink():
-            raise UnsafePathError(f"output path contains a symlink: {current}")
+        if _is_redirect(current):
+            raise UnsafePathError(
+                f"output path contains a symlink or junction: {current}"
+            )
+
+    try:
+        resolved_target = target.resolve()
+        resolved_anchor = anchor.resolve()
+        _relative_parts_exact(resolved_target, resolved_anchor)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise UnsafePathError(
+            f"resolved output path escapes project root: {target}"
+        ) from exc
     return target
 
 

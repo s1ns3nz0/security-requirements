@@ -65,8 +65,10 @@ python3 -I "<exact absolute plugin root>/scripts/<trusted packaged script name.p
 6. Follow both loaded files exactly. In the command's opening trusted-path
    section, skip only the Claude-specific path-capture block; execute the
    initial broad `safe_paths.py` preflight with the Codex fresh-call template.
-   Substitute the captured Codex literals into every placeholder without
-   copying or reconstructing the pipeline here.
+   For that one command, replace only its canonical `${CLAUDE_PLUGIN_ROOT}`
+   token with the captured exact plugin-root literal; never read that token
+   from an ambient Claude variable. Substitute the captured Codex literals into
+   every placeholder without copying or reconstructing the pipeline here.
 
 ## Confirmation gate
 

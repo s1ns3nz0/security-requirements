@@ -392,7 +392,7 @@ summarised in our own words with links, never reproduced.
 
 ```bash
 python3 -I plugins/security-requirements/scripts/rebuild_catalogs.py  # rebuild every catalog from upstream
-python3 -m pytest tests/                # deterministic layer, 918 tests
+python3 -m pytest tests/                # deterministic layer, 965 tests
 python3 -m pytest tests/test_distribution_docs.py -q
 python3 scripts/validate_distribution.py .
 ```

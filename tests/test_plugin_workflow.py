@@ -21,6 +21,12 @@ PLUGIN_ROOT_LITERAL = "<exact absolute plugin root>"
 DATA_ROOT_LITERAL = "<exact absolute data root returned by runtime_paths.py>"
 SELECTED_SKILL_LITERAL = "<absolute path of this selected SKILL.md>"
 WORKFLOW_FILES = [*COMMANDS, *ENTRY_SKILLS.values(), SKILL, *REFERENCE_FILES]
+CANONICAL_BROAD_PREFLIGHTS = {
+    'python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/safe_paths.py" '
+    '--project-root "$PWD" --check-output .security-requirements',
+    'python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/safe_paths.py" '
+    '--project-root "$PWD" --check-output .security-requirements docs/security',
+}
 
 def workflow_text() -> str:
     return "\n".join(path.read_text(encoding="utf-8") for path in [*COMMANDS, SKILL])
@@ -97,7 +103,7 @@ def test_claude_commands_capture_trusted_literals_without_exporting_state():
         assert "fresh shell" in text
 
 
-def test_each_claude_operation_binds_both_exact_roots_in_its_own_call():
+def test_each_other_claude_operation_binds_both_exact_roots_in_its_own_call():
     for command in COMMANDS:
         text = command.read_text(encoding="utf-8")
         fences = re.findall(
@@ -113,11 +119,20 @@ def test_each_claude_operation_binds_both_exact_roots_in_its_own_call():
                 "/scripts/runtime_paths.py" in block
                 and "${CLAUDE_PLUGIN_ROOT}" in block
             )
+            if block.strip() not in CANONICAL_BROAD_PREFLIGHTS
         ]
         assert operation_blocks, command
         for block in operation_blocks:
             assert f'SECURITY_REQUIREMENTS_ROOT="{PLUGIN_ROOT_LITERAL}"' in block
             assert f'SECURITY_REQUIREMENTS_DATA="{DATA_ROOT_LITERAL}"' in block
+
+
+def test_claude_preserves_the_one_host_root_canonical_preflight_exception():
+    for command in COMMANDS:
+        text = " ".join(command.read_text(encoding="utf-8").split())
+        assert "preserve this one canonical broad preflight exactly as written" in text
+        assert "Claude host provides `${CLAUDE_PLUGIN_ROOT}`" in text
+        assert "Codex adapter replaces only that token" in text
 
 
 def test_shared_skill_derives_its_own_root_and_rejects_ambient_mismatch():
@@ -202,6 +217,11 @@ def test_codex_adapter_skips_only_claude_capture_not_the_broad_preflight():
         text = " ".join(path.read_text(encoding="utf-8").split())
         assert "skip only the Claude-specific path-capture block" in text
         assert "execute the initial broad `safe_paths.py` preflight" in text
+        assert (
+            "replace only its canonical `${CLAUDE_PLUGIN_ROOT}` token with the "
+            "captured exact plugin-root literal"
+        ) in text
+        assert "never read that token from an ambient Claude variable" in text
 
 
 def test_shared_output_layout_is_an_explicit_text_fence():
