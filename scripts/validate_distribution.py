@@ -20,9 +20,10 @@ METADATA_FILES = (
     PAYLOAD / ".codex-plugin" / "plugin.json",
 )
 PATH_FIELD_NAMES = {
-    "agents", "commands", "hooks", "lspservers", "mcpservers", "outputstyles",
+    "agents", "commands", "outputstyles",
     "path", "paths", "screenshots", "skills", "scripts", "files", "directories", "source",
 }
+INLINE_OR_PATH_FIELDS = {"hooks", "mcpservers", "lspservers"}
 
 
 def _read_json(path: Path, errors: list[str]) -> dict:
@@ -96,16 +97,33 @@ def _path_values(value: object, payload: Path, label: str, errors: list[str]) ->
         errors.append(f"{label} must contain path strings, lists, or mappings: {value!r}")
 
 
-def _manifest_paths(value: object, payload: Path, label: str, errors: list[str], field: str = "") -> None:
+def _manifest_paths(
+    value: object,
+    payload: Path,
+    label: str,
+    errors: list[str],
+    field: str = "",
+    inline_context: bool = False,
+) -> None:
+    normalized_field = field.replace("-", "_").lower()
+    if normalized_field in INLINE_OR_PATH_FIELDS and not inline_context:
+        if isinstance(value, str):
+            _relative_path(value, payload, label, errors)
+            return
+        if not isinstance(value, (dict, list)):
+            errors.append(f"{label} must be a path string or inline configuration: {value!r}")
+            return
+        _manifest_paths(value, payload, label, errors, inline_context=True)
+        return
     if _is_path_field(field):
         _path_values(value, payload, label, errors)
         return
     if isinstance(value, dict):
         for key, nested in value.items():
-            _manifest_paths(nested, payload, f"{label}.{key}", errors, key)
+            _manifest_paths(nested, payload, f"{label}.{key}", errors, key, inline_context)
     elif isinstance(value, list):
         for index, nested in enumerate(value):
-            _manifest_paths(nested, payload, f"{label}[{index}]", errors, field)
+            _manifest_paths(nested, payload, f"{label}[{index}]", errors, field, inline_context)
     elif isinstance(value, str) and value.startswith("./"):
         _relative_path(value, payload, label, errors)
 

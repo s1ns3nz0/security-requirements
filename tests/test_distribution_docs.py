@@ -234,6 +234,39 @@ def test_distribution_validator_rejects_malformed_path_field_values(tmp_path):
     assert any("Claude manifest.agents must contain path strings" in error for error in module.validate(clone))
 
 
+@pytest.mark.parametrize(
+    "field,value",
+    (
+        ("mcpServers", {"example": {"command": "npx", "args": ["-y", "server"]}}),
+        ("hooks", {"PreToolUse": [{"matcher": "Bash", "hooks": [{"command": "npx"}]}]}),
+        ("lspServers", {"example": {"command": "npx", "env": {"MODE": "test"}}}),
+    ),
+)
+def test_distribution_validator_accepts_inline_component_objects(tmp_path, field, value):
+    module = _load_validator()
+    clone = tmp_path / "clone"
+    shutil.copytree(REPO_ROOT, clone, ignore=shutil.ignore_patterns(".git", ".pytest_cache", "__pycache__"))
+    manifest_path = clone / "plugins" / PLUGIN_NAME / ".claude-plugin" / "plugin.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest[field] = value
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert module.validate(clone) == []
+
+
+@pytest.mark.parametrize("value", ("./../outside", "./missing-mcp-config.json"))
+def test_distribution_validator_validates_string_component_paths(tmp_path, value):
+    module = _load_validator()
+    clone = tmp_path / "clone"
+    shutil.copytree(REPO_ROOT, clone, ignore=shutil.ignore_patterns(".git", ".pytest_cache", "__pycache__"))
+    manifest_path = clone / "plugins" / PLUGIN_NAME / ".claude-plugin" / "plugin.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["mcpServers"] = value
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert any("Claude manifest.mcpServers" in error for error in module.validate(clone))
+
+
 @pytest.mark.parametrize("component", ("mcpServers", "apps", "hooks"))
 def test_distribution_validator_rejects_unsupported_codex_components(tmp_path, component):
     module = _load_validator()
