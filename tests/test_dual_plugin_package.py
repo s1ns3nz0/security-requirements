@@ -56,7 +56,9 @@ def test_payload_has_both_host_manifests_and_one_shared_implementation():
     assert codex["skills"] == "./skills/"
     for relative in RUNTIME_DIRECTORIES:
         assert (PLUGIN_ROOT / relative).is_dir()
-        assert not (REPO_ROOT / relative).exists()
+        if relative != "scripts":
+            assert not (REPO_ROOT / relative).exists()
+    assert (REPO_ROOT / "scripts" / "validate_distribution.py").is_file()
 
 
 def test_runtime_payload_uses_no_symlinks_or_duplicate_directories():
@@ -73,6 +75,8 @@ def test_runtime_payload_uses_no_symlinks_or_duplicate_directories():
             for path in REPO_ROOT.rglob(directory)
             if path.is_dir()
         ]
+        if directory == "scripts":
+            locations.remove(Path("scripts"))
         assert locations == [Path("plugins") / PLUGIN_ROOT.name / directory]
 
 

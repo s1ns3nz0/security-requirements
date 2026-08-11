@@ -113,5 +113,20 @@ python3 -m pytest tests/                # deterministic layer
 python3 scripts/lint.py <requirements>  # source integrity and style gate
 ```
 
+## Validating a distributable clone
+
+Before a release, run the clean-clone checks from the repository root:
+
+```bash
+python3 -m pytest tests/test_distribution_docs.py -q
+python3 scripts/validate_distribution.py .
+```
+
+The validator is read-only: it does not install plugins or rewrite either
+marketplace. It checks that both host marketplaces resolve to the one payload,
+that the host manifests and their relative paths exist, and that all three
+Claude commands and Codex skills are present. Keep runtime assets in the shared
+payload; do not add symlinks or a second copy of a runtime directory.
+
 Bundled catalogs are committed so the tool works offline and so a change in
 upstream data is visible as a diff rather than a silent shift.

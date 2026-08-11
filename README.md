@@ -194,24 +194,84 @@ product concept.
 No public plugin was found combining the whole chain. That is a search result,
 not a uniqueness proof, and the ecosystem changes.
 
-## Run it
+## Install from a clean clone
 
+The same `plugins/security-requirements` payload serves both hosts. Clone it
+once, then register that local checkout as a marketplace:
+
+```bash
+git clone https://github.com/s1ns3nz0/security-requirements.git
+cd security-requirements
 ```
-/plugin marketplace add s1ns3nz0/security-requirements
+
+### Claude Code
+
+```text
+/plugin marketplace add .
 /plugin install security-requirements@security-requirements
 ```
 
-This repository serves itself as a marketplace. Submission to the
-Anthropic-managed directory is separate and still under review; if it lists,
-that route will be added here alongside this one rather than replacing it.
+Claude keeps the three slash-command entry points. In the repository whose
+requirements you are deriving, run:
 
-Then, in the repository you want requirements for:
-
-```
+```text
 /sec-req-init      scan the repository, interview the gaps, confirm impact
 /sec-req-build     threat model, responsibility split, write requirements
 /sec-req-refresh   re-derive after a change, preserving human edits
 ```
+
+You can also register the published repository directly with
+`/plugin marketplace add s1ns3nz0/security-requirements`.
+
+### Codex
+
+```bash
+codex plugin marketplace add .
+codex plugin list --marketplace security-requirements
+codex plugin add security-requirements@security-requirements
+```
+
+Codex exposes the same three workflows as natural-language skills rather than
+slash commands. Start a chat with one of these prompts:
+
+- “Initialize the security requirements profile for this repository.”
+- “Build security requirements from the confirmed profile.”
+- “Refresh security requirements after service changes.”
+
+The installed entry skill finds the shared payload from its own selected path;
+it never derives the payload from the target repository's working directory.
+
+### Update or reinstall
+
+For a local clone, first update the checkout, then reinstall from that source:
+
+```bash
+git pull --ff-only
+codex plugin remove security-requirements@security-requirements
+codex plugin marketplace remove security-requirements
+codex plugin marketplace add .
+codex plugin add security-requirements@security-requirements
+```
+
+For Claude Code, run `/plugin update security-requirements`; if the installed
+copy does not refresh, run `/plugin uninstall security-requirements` and repeat
+the local marketplace registration and install commands above. For a Git
+marketplace configured directly in Codex, `codex plugin marketplace upgrade
+security-requirements` refreshes its snapshot; that command does not update a
+local source.
+
+### Runtime requirements and state
+
+The payload requires Python 3 and PyYAML. The `init` workflow calls `gh repo
+view --json visibility` only to choose a safe default for sensitive outputs. If
+`gh` is missing or the repository has no remote, it uses the safety fallback:
+records the visibility as `UNDETERMINED` and treats it as public.
+
+The plugin payload is read-only installation material. Confirmation state is
+stored externally under `SECURITY_REQUIREMENTS_DATA` (or the host's compatible
+data location), while each target repository receives its own
+`.security-requirements/` working files. An update or reinstall therefore does
+not silently create approval state from repository content.
 
 The sequence underneath them:
 
@@ -316,7 +376,9 @@ summarised in our own words with links, never reproduced.
 
 ```bash
 python3 scripts/rebuild_catalogs.py     # rebuild every catalog from upstream
-python3 -m pytest tests/                # deterministic layer, 766 tests
+python3 -m pytest tests/                # deterministic layer, 796 tests
+python3 -m pytest tests/test_distribution_docs.py -q
+python3 scripts/validate_distribution.py .
 ```
 
 Seven golden cases keep the whole scale reachable — they derive to Low, three

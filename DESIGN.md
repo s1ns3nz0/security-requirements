@@ -94,6 +94,14 @@ profile
 
 ## 4. 디렉토리 구조
 
+Claude Code와 Codex는 별도 marketplace 엔트리를 갖지만, 둘 다
+`plugins/security-requirements/` 하나만 가리킨다. Claude는 `commands/`의
+`sec-req-init`·`sec-req-build`·`sec-req-refresh` slash command를 사용하고,
+Codex는 대응하는 `skills/security-requirements-{init,build,refresh}/SKILL.md`
+자연어 진입 스킬을 사용한다. 어느 호스트도 런타임 스크립트·카탈로그·오버레이를 복사하지 않는다.
+릴리스 전 `python3 scripts/validate_distribution.py .`가 두 marketplace,
+manifest 상대 경로, 세 진입점, symlink와 중복 런타임 디렉토리를 읽기 전용으로 검사한다.
+
 ```
 .claude-plugin/
   plugin.json
