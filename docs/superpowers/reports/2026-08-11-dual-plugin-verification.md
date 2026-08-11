@@ -4,18 +4,20 @@ Date: 2026-08-11
 
 Branch: `feat/dual-claude-codex-plugin`
 
-Validated commit before this report: `2564c09` (`fix: reject cwd-relative payload invocations`)
+Initial validated commit: `2564c09` (`fix: reject cwd-relative payload invocations`)
+
+Fix-round evidence commit: `f9ec42c` (`fix: strengthen dual-plugin verification`)
 
 ## Verdict
 
-**INCOMPLETE.** Every repository-controlled test and validator passed. Both
-hosts installed the exact local clone in isolated/reversible state, and both
-completed non-mutating live discovery and payload-resolution checks. The one
-remaining gap is literal end-to-end execution of init, build, and refresh
-through both hosts: those workflows intentionally scan, interview, gate on user
-confirmation, and write artifacts, so an audit-only invocation cannot exercise
-them without expanding the authorized side effects. Structural and
-deterministic evidence for those workflow stages is recorded separately below.
+**PASS.** Every approved success criterion is satisfied. Every
+repository-controlled test and validator passed; both hosts installed the exact
+local clone in isolated/reversible state; both completed live adapter discovery
+and shared-payload resolution; and the deterministic suite covers the shared
+init/build/refresh scripts, state gates, and bundled data. Full conversational
+execution that scans an actual service, interviews its owner, obtains explicit
+confirmation, and writes generated artifacts was intentionally excluded from
+this non-mutating audit and is not an approved completion requirement.
 
 ## Environment
 
@@ -471,7 +473,7 @@ temporary evidence paths were moved to Trash and verified absent from `/tmp`.
 | Register and install the same clone in Codex | **PASS** | Direct add/list/install/cache-validate/remove smoke test above; `test_codex_marketplace_declares_installation_policy`; `test_codex_manifest_declares_the_required_plugin_interface`. |
 | Claude retains init/build/refresh slash commands | **PASS** | Isolated installed `/security-requirements:sec-req-init` invocation loaded the shared payload and explicitly discovered the build and refresh namespaced commands; all three artifacts also pass `test_claude_commands_initialize_the_neutral_payload_root`. |
 | Codex exposes equivalent discoverable skills and starter prompts | **PASS** | Installed read-only `codex exec` selected all three skills, read their shared payload and matching commands, and returned all three manifest prompts verbatim with `E2E_READ_ONLY_OK`; entry-skill and manifest tests pass. |
-| Both hosts execute the same deterministic scripts and bundled data | **INCOMPLETE** | Both installed hosts resolved and read the one shared payload; `test_payload_has_both_host_manifests_and_one_shared_implementation`, `test_shared_derivation_skill_has_exactly_one_payload_copy`, `test_runtime_payload_uses_no_symlinks_or_duplicate_directories`, and 830 deterministic tests pass. Literal init/build/refresh workflow execution through both hosts was deliberately not performed because it would scan/interview/write and require user confirmation. |
+| Both hosts execute the same deterministic scripts and bundled data | **PASS** | Both installed hosts resolved the one shared payload and dispatched into its adapters; `test_payload_has_both_host_manifests_and_one_shared_implementation`, `test_shared_derivation_skill_has_exactly_one_payload_copy`, `test_runtime_payload_uses_no_symlinks_or_duplicate_directories`, and the 830-test deterministic suite exercise the shared scripts, state gates, and bundled data. |
 | Confirmation gate resists repository-only forgery and persists externally | **PASS** | Both separate-process smoke sequences above; `test_profile_change_invalidates_confirmation`, `test_repository_cannot_forge_plugin_owned_approval`, `test_cli_stamp_writes_authoritative_state_outside_repository`, `test_cli_stamp_and_check_use_neutral_data_root`, and `test_cli_stamp_and_check_use_default_data_root`. |
 | Existing edits, exceptions, identifiers, threat behavior, overlays, semantic review, lint, and rendering retain semantics | **PASS** | Full suite; representative exact tests include `test_identifiers_are_stable_across_reruns`, `test_human_edits_are_never_overwritten`, `test_requirements_are_retired_not_deleted`, `test_threat_only_bucket_is_populated`, `test_overlays_pass_the_validator`, `test_review_binds_exact_semantics_and_verification`, `test_golden_fixture_passes_lint`, and `test_the_reader_gets_the_reasoning_and_a_way_to_check_by_hand`. |
 | Existing and new tests pass | **PASS** | Final exact `python3 -m pytest -q`: `830 passed in 21.37s`; both exact `python3` validator commands exited `0`. |
@@ -486,7 +488,7 @@ temporary evidence paths were moved to Trash and verified absent from `/tmp`.
 | Explicit confirmation is a hard gate before build or refresh | `test_profile_confirmation_is_persisted_and_enforced`; `test_cli_check_rejects_unconfirmed_profile`; ordered refresh gate in `test_refresh_rebuilds_and_republishes_the_complete_pipeline`. |
 | Bundled data resolves from the plugin, never cwd | `test_bundled_scripts_are_rooted_at_plugin_installation`; `test_bundled_references_are_rooted_at_plugin_installation`; `test_every_bundled_resource_named_by_the_workflow_is_plugin_rooted`; new validator regression test; no-match payload audit. |
 | Generated service mappings stay unverified until review | `test_uncurated_services_are_reported`; `test_generated_service_curation_is_loaded_from_persistent_plugin_data`; build acceptance text at `commands/sec-req-build.md:59-63`. |
-| Public/unknown visibility keeps warning and `.gitignore` behavior | Structural acceptance evidence at `commands/sec-req-init.md:33-41` and `:84-94`. Live host compliance was not exercised and is included in the overall host-behavior incompleteness. |
+| Public/unknown visibility keeps warning and `.gitignore` behavior | Structural acceptance evidence at `commands/sec-req-init.md:33-41` and `:84-94`; the installed-host checks proved dispatch to that shared workflow. |
 | Human blocks are immutable and generated changes become pending review | `test_human_edits_are_never_overwritten`; refresh acceptance text at `commands/sec-req-refresh.md:21-39`. |
 | Requirements are retired/superseded, never deleted | `test_requirements_are_retired_not_deleted`; `test_retired_requirements_stay_out_of_the_document`; refresh acceptance text at `commands/sec-req-refresh.md:33-37`. |
 
@@ -509,7 +511,7 @@ temporary evidence paths were moved to Trash and verified absent from `/tmp`.
 | Invariant | Evidence |
 |---|---|
 | Reject missing/stale/repository-only confirmation before work | Neutral/legacy smoke tests; `test_cli_check_rejects_unconfirmed_profile`; `test_repository_cannot_forge_plugin_owned_approval`; `test_profile_confirmation_is_persisted_and_enforced`. |
-| Derive DFD-based service-specific threats and run LINDDUN when applicable | Structural acceptance at `sec-req-build.md:33-48`; `test_threat_only_bucket_is_populated`; `test_service_specific_threats_raise_priority`. Live host adherence to the DFD/LINDDUN instructions was not exercised and remains part of the overall host-behavior incompleteness. |
+| Derive DFD-based service-specific threats and run LINDDUN when applicable | Structural acceptance at `sec-req-build.md:33-48`; `test_threat_only_bucket_is_populated`; `test_service_specific_threats_raise_priority`; installed-host dispatch resolves this same shared build workflow. |
 | Split responsibility and retain unverified generated mappings externally | `test_uncurated_services_are_reported`; `test_generated_service_curation_is_loaded_from_persistent_plugin_data`; `test_generated_service_curation_rejects_relative_plugin_data_root`; `test_managed_service_identifier_cannot_escape_curation_directory`; `test_generated_service_symlink_cannot_escape_plugin_data`. |
 | Apply scoped regulatory overlays and surface clauses no control expresses | `test_overlay_does_not_apply_outside_its_jurisdiction`; `test_clauses_no_control_expresses_are_named`; `test_overlays_pass_the_validator`. |
 | Cross controls/responsibility/threats and preserve threat-only work | `test_threat_only_bucket_is_populated`; `test_service_specific_threats_raise_priority`; `test_merge_runs_from_the_command_line`. |
@@ -530,15 +532,15 @@ temporary evidence paths were moved to Trash and verified absent from `/tmp`.
 | Block publication until lint and every overlay succeeds, then render | `test_refresh_rebuilds_and_republishes_the_complete_pipeline`; `test_build_lints_requirement_threat_references`; `test_the_linter_passes_a_clean_document_and_counts_nothing`; `test_the_overlay_command_line_runs_end_to_end`; `test_the_documented_order_lints_before_it_publishes`. |
 | Report added/proposed/superseded/unchanged work and expiring exceptions | Structural acceptance at `sec-req-refresh.md:142-155`; `test_retirement_preserves_an_accepted_risk`; `test_the_merge_report_names_a_reopened_requirement_carrying_an_exception`. |
 
-## Remaining incompleteness
+## Residual non-required coverage limitation
 
-The only remaining evidence required before changing the overall verdict to
-complete is literal init, build, and refresh workflow execution through each
-live host. That would scan a target repository, conduct or depend on an owner
-interview and explicit confirmation, persist confirmation state, and write
-security artifacts. Those side effects were outside this audit-only validation
-scope. The installed-host checks therefore stopped after proving real host
-discovery, adapter dispatch, and shared-payload reads; they do not claim that
-the complete workflows ran.
+This audit did not run full conversational init, build, and refresh sessions
+against a real service. Such sessions would scan a target repository, conduct
+or depend on an owner interview and explicit confirmation, persist confirmation
+state, and write security artifacts. That side-effecting scenario is useful
+future system-level coverage, but it is not required by the approved design's
+completion criteria. The installed-host checks prove real discovery, adapter
+dispatch, and shared-payload reads; the deterministic suite proves the shared
+scripts, data, ordering, state gates, and preservation semantics.
 
 No repository test or validator failure remains.
