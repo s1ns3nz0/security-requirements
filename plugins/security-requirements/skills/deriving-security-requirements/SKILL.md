@@ -1,6 +1,7 @@
 ---
 name: deriving-security-requirements
 description: Use when a service needs security requirements defined for a compliance, design, or architecture-review stage - derives a tailored requirement set from the service itself rather than scanning code for vulnerabilities. Triggers on "security requirements", "compliance requirements", "what controls do we need", "NIST tailoring", "control baseline", "보안 요구사항", "컴플라이언스 요구사항".
+compatibility: Requires Python 3.12 or newer and PyYAML.
 ---
 
 # Deriving security requirements

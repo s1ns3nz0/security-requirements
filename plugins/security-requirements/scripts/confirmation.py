@@ -13,7 +13,11 @@ import sys
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from runtime_paths import inspected_project_root, plugin_data_root
+from runtime_paths import (
+    inspected_project_root,
+    path_is_within_project,
+    plugin_data_root,
+)
 from safe_paths import (
     UnsafePathError,
     preflight_output_paths,
@@ -68,8 +72,7 @@ def confirmation_state_path(profile_path: Path) -> Path:
         / "confirmations"
         / f"{key}.yaml"
     )
-    resolved_state = state_path.resolve()
-    if resolved_state == project_root or resolved_state.is_relative_to(project_root):
+    if path_is_within_project(state_path, project_root):
         raise ValueError("confirmation state must remain outside the project")
     return state_path
 

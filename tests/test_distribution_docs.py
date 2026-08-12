@@ -3,6 +3,7 @@ import json
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path, PureWindowsPath
 
 import pytest
@@ -98,8 +99,17 @@ def test_clean_clone_documentation_covers_updates_dependencies_and_state():
     ):
         assert command in text
 
-    for requirement in ("Python 3", "PyYAML", "`gh`", "fallback", "external"):
+    for requirement in (
+        "Python 3.12 or newer",
+        "PyYAML",
+        "`gh`",
+        "fallback",
+        "external",
+    ):
         assert requirement in text
+
+    for path in (REPO_ROOT / "README.md", REPO_ROOT / "CONTRIBUTING.md"):
+        assert "Python 3.12 or newer" in _read(path)
 
     assert "python3 scripts/validate_distribution.py ." in text
     assert "python3 -m pytest tests/test_distribution_docs.py -q" in text
@@ -730,6 +740,18 @@ def test_distribution_validator_rejects_noncanonical_broad_preflight_source(
             "```",
             id="dynamic-output-set",
         ),
+        pytest.param(
+            LEGACY_BUILD_PREFLIGHT.replace('"$PWD"', "/private/tmp").replace(
+                ".security-requirements", ".security-\\\nrequirements"
+            ),
+            id="line-continuation-split-security-requirements",
+        ),
+        pytest.param(
+            LEGACY_BUILD_PREFLIGHT.replace('"$PWD"', "/private/tmp").replace(
+                "docs/security", "docs/sec\\\nurity"
+            ),
+            id="line-continuation-split-docs-security",
+        ),
     ),
 )
 def test_distribution_validator_rejects_a_shell_equivalent_broad_candidate_beside_canonical(
@@ -885,7 +907,7 @@ def test_safe_paths_parser_accepts_one_equals_form_project_root(tmp_path):
 
 @pytest.mark.parametrize(
     "redirect_location",
-    ("project-parent", "project-root", "output-ancestor", "output-target"),
+    ("project-root", "output-ancestor", "output-target"),
 )
 def test_safe_path_rejects_a_simulated_junction_at_every_boundary(
     tmp_path, monkeypatch, redirect_location
@@ -895,7 +917,6 @@ def test_safe_path_rejects_a_simulated_junction_at_every_boundary(
     target = project / "docs" / "security" / "requirements.md"
     project.mkdir()
     redirects = {
-        "project-parent": project.parent,
         "project-root": project,
         "output-ancestor": project / "docs",
         "output-target": target,
@@ -906,16 +927,79 @@ def test_safe_path_rejects_a_simulated_junction_at_every_boundary(
         Path,
         "is_junction",
         lambda path: path == redirect,
-        raising=False,
     )
 
     with pytest.raises(module.UnsafePathError, match="junction"):
         module.safe_path(target, project_root=project)
 
 
+def test_safe_path_allows_a_redirect_above_the_project_root(tmp_path, monkeypatch):
+    module = _load_safe_paths()
+    project = tmp_path / "project"
+    target = project / "docs" / "security" / "requirements.md"
+    project.mkdir()
+
+    monkeypatch.setattr(
+        Path,
+        "is_junction",
+        lambda path: path == project.parent,
+    )
+
+    assert module.safe_path(target, project_root=project) == target
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS /tmp is a system symlink")
+def test_safe_paths_cli_accepts_an_ordinary_project_under_macos_tmp():
+    module = _load_safe_paths()
+    with tempfile.TemporaryDirectory(prefix="safe-paths-", dir="/tmp") as directory:
+        project = Path(directory)
+        assert Path("/tmp").is_symlink()
+        assert module.main(
+            [
+                "--project-root",
+                str(project),
+                "--check-output",
+                ".security-requirements",
+            ]
+        ) == 0
+
+
+def test_safe_paths_cli_rejects_python_older_than_3_12(
+    tmp_path, monkeypatch, capsys
+):
+    module = _load_safe_paths()
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setattr(module.sys, "version_info", (3, 11, 9))
+
+    assert module.main(
+        [
+            "--project-root",
+            str(project),
+            "--check-output",
+            ".security-requirements",
+        ]
+    ) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "requires Python 3.12 or newer" in captured.err
+
+
+def test_junction_detection_is_mandatory_on_the_supported_runtime():
+    module = _load_safe_paths()
+
+    class LegacyPath:
+        def is_symlink(self):
+            return False
+
+    with pytest.raises(AttributeError):
+        module._is_redirect(LegacyPath())
+
+
 @pytest.mark.skipif(
-    not sys.platform.startswith("win") or not hasattr(Path, "is_junction"),
-    reason="requires Windows with pathlib junction support",
+    not sys.platform.startswith("win"),
+    reason="requires Windows",
 )
 def test_safe_path_rejects_a_real_windows_junction(tmp_path):
     module = _load_safe_paths()

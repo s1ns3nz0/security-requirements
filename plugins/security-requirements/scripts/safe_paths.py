@@ -10,6 +10,9 @@ import tempfile
 import sys
 
 
+MINIMUM_PYTHON = (3, 12)
+
+
 class UnsafePathError(ValueError):
     """A target path could follow a repository-controlled redirect."""
 
@@ -75,16 +78,7 @@ def _inferred_project_root(target: Path) -> Path:
 
 def _is_redirect(path: Path) -> bool:
     """Return whether *path* is a symlink or a supported junction."""
-    is_junction = getattr(path, "is_junction", None)
-    return path.is_symlink() or bool(is_junction and is_junction())
-
-
-def _first_redirect(path: Path) -> Path | None:
-    """Return the first redirected ancestor or *path* itself."""
-    for ancestor in reversed(path.parents):
-        if _is_redirect(ancestor):
-            return ancestor
-    return path if _is_redirect(path) else None
+    return path.is_symlink() or path.is_junction()
 
 
 def safe_path(path: Path, project_root: Path | None = None) -> Path:
@@ -100,10 +94,9 @@ def safe_path(path: Path, project_root: Path | None = None) -> Path:
     except ValueError as exc:
         raise UnsafePathError(f"output path escapes project root: {target}") from exc
 
-    if redirect := _first_redirect(anchor):
+    if _is_redirect(anchor):
         raise UnsafePathError(
-            "project root is a symlink or junction, or has one in an ancestor: "
-            f"{redirect}"
+            f"project root is a symlink or junction: {anchor}"
         )
 
     current = anchor
@@ -171,6 +164,12 @@ def safe_write_text(
 
 
 def main(argv: list[str] | None = None) -> int:
+    if sys.version_info < MINIMUM_PYTHON:
+        print(
+            "error: security-requirements requires Python 3.12 or newer",
+            file=sys.stderr,
+        )
+        return 2
     try:
         args = argument_parser().parse_args(argv)
         project_root = args.project_root or Path.cwd()

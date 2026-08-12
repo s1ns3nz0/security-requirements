@@ -11,6 +11,47 @@ import sys
 
 
 PAYLOAD_ROOT = Path(__file__).resolve().parent.parent
+MINIMUM_PYTHON = (3, 12)
+
+
+def _absolute_lexical(path: Path) -> Path:
+    return Path(os.path.abspath(path.expanduser()))
+
+
+def _lexically_contained(candidate: Path, project: Path) -> bool:
+    return candidate == project or candidate.is_relative_to(project)
+
+
+def path_is_within_project(candidate: Path, project_root: Path) -> bool:
+    """Return whether a path is lexically, resolved, or physically project-owned."""
+    candidate_lexical = _absolute_lexical(candidate)
+    project_lexical = _absolute_lexical(project_root)
+    if _lexically_contained(candidate_lexical, project_lexical):
+        return True
+
+    candidates = [candidate_lexical]
+    try:
+        candidate_resolved = candidate_lexical.resolve()
+        project_resolved = project_lexical.resolve()
+    except (OSError, RuntimeError):
+        pass
+    else:
+        if _lexically_contained(candidate_resolved, project_resolved):
+            return True
+        candidates.append(candidate_resolved)
+
+    inspected: set[Path] = set()
+    for path in candidates:
+        for ancestor in (path, *path.parents):
+            if ancestor in inspected or not ancestor.exists():
+                continue
+            inspected.add(ancestor)
+            try:
+                if os.path.samefile(ancestor, project_lexical):
+                    return True
+            except OSError:
+                continue
+    return False
 
 
 def isolated_script_command(script_name: str, *arguments: str) -> str:
@@ -103,23 +144,22 @@ def plugin_data_root(
                 base = Path.home() / ".local" / "state"
         path = base.expanduser() / "security-requirements" / "v1"
 
-    lexical = Path(os.path.abspath(path.expanduser()))
+    lexical = _absolute_lexical(path)
     resolved = lexical.resolve()
     if project_root is not None:
-        project_lexical = Path(os.path.abspath(project_root.expanduser()))
-        project = project_lexical.resolve()
-        if (
-            lexical == project_lexical
-            or lexical.is_relative_to(project_lexical)
-            or resolved == project
-            or resolved.is_relative_to(project)
-        ):
+        if path_is_within_project(lexical, project_root):
             raise ValueError(f"{source} must be outside the inspected project")
     return resolved
 
 
 def main(argv: list[str] | None = None) -> int:
     """Print one canonical runtime root for host adapters."""
+    if sys.version_info < MINIMUM_PYTHON:
+        print(
+            "error: security-requirements requires Python 3.12 or newer",
+            file=sys.stderr,
+        )
+        return 2
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
     parser.add_argument("--skill", type=Path)

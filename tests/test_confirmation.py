@@ -93,6 +93,75 @@ def test_explicit_state_root_inside_inspected_project_is_rejected(tmp_path, vari
     assert not (project / "plugin-state").exists()
 
 
+def test_physical_project_containment_matches_an_existing_alias_ancestor(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    alias = tmp_path / "external-alias"
+    project.mkdir()
+    alias.mkdir()
+    candidate = alias / "not-created" / "state.yaml"
+    real_samefile = os.path.samefile
+
+    def samefile(left, right):
+        if Path(left) == alias and Path(right) == project:
+            return True
+        return real_samefile(left, right)
+
+    monkeypatch.setattr(runtime_paths.os.path, "samefile", samefile)
+
+    assert runtime_paths.path_is_within_project(candidate, project)
+
+
+def test_physical_project_containment_handles_samefile_oserror(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    external = tmp_path / "external"
+    project.mkdir()
+    external.mkdir()
+
+    def unavailable(_left, _right):
+        raise OSError("samefile unavailable")
+
+    monkeypatch.setattr(runtime_paths.os.path, "samefile", unavailable)
+
+    assert not runtime_paths.path_is_within_project(
+        external / "not-created" / "state.yaml", project
+    )
+
+
+def test_case_variant_siblings_remain_distinct_on_a_case_sensitive_filesystem(
+    tmp_path,
+):
+    project = tmp_path / "Repo"
+    sibling = tmp_path / "rEPO"
+    project.mkdir()
+    if sibling.exists() and os.path.samefile(project, sibling):
+        pytest.skip("temporary filesystem is case-insensitive")
+    sibling.mkdir()
+
+    assert not runtime_paths.path_is_within_project(sibling / "state", project)
+
+
+def test_case_insensitive_project_alias_cannot_hold_plugin_state(tmp_path):
+    if sys.platform != "darwin":
+        pytest.skip("requires macOS filesystem alias semantics")
+    project = tmp_path / "Repo"
+    project.mkdir()
+    alias = tmp_path / "rEPO"
+    try:
+        same_directory = alias.exists() and os.path.samefile(project, alias)
+    except OSError:
+        same_directory = False
+    if not same_directory:
+        pytest.skip("temporary filesystem is case-sensitive")
+
+    with pytest.raises(ValueError, match="must be outside the inspected project"):
+        runtime_paths.plugin_data_root(
+            env={"SECURITY_REQUIREMENTS_DATA": str(alias / "state")},
+            project_root=project,
+        )
+
+
 def test_project_owned_state_symlink_cannot_redirect_authoritative_state(tmp_path):
     project = tmp_path / "project"
     outside = tmp_path / "outside"
@@ -205,6 +274,19 @@ def test_runtime_paths_cli_treats_cwd_as_the_inspected_project(tmp_path):
     assert result.returncode == 1
     assert "must be outside the inspected project" in result.stderr
     assert result.stdout == ""
+
+
+def test_runtime_bootstrap_rejects_python_older_than_3_12(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_paths.sys, "version_info", (3, 11, 9))
+
+    assert runtime_paths.main([]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "requires Python 3.12 or newer" in captured.err
 
 
 def test_selected_skill_owns_plugin_root_and_ambient_root_cannot_redirect_it(tmp_path):
@@ -407,6 +489,31 @@ def test_confirmation_check_rejects_matching_forged_state_inside_project(
     assert confirmation.main(["--check", str(path)]) == 1
 
     assert "confirmation state must remain outside the project" in capsys.readouterr().err
+
+
+def test_confirmation_rejects_a_physically_project_owned_final_authority(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    profile_path = project / ".security-requirements" / "profile.yaml"
+    profile_path.parent.mkdir(parents=True)
+    state_root = tmp_path / "external-state"
+    confirmations = state_root / "confirmations"
+    confirmations.mkdir(parents=True)
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(state_root))
+    real_samefile = os.path.samefile
+
+    def samefile(left, right):
+        if Path(left) == confirmations and Path(right) == project:
+            return True
+        return real_samefile(left, right)
+
+    monkeypatch.setattr(runtime_paths.os.path, "samefile", samefile)
+
+    with pytest.raises(
+        ValueError, match="confirmation state must remain outside the project"
+    ):
+        confirmation.confirmation_state_path(profile_path)
 
 
 def test_cli_check_rejects_unconfirmed_profile(tmp_path, monkeypatch):

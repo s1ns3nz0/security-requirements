@@ -109,6 +109,10 @@ Moderate, and High respectively; the range being reachable is the point.
 
 ## Running things
 
+Development and validation require Python 3.12 or newer and PyYAML. The runtime
+uses `pathlib.Path.is_junction()` as a mandatory output-safety check and does not
+support older Python versions.
+
 ```
 python3 -I plugins/security-requirements/scripts/rebuild_catalogs.py  # rebuild from upstream
 python3 -m pytest tests/                # deterministic layer

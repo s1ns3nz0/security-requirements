@@ -273,9 +273,12 @@ local source.
 
 ### Runtime requirements and state
 
-The payload requires Python 3 and PyYAML. Workflow scripts run with Python's
-isolated mode (`-I`), so PyYAML must be available to that interpreter through
-its system or virtual-environment site-packages, not only a user-site install.
+The payload requires Python 3.12 or newer and PyYAML. Python 3.12 is the minimum
+because redirect protection requires `pathlib.Path.is_junction()`; older
+interpreters are rejected by the first trusted runtime helper. Workflow scripts
+run with Python's isolated mode (`-I`), so PyYAML must be available to that
+interpreter through its system or virtual-environment site-packages, not only a
+user-site install.
 The `init` workflow calls `gh repo view --json visibility` only to choose a safe
 default for sensitive outputs. If
 `gh` is missing or the repository has no remote, it uses the safety fallback:
@@ -392,7 +395,7 @@ summarised in our own words with links, never reproduced.
 
 ```bash
 python3 -I plugins/security-requirements/scripts/rebuild_catalogs.py  # rebuild every catalog from upstream
-python3 -m pytest tests/                # deterministic layer, 965 tests
+python3 -m pytest tests/                # deterministic layer, 978 tests
 python3 -m pytest tests/test_distribution_docs.py -q
 python3 scripts/validate_distribution.py .
 ```

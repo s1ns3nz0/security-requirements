@@ -38,7 +38,11 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from profile_schema import normalise
-from runtime_paths import inspected_project_root, plugin_data_root
+from runtime_paths import (
+    inspected_project_root,
+    path_is_within_project,
+    plugin_data_root,
+)
 from safe_paths import (
     UnsafePathError,
     preflight_output_paths,
@@ -275,10 +279,7 @@ def load_services(
             state_root / "responsibility" / "services" / f"{sid}.yaml",
             project_root=state_root,
         )
-        resolved_generated = generated.resolve()
-        if resolved_generated == inspected_project or resolved_generated.is_relative_to(
-            inspected_project
-        ):
+        if path_is_within_project(generated, inspected_project):
             raise ValueError("generated service curation must remain outside the project")
         if not path.exists() and generated and generated.exists():
             path = generated

@@ -13,7 +13,7 @@
     {
       "name": "security-requirements",
       "source": "./plugins/security-requirements",
-      "description": "Derives what a service must satisfy, before or independently of any code existing. Bundles the NIST 800-53 Rev 5 catalog, CSF 2.0, and ASVS 5.0 so cited control identifiers are checked rather than recalled.",
+      "description": "Derives what a service must satisfy, before or independently of any code existing. Bundles the NIST 800-53 Rev 5 catalog, CSF 2.0, and ASVS 5.0 so cited control identifiers are checked rather than recalled. Requires Python 3.12 or newer and PyYAML.",
       "category": "security",
       "keywords": [
         "security",

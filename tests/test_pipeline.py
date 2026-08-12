@@ -31,6 +31,7 @@ import classify_resp  # noqa: E402
 import lint as lint_mod  # noqa: E402
 import merge  # noqa: E402
 import profile_schema  # noqa: E402
+import runtime_paths  # noqa: E402
 import select_baseline as sb  # noqa: E402
 
 GOLDEN = REPO_ROOT / "golden" / "b2b-saas-aws"
@@ -2120,6 +2121,38 @@ def test_generated_service_ancestor_symlink_cannot_redirect_into_project(
     candidate["inferred"]["managed_services"] = [{"id": "evil"}]
 
     with pytest.raises(ValueError, match="symlink"):
+        classify_resp.load_services(
+            candidate, "aws", ["aws"], project_root=project
+        )
+
+
+def test_generated_service_rejects_a_physically_project_owned_state_file(
+    profile, tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    state_root = tmp_path / "external-state"
+    service_dir = state_root / "responsibility" / "services"
+    service_dir.mkdir(parents=True)
+    (service_dir / "evil.yaml").write_text(
+        yaml.safe_dump({"provider": "aws", "reviewed": True, "controls": {}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(state_root))
+    candidate = copy.deepcopy(profile)
+    candidate["inferred"]["managed_services"] = [{"id": "evil"}]
+    real_samefile = os.path.samefile
+
+    def samefile(left, right):
+        if Path(left) == service_dir and Path(right) == project:
+            return True
+        return real_samefile(left, right)
+
+    monkeypatch.setattr(runtime_paths.os.path, "samefile", samefile)
+
+    with pytest.raises(
+        ValueError, match="generated service curation must remain outside the project"
+    ):
         classify_resp.load_services(
             candidate, "aws", ["aws"], project_root=project
         )

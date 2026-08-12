@@ -1,6 +1,7 @@
 ---
 name: security-requirements-build
 description: Use when building tailored security requirements from an explicitly confirmed service profile, including threat, responsibility, overlay, merge, lint, semantic-review, and publication gates.
+compatibility: Requires Python 3.12 or newer and PyYAML.
 ---
 
 # Build security requirements

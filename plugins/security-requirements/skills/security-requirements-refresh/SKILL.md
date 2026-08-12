@@ -1,6 +1,7 @@
 ---
 name: security-requirements-refresh
 description: Use when refreshing security requirements after repository or service changes while preserving human edits, exceptions, identifiers, and renewed explicit profile confirmation.
+compatibility: Requires Python 3.12 or newer and PyYAML.
 ---
 
 # Refresh security requirements

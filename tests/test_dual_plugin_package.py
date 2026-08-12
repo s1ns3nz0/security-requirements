@@ -45,6 +45,21 @@ def test_payload_has_both_host_manifests_and_one_shared_implementation():
     assert (REPO_ROOT / "scripts" / "validate_distribution.py").is_file()
 
 
+def test_plugin_metadata_declares_the_python_3_12_runtime_floor():
+    requirement = "Requires Python 3.12 or newer and PyYAML."
+    for manifest_path in (
+        PLUGIN_ROOT / ".claude-plugin" / "plugin.json",
+        PLUGIN_ROOT / ".codex-plugin" / "plugin.json",
+    ):
+        assert requirement in read_json(manifest_path)["description"]
+
+    for skill_path in (
+        PLUGIN_ROOT / SHARED_DERIVATION_SKILL / "SKILL.md",
+        *CODEX_ENTRY_SKILLS.values(),
+    ):
+        assert f"compatibility: {requirement}" in skill_path.read_text(encoding="utf-8")
+
+
 def test_runtime_payload_uses_no_symlinks_or_duplicate_directories():
     symlinks = [
         path.relative_to(PLUGIN_ROOT)

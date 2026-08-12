@@ -218,9 +218,8 @@ def _logical_lines(text: str):
     for number, line in enumerate(text.splitlines(), start=1):
         if not buffered:
             start = number
-        stripped = line.rstrip()
-        if stripped.endswith("\\"):
-            buffered += stripped[:-1] + " "
+        if line.endswith("\\"):
+            buffered += line[:-1]
             continue
         yield start, buffered + line
         buffered = ""

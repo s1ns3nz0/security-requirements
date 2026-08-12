@@ -1,6 +1,7 @@
 ---
 name: security-requirements-init
 description: Use when initializing a repository's security requirements profile, scanning architecture evidence, interviewing declared facts, and obtaining explicit profile confirmation.
+compatibility: Requires Python 3.12 or newer and PyYAML.
 ---
 
 # Initialize security requirements
