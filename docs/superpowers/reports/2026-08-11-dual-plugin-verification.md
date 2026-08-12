@@ -10,10 +10,11 @@ Security-fix commits:
 - `0596650 fix: root loaded runtime guidance`
 - `727f0ec fix: close confirmation and preflight bypasses`
 - `7e2fc56 fix: require canonical output preflights`
+- `574ccef fix: close final portability gaps`
 
 ## Verdict
 
-**PASS with platform evidence qualified below.** The final review's Critical,
+**PASS with the residual platform boundary documented below.** The final review's Critical,
 Important, migration-remnant, minor, and evidence findings are closed,
 including the later canonical-preflight and filesystem-redirect findings. The
 exact Python 3.12 suite passes, as do the source distribution validator, the
@@ -21,10 +22,11 @@ Codex plugin validator, and both authoritative Claude strict validations.
 
 This update supersedes the earlier evidence in this file. In particular, the
 old read-only host checks and the old cross-call `export` adapter examples are
-historical and are not relied on for this verdict. The installed-host section
-records the earlier `b0aed64` execution; installed hosts were not rerun after
-`7e2fc56`. Current adapter behavior is covered by source-contract tests and the
-host schema validators, not claimed as fresh installed-host execution.
+historical and are not relied on for this verdict. Commit
+`574ccef8e7d65f3943f694d6ef1c0ef2eae18df7` received fresh installed-host
+verification through isolated Claude and Codex configurations. The current
+section below records the accepted commands, outputs, postconditions, and
+cleanup.
 
 ## Environment
 
@@ -35,13 +37,15 @@ host schema validators, not claimed as fresh installed-host execution.
 | Claude Code | `2.1.145` |
 
 The current suite and Python validators invoked the prepared interpreter by its
-absolute path. The temporary `python3` PATH shim below belongs to the historical
-installed-host run:
+absolute path. Installed-host verification used a task-local `python3` shim
+pointing to the same Python 3.12.11 interpreter:
 
 ```text
-/tmp/security-requirements-python312-b0aed64/python3
+/tmp/security requirements final 테스트-574ccef.rjMWWJ/python shim Ω/python3
   -> /Users/s1ns3nz0/.pyenv/versions/3.12.11/bin/python
 ```
+
+The exact containing temporary root was deleted after isolated host cleanup.
 
 ## Exact final validation
 
@@ -55,8 +59,13 @@ PYTHONDONTWRITEBYTECODE=1 /Users/s1ns3nz0/.pyenv/versions/3.12.11/bin/python \
 Result:
 
 ```text
-964 passed, 1 skipped in 46.13s
+976 passed, 2 skipped in 46.75s
 ```
+
+The skips were the real Windows `/J` integration on macOS and the
+case-sensitive case-variant sibling integration on this case-insensitive
+volume. The real macOS physical alias and `/tmp` regressions executed and
+passed; portable predicate/error seams cover the unavailable cases.
 
 ### Distribution and host-schema validators
 
@@ -158,12 +167,35 @@ the `Path.is_junction` seam. `PureWindowsPath` separately verifies that the
 exact-case component-prefix check rejects a `repo`/`REPO` sibling even though
 the standard Windows pathlib containment comparison considers it relative.
 Neither seam is represented as a real Windows filesystem execution.
+The later `574ccef` portability fix supersedes only the project-parent part of
+this historical result: redirects above the project are now accepted, while
+root and project-contained output redirects remain rejected.
 
 The earlier confirmation-state fix was also rerun without selection:
 
 ```text
 33 passed in 0.88s
 ```
+
+### Final portability follow-up
+
+Thirteen regressions were written before the `574ccef` implementation. The
+physical-containment, final-consumer, version-floor, junction, `/tmp`, and
+metadata selection was RED with `11 failed`. Two exact additional broad
+preflights that split `.security-requirements` or `docs/security` with a shell
+line continuation were separately accepted by the old validator (`errors:
+[]`), giving the remaining `2 failed`.
+
+After implementation, the affected files were GREEN:
+
+```text
+952 passed, 2 skipped
+```
+
+The complete fresh run and validators are recorded above. An independent
+implementation review also ran `176 passed, 2 skipped`, the distribution
+validator, and `git diff --check`, and reported no Critical, Important, or
+Minor issue within the five-finding scope.
 
 ## Final-review security closure
 
@@ -172,41 +204,41 @@ The earlier confirmation-state fix was also rerun without selection:
 | Inspected cwd could shadow Python startup/imports | All workflow Python calls are `python3 -I` plus an absolute packaged script. Inline `-c`, stdin, cwd-relative, arbitrary absolute, versioned-interpreter, multiline, and YAML-quoted bypasses are rejected by the validator. `test_packaged_cli_starts_in_isolated_mode_from_a_hostile_project` executes the packaged CLIs with poisoned `sitecustomize.py`, `pathlib.py`, and `yaml.py`. |
 | Exports did not persist across tool calls and non-shell tools could not expand them | Claude captures exact roots once and every later operation independently prefixes the exact literals. The one initial canonical broad preflight intentionally retains `${CLAUDE_PLUGIN_ROOT}` for Claude; the Codex adapter replaces only that token with its loader-verified exact root. Read/Write/Edit and scoped-preflight instructions use exact literal paths. Structural tests cover every fenced block and confirmation-gate resume. |
 | Neutral precedence could be overwritten | `plugin_data_root` retains `SECURITY_REQUIREMENTS_DATA > CLAUDE_PLUGIN_DATA > OS default`. Adapters explicitly forbid pre-setting the neutral variable during resolution. Unit tests exercise neutral, legacy, and default paths. |
-| Authoritative state could live in or be redirected through the inspected project | Runtime resolution compares lexical and resolved paths with the inspected project. Confirmation and generated-service loading bind the project explicitly. `confirmation_state_path` now also resolves the final `confirmations/<project-hash>.yaml` artifact and rejects it if an ancestor data root would place that artifact in the project. Generated state is checked with the centralized symlink-safe helper before reading. Direct, ancestor, forged-authority, and project-owned redirect tests pass. |
-| Target output redirects could be followed | `safe_paths.py` centralizes symlink/junction detection across every project-root ancestor, root, output ancestor, and target; rejects raw `..` before lexical normalization; preserves exact-case lexical and resolved containment; preflights complete output batches; and uses atomic replacement. Confirmation, baseline, classification, overlay, merge, and render sinks use the helper. Workflow model writes receive a fresh exact-target preflight immediately before every Write/Edit. Junction behavior is proven through a portable seam here; the real Windows `/J` test was skipped. |
+| Authoritative state could live in or be redirected through the inspected project | `path_is_within_project` combines lexical and resolved containment with physical `os.path.samefile` comparison of each existing candidate ancestor. Runtime data-root resolution, the final `confirmations/<project-hash>.yaml` authority, and generated-service loading all use it. A real macOS `Repo`/`rEPO` alias and portable samefile/`OSError`/final-consumer seams pass. |
+| Target output redirects could be followed | `safe_paths.py` centralizes symlink/junction detection at the canonical project root, each project-contained output ancestor, and the target; rejects raw `..` before lexical normalization; preflights complete output batches; and uses atomic replacement. Redirect ancestors above the project, including macOS `/tmp`, are not treated as project-owned, while a redirected root or internal output path remains rejected. Confirmation, baseline, classification, overlay, merge, and render sinks use the helper. The real Windows `/J` test was skipped; mandatory direct `Path.is_junction()` and portable boundary seams pass. |
 | Shared skill trusted ambient redirection | `runtime_paths.py --skill` validates that the selected absolute `SKILL.md` belongs to its own payload and requires exact lexical/resolved agreement with any ambient root. |
 | Migration remnants | Claude cross-command names are namespaced; baseline overlay commands are absolute and isolated; README, CONTRIBUTING, DESIGN, loaded reference files, HIPAA metadata, and missing-catalog remediation commands use moved/absolute trusted paths. `.gitignore` exposes only `.agents/plugins/marketplace.json`. |
 | Mutation tool path escape/interruption | `--file` accepts only a contained, non-symlink packaged relative file. The copied file is restored in `finally`, including `KeyboardInterrupt`. Behavioral tests cover absolute, traversal, symlink, and interrupted runner cases. |
-| Validator evasion | Broad-preflight validity no longer relies on reconstructing shell quote/control-flow semantics. Ordered `SAFE_OUTPUTS` centrally generates one exact source command per workflow; it must be the sole line of one executable `bash` fence, and the exact command must be the only broad candidate. Semantic tokenization is used only to reject additional equivalent, malformed, path-normalized, or dynamic-output candidates and noncanonical Claude-root scoped calls. The runtime `safe_paths` parser remains independently strict about abbreviations and duplicate options. |
+| Validator evasion | Broad-preflight validity no longer relies on reconstructing shell quote/control-flow semantics. Ordered `SAFE_OUTPUTS` centrally generates one exact source command per workflow; it must be the sole line of one executable `bash` fence, and the exact command must be the only broad candidate. Shell `\\`-newline continuation is reconstructed without inserting whitespace, so split `.security-requirements` and `docs/security` candidates are detected and rejected. Semantic tokenization rejects additional equivalent, malformed, path-normalized, or dynamic-output candidates and noncanonical Claude-root scoped calls. |
+| Runtime version ambiguity | Runtime and plugin support is Python 3.12 or newer plus PyYAML. The bootstrap rejects older interpreters before normal output, all host metadata/skill frontmatters state the floor, and `Path.is_junction()` is mandatory on the supported runtime. |
 
 This follow-up closes the canonical-preflight and filesystem-redirect findings
 from the subsequent adversarial review. It does not claim a new independent
 review of unrelated surfaces.
 
-## Historical installed-host execution from a hostile cwd
+## Current-HEAD installed-host execution from an isolated hostile cwd
 
-This section records the earlier `b0aed64` run and was not rerun for
-`7e2fc56`.
-
-The final checks used this unrelated working directory and external state root:
+Commit `574ccef8e7d65f3943f694d6ef1c0ef2eae18df7` was installed separately in
+task-local Codex and Claude configurations. The unrelated cwd, config, data,
+and shim paths all contained spaces and Unicode. `PYTHONPATH` pointed at the
+cwd, which contained poisoned `sitecustomize.py`, `pathlib.py`, and `yaml.py`.
 
 ```text
-cwd:  /tmp/security requirements 테스트-b0aed64
-data: /tmp/security requirements data 테스트-b0aed64
+root: /tmp/security requirements final 테스트-574ccef.rjMWWJ
+cwd:  /tmp/security requirements final 테스트-574ccef.rjMWWJ/hostile cwd Ω
+data: /tmp/security requirements final 테스트-574ccef.rjMWWJ/external data Ω
 ```
 
-The cwd contained malicious `sitecustomize.py`, `pathlib.py`, and `yaml.py`.
-`PYTHONPATH` also pointed at that cwd. Each poison module would create a
-`POISONED-*` marker if imported. No marker was created.
+Codex received a mode-0600 auth-file copy in its isolated config. Both hosts
+registered the exact worktree and installed version `0.1.0`. The installed
+`runtime_paths.py` and `safe_paths.py` copies on both hosts compared
+byte-for-byte with current HEAD before and after execution.
 
 ### Codex
 
-Prechecks found no exact test marketplace, plugin, or cache. The exact worktree
-was registered and installed as
-`security-requirements@security-requirements` version `0.1.0`.
-
-Three independent `codex exec --ephemeral --sandbox read-only` sessions were
-started with the manifest starter prompts, one prompt per session:
+Three independent JSON-streamed sessions used
+`codex exec --ephemeral --sandbox read-only --skip-git-repo-check`, one exact
+manifest starter per session:
 
 ```text
 Initialize the security requirements profile for this repository.
@@ -214,22 +246,23 @@ Build security requirements from the confirmed profile.
 Refresh security requirements after service changes.
 ```
 
-No explicit list of skills was supplied. Each session naturally selected its
-matching installed entry skill. Each then actually executed:
+Each naturally selected the corresponding installed entry skill. Structured
+command events prove execution under `python3 -I`:
 
 ```text
-python3 -I <installed-cache>/scripts/runtime_paths.py --skill <selected absolute SKILL.md>
-python3 -I <installed-cache>/scripts/runtime_paths.py --project-root "$PWD"
-python3 -I <installed-cache>/scripts/safe_paths.py --project-root "$PWD" --check-output ...
+<installed>/scripts/runtime_paths.py --skill <selected absolute SKILL.md>
+<installed>/scripts/runtime_paths.py --project-root "$PWD"
+<installed>/scripts/safe_paths.py --project-root "$PWD" --check-output ...
 ```
 
-The data-root stdout in every session was:
+All commands exited 0. Init checked `.security-requirements`; build and refresh
+checked `.security-requirements docs/security`. Resolver stdout was:
 
 ```text
-/private/tmp/security requirements data 테스트-b0aed64
+/private/tmp/security requirements final 테스트-574ccef.rjMWWJ/external data Ω
 ```
 
-The exact success markers were:
+Accepted markers:
 
 ```text
 CODEX_INIT_ADAPTER_EXEC_OK
@@ -237,20 +270,11 @@ CODEX_BUILD_ADAPTER_EXEC_OK
 CODEX_REFRESH_ADAPTER_EXEC_OK
 ```
 
-The test plugin and marketplace were removed by an EXIT trap. Final exact-name
-queries returned no match and the exact cache path did not exist.
-
 ### Claude Code
 
-Claude used the empty isolated configuration:
-
-```text
-/tmp/security requirements claude 테스트-b0aed64
-```
-
-The exact local worktree was added and installed there. The three namespaced
-commands were invoked separately with only Bash exposed and no session
-persistence:
+Three accepted sessions used `--print --no-session-persistence
+--permission-mode bypassPermissions --tools Bash --output-format stream-json`.
+The namespaced commands were invoked separately:
 
 ```text
 /security-requirements:sec-req-init
@@ -258,9 +282,10 @@ persistence:
 /security-requirements:sec-req-refresh
 ```
 
-Each command actually ran the worktree payload's `runtime_paths.py` and
-`safe_paths.py` through `python3 -I`, reported the same external data-root
-stdout, and returned:
+Every host-init event listed the installed plugin and requested command. Each
+stream contained Bash tool-use/result pairs for the isolated installed
+`runtime_paths.py` and `safe_paths.py` under `python3 -I`; all returned status
+0 and the same canonical data-root stdout. Accepted markers:
 
 ```text
 CLAUDE_INIT_ADAPTER_EXEC_OK
@@ -268,14 +293,38 @@ CLAUDE_BUILD_ADAPTER_EXEC_OK
 CLAUDE_REFRESH_ADAPTER_EXEC_OK
 ```
 
-An initial `dontAsk` attempt denied Bash and correctly emitted no success
-marker. The final non-interactive run used Claude's explicit
-`bypassPermissions` mode, limited by the audit prompt and `--tools Bash`, so the
-two read-only packaged checks could execute.
+One earlier init attempt successfully ran both scripts but exhausted its turn
+cap while rediscovering the isolated cache and returned no marker; it was
+discarded. The accepted rerun used the install root reported by the isolated
+host and completed with the marker.
 
-The isolated plugin and marketplace were removed by an EXIT trap; both isolated
-lists are `[]`. The pre-existing user Claude marketplace/plugin entry retained
-the same GitHub source, installed path, and timestamps as before the check.
+### Postconditions and cleanup
+
+No `POISONED-*` marker, `.security-requirements`, `docs/security`, or external
+data entry existed after the sessions. Exact plugin removal was followed by
+exact marketplace removal on each isolated host. Final state was:
+
+```text
+Codex plugin list:       {"installed": [], "available": []}
+Codex marketplace list:  {"marketplaces": []}
+Claude plugin list:      []
+Claude marketplace list: []
+TEMP_ROOT_ABSENT
+```
+
+The exact temporary root, including the auth copy and retained isolated Claude
+cache, was permanently deleted after validation. The real Codex config retained
+SHA-256
+`fa732d1031da27d71cf8425bdbc35e67ced0ce4aa9af129c7bcd811852579823`.
+The pre-existing Claude GitHub marketplace source, plugin path/version and
+timestamps, clean marketplace HEAD
+`b987ae4a95563f0da619518e3c22913b30c85c19`, and five-file persistent-data
+digest `6e8be6dbe1d31f028904c474ce843defda5682fe683d54dbb671f9802bf28de1`
+were unchanged.
+
+The full command transcript, installed script hashes, exact cleanup commands,
+and before/after table are retained in
+`.superpowers/sdd/2026-08-11-dual-claude-codex-plugin/final-portability-fix-report.md`.
 
 ## State and confirmation evidence
 
@@ -289,18 +338,21 @@ project-owned.
 
 ## Residual limitations
 
-The reviewed follow-up findings are closed. A real Windows junction and a
-case-sensitive NTFS directory were not available: those properties are covered
-by portable unit seams, while the real `/J` integration remains skipped on
-non-Windows hosts. A preflight followed by an independent model Write/Edit is
-still a check-then-use protocol rather than an OS-level directory capability;
-the workflow narrows that interval by requiring an immediate exact-target
-check, but does not claim to eliminate a concurrent filesystem race.
+The reviewed follow-up findings are closed. The real Windows `/J` integration
+was unavailable on macOS, and the distinct-case-sibling integration was skipped
+because this temporary filesystem is case-insensitive. Mandatory junction and
+physical-containment behavior is covered by portable unit seams; the real
+macOS case-insensitive project alias executed successfully. A preflight
+followed by an independent model Write/Edit is still a check-then-use protocol
+rather than an OS-level directory capability; the workflow narrows that
+interval by requiring an immediate exact-target check, but does not claim to
+eliminate a concurrent filesystem race.
 
 YAML-using runtime scripts require PyYAML in the isolated interpreter's system
 or virtual environment; user-site-only packages are deliberately ignored by
-`-I`, and the README documents that prerequisite. Installed-host execution was
-not repeated after `7e2fc56`; the historical run exercised only safe read-only
-path/output checks rather than a side-effecting end-to-end service interview
-and publication. No new independent review of unrelated surfaces was performed
-for this follow-up.
+`-I`, and the README documents that prerequisite. Fresh current-HEAD
+installed-host verification exercised adapter discovery and the packaged
+runtime/output checks, not the side-effecting service scan, interview,
+confirmation, derivation, or publication workflow; the deterministic suite
+covers that business pipeline. No unrelated surface was reviewed or changed in
+this follow-up.
