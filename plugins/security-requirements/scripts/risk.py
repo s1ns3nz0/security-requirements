@@ -812,6 +812,283 @@ def aggregate_risk(
     }
 
 
+UNRESOLVED_RISK_STATUSES = ("UNDETERMINED", "STALE", "PROPOSED")
+REQUIREMENT_PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+
+
+def derive_risk_links(threat_refs: object, assessment: dict) -> dict:
+    """Derive requirement risk links and display exposure from assessments.
+
+    ``risk_refs`` are stable citations copied from the requirement's threat
+    references. ``risk_exposure`` is presentation metadata: only an active,
+    confirmed assessment contributes a rating. An unresolved linked assessment
+    is displayed as unresolved only when no confirmed linked rating exists.
+    """
+
+    if not isinstance(threat_refs, Sequence) or isinstance(threat_refs, (str, bytes)):
+        raise RiskValidationError("requirement threat_refs must be a list")
+    refs = sorted({reference for reference in threat_refs if _nonempty_text(reference)})
+    if not isinstance(assessment, Mapping):
+        raise RiskValidationError("assessment document must be a mapping")
+    records = assessment.get("assessments")
+    if not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
+        raise RiskValidationError("assessments must be a list")
+
+    records_by_id: dict[str, Mapping] = {}
+    for record in records:
+        if not isinstance(record, Mapping):
+            raise RiskValidationError("assessment record must be a mapping")
+        threat_id = record.get("threat_id")
+        if not _nonempty_text(threat_id):
+            raise RiskValidationError("assessment threat_id is required")
+        if threat_id in records_by_id:
+            raise RiskValidationError(f"duplicate assessment for threat: {threat_id}")
+        records_by_id[threat_id] = record
+
+    result: dict[str, object] = {"risk_refs": refs}
+    if not refs:
+        return result
+
+    confirmed_ratings: list[str] = []
+    unresolved: set[str] = set()
+    for reference in refs:
+        record = records_by_id.get(reference)
+        if record is None:
+            unresolved.add("UNDETERMINED")
+            continue
+        if _snapshot_lifecycle(record) != "active":
+            continue
+        status = record.get("status")
+        if status != "CONFIRMED":
+            unresolved.add(status if status in UNRESOLVED_RISK_STATUSES else "UNDETERMINED")
+            continue
+        rating = _snapshot_rating(record)
+        if rating is None:
+            unresolved.add("UNDETERMINED")
+        else:
+            confirmed_ratings.append(rating)
+
+    if confirmed_ratings:
+        result["risk_exposure"] = min(confirmed_ratings, key=RATINGS.index)
+    elif unresolved:
+        result["risk_exposure"] = next(
+            status for status in UNRESOLVED_RISK_STATUSES if status in unresolved
+        )
+    return result
+
+
+def order_requirements(requirements: object) -> list[dict]:
+    """Return requirements in deterministic risk, priority, and ID order."""
+
+    if not isinstance(requirements, Sequence) or isinstance(requirements, (str, bytes)):
+        raise RiskValidationError("requirements must be a list")
+
+    def ordering_key(record: object) -> tuple[int, int, str]:
+        if not isinstance(record, Mapping):
+            raise RiskValidationError("requirement must be a mapping")
+        managed = record.get("managed")
+        managed = managed if isinstance(managed, Mapping) else {}
+        exposure = record.get("risk_exposure", managed.get("risk_exposure"))
+        if exposure == "critical":
+            exposure_rank = 0
+        elif exposure in UNRESOLVED_RISK_STATUSES:
+            exposure_rank = 1
+        elif exposure == "high":
+            exposure_rank = 2
+        elif exposure == "medium":
+            exposure_rank = 3
+        elif exposure == "low":
+            exposure_rank = 4
+        else:
+            exposure_rank = 5
+        priority = managed.get("priority")
+        priority_rank = (
+            REQUIREMENT_PRIORITY_ORDER.get(priority, 3)
+            if isinstance(priority, str)
+            else 3
+        )
+        requirement_id = record.get("id")
+        if not isinstance(requirement_id, str):
+            requirement_id = ""
+        return exposure_rank, priority_rank, requirement_id
+
+    return sorted(list(requirements), key=ordering_key)
+
+
+def _report_text(value: object) -> str:
+    if value is None or value == "":
+        return "not recorded"
+    if isinstance(value, Mapping):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return "; ".join(_report_text(item) for item in value)
+    return str(value)
+
+
+def _report_cell(value: object) -> str:
+    return (
+        _report_text(value)
+        .replace("\\", "\\\\")
+        .replace("|", "\\|")
+        .replace("\r\n", "<br>")
+        .replace("\r", "<br>")
+        .replace("\n", "<br>")
+    )
+
+
+def _assessment_criteria(proposed: object) -> object:
+    if not isinstance(proposed, Mapping):
+        return None
+    criteria: dict[str, object] = {}
+    likelihood = proposed.get("likelihood")
+    if isinstance(likelihood, Mapping):
+        criteria["likelihood"] = likelihood.get("criterion")
+    consequences = proposed.get("consequences")
+    if isinstance(consequences, Sequence) and not isinstance(consequences, (str, bytes)):
+        criteria["impact"] = [
+            consequence.get("criterion")
+            for consequence in consequences
+            if isinstance(consequence, Mapping)
+        ]
+    return criteria or None
+
+
+def _assessment_rationale(proposed: object) -> list[object]:
+    if not isinstance(proposed, Mapping):
+        return []
+    rationale: list[object] = []
+    likelihood = proposed.get("likelihood")
+    if isinstance(likelihood, Mapping) and likelihood.get("rationale") is not None:
+        rationale.append(likelihood.get("rationale"))
+    consequences = proposed.get("consequences")
+    if isinstance(consequences, Sequence) and not isinstance(consequences, (str, bytes)):
+        rationale.extend(
+            consequence.get("rationale")
+            for consequence in consequences
+            if isinstance(consequence, Mapping) and consequence.get("rationale") is not None
+        )
+    return rationale
+
+
+def render_register(summary: dict) -> str:
+    """Render the sensitive internal register from canonical report data."""
+
+    if not isinstance(summary, Mapping):
+        raise RiskValidationError("risk report summary must be a mapping")
+    records = summary.get("risks", summary.get("assessments", []))
+    if not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
+        raise RiskValidationError("risk report records must be a list")
+
+    out = [
+        "# Internal risk register",
+        "",
+        "> Sensitive internal record. Do not publish.",
+        "",
+    ]
+    for record in sorted(
+        (item for item in records if isinstance(item, Mapping)),
+        key=lambda item: str(item.get("threat_id", item.get("id", ""))),
+    ):
+        threat_id = record.get("threat_id", record.get("id", "<unknown risk>"))
+        proposed = record.get("proposed")
+        treatment = record.get("treatment")
+        treatment = treatment if isinstance(treatment, Mapping) else {}
+        acceptance = treatment.get("approval", treatment.get("acceptance"))
+        acceptance = acceptance if isinstance(acceptance, Mapping) else {}
+        residual = record.get("residual")
+        if isinstance(residual, Mapping) and isinstance(residual.get("calculated"), Mapping):
+            residual = residual["calculated"]
+        evidence = record.get("evidence", record.get("evidence_refs"))
+        rows = (
+            ("Scenario", record.get("scenario")),
+            ("Attack path", record.get("attack_path")),
+            ("Criteria", _assessment_criteria(proposed)),
+            ("Rationale", _assessment_rationale(proposed)),
+            ("Inherent", record.get("inherent", record.get("calculated"))),
+            ("Residual", residual),
+            ("Owner", treatment.get("owner")),
+            ("Treatment", treatment.get("strategy")),
+            ("Acceptance", acceptance),
+            ("Evidence", evidence),
+            ("Expiry", acceptance.get("expires")),
+            ("Lifecycle", record.get("lifecycle", record.get("status"))),
+        )
+        out += [f"## {_report_text(threat_id)}", "", "| Field | Value |", "|---|---|"]
+        out.extend(f"| {label} | {_report_cell(value)} |" for label, value in rows)
+        out.append("")
+
+    delta = summary.get("delta")
+    if isinstance(delta, Mapping):
+        out += ["## Delta", "", "| Change | Risks |", "|---|---|"]
+        for field in (
+            "new",
+            "increased",
+            "decreased",
+            "stale",
+            "retired",
+            "reopened",
+            "expired_acceptance",
+            "rating_distribution",
+        ):
+            out.append(f"| {field} | {_report_cell(delta.get(field))} |")
+        out.append("")
+    return "\n".join(out)
+
+
+def _public_summary_sections(summary: Mapping) -> list[tuple[str, Mapping]]:
+    sections = [
+        (name, value)
+        for name in ("inherent", "residual")
+        if isinstance((value := summary.get(name)), Mapping)
+    ]
+    if not sections and any(field in summary for field in ("overall", "counts", "coverage")):
+        sections.append(("inherent", summary))
+    return sections
+
+
+def _validated_public_section(section: Mapping) -> tuple[str, dict[str, int], str]:
+    overall = section.get("overall", "UNDETERMINED")
+    if overall not in (*RATINGS, "UNDETERMINED"):
+        raise RiskValidationError("public risk summary overall rating is invalid")
+    raw_counts = section.get("counts", {})
+    if not isinstance(raw_counts, Mapping):
+        raise RiskValidationError("public risk summary counts must be a mapping")
+    counts: dict[str, int] = {}
+    for rating in RATINGS:
+        value = raw_counts.get(rating, 0)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise RiskValidationError("public risk summary count is invalid")
+        counts[rating] = value
+    coverage = section.get("coverage", "0/0")
+    if (
+        not isinstance(coverage, str)
+        or len(coverage.split("/")) != 2
+        or any(not part.isdigit() for part in coverage.split("/"))
+    ):
+        raise RiskValidationError("public risk summary coverage is invalid")
+    return overall, counts, coverage
+
+
+def render_public_summary(summary: dict, policy: dict) -> str | None:
+    """Render only approved opt-in aggregate fields, never internal details."""
+
+    if not isinstance(policy, Mapping) or policy.get("publish_risk_summary") is not True:
+        return None
+    if not isinstance(summary, Mapping):
+        raise RiskValidationError("risk report summary must be a mapping")
+
+    out = ["# Public risk summary", ""]
+    for name, section in _public_summary_sections(summary):
+        overall, counts, coverage = _validated_public_section(section)
+        out += [f"## {name.title()}", "", "| Measure | Value |", "|---|---|"]
+        out.append(f"| Overall | {overall} |")
+        out.append(f"| Coverage | {coverage} |")
+        out += ["", "| Rating | Count |", "|---|---:|"]
+        out.extend(f"| {rating} | {counts[rating]} |" for rating in RATINGS)
+        out.append("")
+    return "\n".join(out)
+
+
 def _nonempty_text(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
 

@@ -25,6 +25,7 @@ import sys
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import risk as risk_mod  # noqa: E402
 from safe_paths import (  # noqa: E402
     UnsafePathError,
     preflight_output_paths,
@@ -179,11 +180,7 @@ def render_requirements(doc: dict, titles: dict, meta: dict) -> str:
             continue
         heading = CSF_FUNCTIONS.get(key, "UNCLASSIFIED")
         out += [f"## {heading}", ""]
-        items.sort(key=lambda r: (
-            PRIORITY_ORDER.get((r.get("managed") or {}).get("priority", "low"), 3),
-            r["id"],
-        ))
-        for req in items:
+        for req in risk_mod.order_requirements(items):
             managed = req.get("managed") or {}
             human = req.get("human") or {}
             out.append(f"### {req['id']}")
@@ -309,7 +306,7 @@ def render_traceability(doc: dict, titles: dict, meta: dict) -> str:
                 "the threat model found something the catalogue has no answer for, this is",
                 "the part of the document the catalogue could not have produced.", "",
                 "| Requirement | Statement | Basis |", "|---|---|---|"]
-        for req in sorted(unsourced, key=lambda r: r["id"]):
+        for req in risk_mod.order_requirements(unsourced):
             managed = req.get("managed") or {}
             statement = managed.get("statement", "")
             basis = "threat model" if managed.get("threat_refs") else "not recorded"
@@ -335,7 +332,7 @@ def render_responsibility(doc: dict, meta: dict) -> str:
             continue
         out += [f"## {RESPONSIBILITY_LABEL[bucket]} ({len(items)})", ""]
         out += ["| Requirement | Statement | Evidence |", "|---|---|---|"]
-        for req in sorted(items, key=lambda r: r["id"]):
+        for req in risk_mod.order_requirements(items):
             managed = req.get("managed") or {}
             evidence = managed.get("evidence") or ""
             if isinstance(evidence, list):

@@ -813,6 +813,73 @@ def test_generic_threat_does_not_raise_to_high(crossed):
     assert item["priority"] == "medium"
 
 
+def test_cross_risk_exposure_links_confirmed_assessments_without_changing_priority():
+    controls = {"controls": ["AC-3"], "forced_requirements": []}
+    responsibility = {
+        "controls": [
+            {"control": "AC-3", "responsibility": "team", "services": []}
+        ]
+    }
+    threats = {
+        "threats": [
+            {
+                "id": "T-01",
+                "novelty": "generic",
+                "related_controls": ["AC-3"],
+            },
+            {
+                "id": "T-02",
+                "novelty": "generic",
+                "related_controls": ["AC-3"],
+            },
+        ]
+    }
+    assessment = {
+        "assessments": [
+            {"threat_id": "T-01", "status": "CONFIRMED", "calculated": {"rating": "high"}},
+            {"threat_id": "T-02", "status": "CONFIRMED", "calculated": {"rating": "critical"}},
+        ]
+    }
+
+    result = merge.cross(controls, responsibility, threats, assessment=assessment)
+    item = result["items"][0]
+
+    assert item["threat_refs"] == ["T-01", "T-02"]
+    assert item["risk_refs"] == ["T-01", "T-02"]
+    assert item["risk_exposure"] == "critical"
+    assert item["priority"] == "medium"
+
+
+def test_apply_risk_exposure_preserves_priority_byte_for_byte():
+    priority = {"source": "existing-priority-contract", "rank": 7}
+    draft = [
+        {
+            "slug": "WRITE-AUTHORIZATION",
+            "managed": {
+                "statement": "Writes require authorization.",
+                "threat_refs": ["T-02", "T-01", "T-02"],
+                "priority": priority,
+            },
+        }
+    ]
+    before = json.dumps(draft[0]["managed"]["priority"], sort_keys=True).encode()
+    assessment = {
+        "assessments": [
+            {"threat_id": "T-01", "status": "CONFIRMED", "calculated": {"rating": "high"}},
+            {"threat_id": "T-02", "status": "STALE", "calculated": {"rating": "critical"}},
+        ]
+    }
+
+    merged = merge.apply_merge(draft, [], {"issued": {}}, assessment=assessment)
+    requirement = merged["requirements"][0]
+
+    assert requirement["managed"]["risk_refs"] == ["T-01", "T-02"]
+    assert requirement["risk_exposure"] == "high"
+    assert json.dumps(
+        requirement["managed"]["priority"], sort_keys=True
+    ).encode() == before
+
+
 def test_a_declared_capability_discharges_only_what_it_performs():
     """The first version of this moved every covered control to the
     organisation, which deleted work that genuinely exists.
@@ -3993,6 +4060,37 @@ def _documents(requirements):
     return (render_mod.render_requirements(doc, titles, meta),
             render_mod.render_traceability(doc, titles, meta),
             render_mod.render_responsibility(doc, meta))
+
+
+def test_requirement_render_ordering_uses_risk_then_existing_priority_then_id():
+    requirements = [
+        _req("REQ-HIGH-01", priority="high"),
+        _req("REQ-UNRESOLVED-LOW-01", priority="low"),
+        _req("REQ-UNRESOLVED-HIGH-B", priority="high"),
+        _req("REQ-UNRESOLVED-HIGH-A", priority="high"),
+        _req("REQ-CRITICAL-01", priority="low"),
+    ]
+    exposures = {
+        "REQ-HIGH-01": "high",
+        "REQ-UNRESOLVED-LOW-01": "UNDETERMINED",
+        "REQ-UNRESOLVED-HIGH-B": "STALE",
+        "REQ-UNRESOLVED-HIGH-A": "PROPOSED",
+        "REQ-CRITICAL-01": "critical",
+    }
+    for requirement in requirements:
+        requirement["risk_exposure"] = exposures[requirement["id"]]
+
+    rendered, _traceability, _responsibility = _documents(requirements)
+
+    ordered_ids = [
+        "REQ-CRITICAL-01",
+        "REQ-UNRESOLVED-HIGH-A",
+        "REQ-UNRESOLVED-HIGH-B",
+        "REQ-UNRESOLVED-LOW-01",
+        "REQ-HIGH-01",
+    ]
+    positions = [rendered.index(f"### {requirement_id}") for requirement_id in ordered_ids]
+    assert positions == sorted(positions)
 
 
 def test_a_retired_requirement_leaves_a_record_without_publishing_the_reason():

@@ -28,6 +28,7 @@ evidence point at it.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import re
 import sys
@@ -37,6 +38,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import profile_schema  # noqa: E402
+import risk as risk_mod  # noqa: E402
 from safe_paths import (  # noqa: E402
     UnsafePathError,
     preflight_output_paths,
@@ -88,7 +90,12 @@ def _known_data_types() -> set[str]:
     return {t["id"] for t in table["types"]}
 
 
-def cross(controls_doc: dict, responsibility_doc: dict, threats_doc: dict) -> dict:
+def cross(
+    controls_doc: dict,
+    responsibility_doc: dict,
+    threats_doc: dict,
+    assessment: dict | None = None,
+) -> dict:
     baseline = set(controls_doc["controls"])
     # None means the derivation did not publish the field -- an older artefact --
     # and an empty set means the profile declared nothing. Collapsing them made
@@ -275,6 +282,10 @@ def cross(controls_doc: dict, responsibility_doc: dict, threats_doc: dict) -> di
             "forced": forced,
         })
 
+    if assessment is not None:
+        for item in items:
+            item.update(risk_mod.derive_risk_links(item["threat_refs"], assessment))
+
     counts = {}
     for item in items:
         counts[item["origin"]] = counts.get(item["origin"], 0) + 1
@@ -429,7 +440,28 @@ def retire(record: dict, reason: str) -> None:
     human.setdefault("retired_reason", reason)
 
 
-def apply_merge(draft: list[dict], existing: list[dict], state: dict) -> dict:
+def _managed_risk_fields(managed: dict, assessment: dict | None) -> tuple[dict, object]:
+    result = copy.deepcopy(managed)
+    if assessment is None:
+        return result, None
+    links = risk_mod.derive_risk_links(result.get("threat_refs", []), assessment)
+    result["risk_refs"] = links["risk_refs"]
+    return result, links.get("risk_exposure")
+
+
+def _set_display_exposure(record: dict, exposure: object) -> None:
+    if exposure is None:
+        record.pop("risk_exposure", None)
+    else:
+        record["risk_exposure"] = exposure
+
+
+def apply_merge(
+    draft: list[dict],
+    existing: list[dict],
+    state: dict,
+    assessment: dict | None = None,
+) -> dict:
     by_id = {r["id"]: r for r in existing}
     seen = set()
     added, proposed, unchanged, updated, reopened = [], [], [], [], []
@@ -446,15 +478,23 @@ def apply_merge(draft: list[dict], existing: list[dict], state: dict) -> dict:
             )
         if "managed" not in item:
             raise ValueError(f"draft item {slug!r} has no `managed` block")
+        managed, exposure = _managed_risk_fields(item["managed"], assessment)
         req_id = issue_id(slug, state)
         seen.add(req_id)
 
         if req_id not in by_id:
-            by_id[req_id] = {"id": req_id, "managed": item["managed"], "human": {}}
+            by_id[req_id] = {"id": req_id, "managed": managed, "human": {}}
+            _set_display_exposure(by_id[req_id], exposure)
             added.append(req_id)
             continue
 
         current = by_id[req_id]
+        if assessment is not None:
+            current_managed, current_exposure = _managed_risk_fields(
+                current.get("managed", {}), assessment
+            )
+            current["managed"] = current_managed
+            _set_display_exposure(current, current_exposure)
 
         # A requirement that was retired and now derives again is back in scope.
         # Leaving it retired would drop live work on the floor, so the return is
@@ -467,14 +507,15 @@ def apply_merge(draft: list[dict], existing: list[dict], state: dict) -> dict:
             human["reinstated_reason"] = "derives again from the current profile"
             reopened.append(req_id)
 
-        if current["managed"] == item["managed"]:
+        if current["managed"] == managed:
+            _set_display_exposure(current, exposure)
             unchanged.append(req_id)
             continue
 
         if human:
             # A person has touched this requirement. Propose, do not overwrite.
             current["pending_review"] = {
-                "managed": item["managed"],
+                "managed": managed,
                 "why": item.get("change_reason", "re-derived from an updated profile"),
             }
             proposed.append(req_id)
@@ -482,7 +523,8 @@ def apply_merge(draft: list[dict], existing: list[dict], state: dict) -> dict:
             # Nobody has touched it, so applying the new text destroys nothing.
             # It is still reported: a silently rewritten requirement counted as
             # "unchanged" is the opposite of what a reviewer needs to see.
-            current["managed"] = item["managed"]
+            current["managed"] = managed
+            _set_display_exposure(current, exposure)
             updated.append(req_id)
 
     retired = []
@@ -495,7 +537,7 @@ def apply_merge(draft: list[dict], existing: list[dict], state: dict) -> dict:
         retired.append(req_id)
 
     return {
-        "requirements": sorted(by_id.values(), key=lambda r: r["id"]),
+        "requirements": risk_mod.order_requirements(list(by_id.values())),
         "added": added,
         "updated": updated,
         "proposed": proposed,
@@ -538,6 +580,7 @@ def main() -> int:
     ap.add_argument("--controls", type=Path)
     ap.add_argument("--responsibility", type=Path)
     ap.add_argument("--threats", type=Path)
+    ap.add_argument("--assessment", type=Path)
     ap.add_argument("--out", type=Path)
 
     ap.add_argument("--draft", type=Path)
@@ -580,10 +623,12 @@ def main() -> int:
             return 2
 
         try:
+            assessment = load_yaml(args.assessment, None) if args.assessment else None
             result = cross(
                 json.loads(args.controls.read_text(encoding="utf-8")),
                 json.loads(args.responsibility.read_text(encoding="utf-8")),
                 threats_doc,
+                assessment=assessment,
             )
         except ValueError as exc:
             # The --apply path already turns a validation failure into a
@@ -611,9 +656,10 @@ def main() -> int:
     draft_items = draft["requirements"] if isinstance(draft, dict) else draft
     existing = load_yaml(args.existing, {"requirements": []}).get("requirements", [])
     state = load_yaml(args.state, {"issued": {}})
+    assessment = load_yaml(args.assessment, None) if args.assessment else None
 
     try:
-        result = apply_merge(draft_items, existing, state)
+        result = apply_merge(draft_items, existing, state, assessment=assessment)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

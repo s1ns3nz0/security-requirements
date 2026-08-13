@@ -520,6 +520,180 @@ def test_overall_is_highest_active_rating_not_average(default_policy):
     assert result["coverage"] == "2/2"
 
 
+def _requirements_with_exposure(*rows):
+    return [
+        {
+            "id": requirement_id,
+            "risk_exposure": exposure,
+            "managed": {"priority": priority},
+        }
+        for requirement_id, exposure, priority in rows
+    ]
+
+
+def test_unresolved_risk_ordering_is_after_critical_before_high():
+    requirements = _requirements_with_exposure(
+        ("REQ-HIGH", "high", "high"),
+        ("REQ-PROPOSED", "PROPOSED", "low"),
+        ("REQ-CRITICAL", "critical", "low"),
+        ("REQ-STALE", "STALE", "medium"),
+        ("REQ-UNKNOWN-B", "UNDETERMINED", "low"),
+        ("REQ-UNKNOWN-A", "UNDETERMINED", "high"),
+        ("REQ-MEDIUM", "medium", "high"),
+        ("REQ-LOW", "low", "high"),
+    )
+    original = copy.deepcopy(requirements)
+
+    ordered = risk.order_requirements(requirements)
+
+    assert [record["id"] for record in ordered] == [
+        "REQ-CRITICAL",
+        "REQ-UNKNOWN-A",
+        "REQ-STALE",
+        "REQ-PROPOSED",
+        "REQ-UNKNOWN-B",
+        "REQ-HIGH",
+        "REQ-MEDIUM",
+        "REQ-LOW",
+    ]
+    assert requirements == original
+
+
+def _risk_report_summary():
+    return {
+        "inherent": {
+            "overall": "high",
+            "counts": {"critical": 0, "high": 1, "medium": 0, "low": 0},
+            "coverage": "1/1",
+        },
+        "residual": {
+            "overall": "UNDETERMINED",
+            "counts": {"critical": 0, "high": 0, "medium": 0, "low": 0},
+            "coverage": "0/1",
+        },
+        "risks": [
+            {
+                "threat_id": "T-01",
+                "scenario": "scenario-internal-canary",
+                "attack_path": "attack_path",
+                "status": "CONFIRMED",
+                "lifecycle": {"status": "active", "superseded_by": []},
+                "proposed": {
+                    "likelihood": {
+                        "criterion": "L4-PUBLIC-LOW-COMPLEXITY",
+                        "rationale": ["likelihood-rationale-canary"],
+                    },
+                    "consequences": [
+                        {
+                            "id": "C-01",
+                            "criterion": "I4-CROSS-SYSTEM",
+                            "rationale": ["impact-rationale-canary"],
+                        }
+                    ],
+                },
+                "calculated": {"score": 16, "rating": "high"},
+                "residual": {
+                    "status": "UNDETERMINED",
+                    "reason": "residual-reason-canary",
+                },
+                "treatment": {
+                    "strategy": "accept",
+                    "owner": "owner",
+                    "approval": {
+                        "approver": "approver",
+                        "role": "ciso-role-canary",
+                        "rationale": "acceptance-rationale-canary",
+                        "expires": "2026-12-31",
+                    },
+                },
+                "evidence": [
+                    {
+                        "id": "EVID-01",
+                        "method": "test_case",
+                        "artifact": {"location": "internal-ci-artifact"},
+                    }
+                ],
+            }
+        ],
+        "delta": {
+            "new": [],
+            "increased": ["T-01"],
+            "decreased": [],
+            "stale": [],
+            "retired": [],
+            "reopened": [],
+            "expired_acceptance": [],
+            "rating_distribution": {
+                "previous": {"critical": 0, "high": 0, "medium": 1, "low": 0},
+                "current": {"critical": 0, "high": 1, "medium": 0, "low": 0},
+            },
+        },
+    }
+
+
+def test_risk_register_contains_internal_assessment_and_delta_detail():
+    rendered = risk.render_register(_risk_report_summary())
+
+    for detail in (
+        "scenario-internal-canary",
+        "attack_path",
+        "L4-PUBLIC-LOW-COMPLEXITY",
+        "I4-CROSS-SYSTEM",
+        "likelihood-rationale-canary",
+        "high",
+        "UNDETERMINED",
+        "owner",
+        "accept",
+        "approver",
+        "acceptance-rationale-canary",
+        "EVID-01",
+        "internal-ci-artifact",
+        "2026-12-31",
+        "active",
+        "increased",
+    ):
+        assert detail in rendered
+
+
+def test_public_risk_summary_is_strictly_opt_in_and_redacted():
+    summary = _risk_report_summary()
+
+    assert risk.render_public_summary(
+        summary, {"publish_risk_summary": False}
+    ) is None
+    assert risk.render_public_summary(
+        summary, {"publish_risk_summary": "true"}
+    ) is None
+
+    published = risk.render_public_summary(
+        summary, {"publish_risk_summary": True}
+    )
+
+    assert published is not None
+    assert "Overall | high" in published
+    assert "high | 1" in published
+    assert "Coverage | 1/1" in published
+    for secret in (
+        "scenario-internal-canary",
+        "attack_path",
+        "L4-PUBLIC-LOW-COMPLEXITY",
+        "I4-CROSS-SYSTEM",
+        "likelihood-rationale-canary",
+        "residual-reason-canary",
+        "owner",
+        "accept",
+        "approver",
+        "ciso-role-canary",
+        "acceptance-rationale-canary",
+        "EVID-01",
+        "internal-ci-artifact",
+        "2026-12-31",
+        "active",
+        "increased",
+    ):
+        assert secret not in published
+
+
 def test_acceptance_never_changes_rating(default_policy):
     """Changing acceptance handling must not remove accepted inherent risk."""
     threats_doc = {"version": "0.2.0", "threats": [threat_record("T-1")]}
