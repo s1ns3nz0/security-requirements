@@ -323,6 +323,20 @@ def test_requirement_text_is_not_implementation_evidence(default_policy):
         "reason": "linked requirements have no valid implementation evidence",
     }
 
+    assert risk.calculate_residual(
+        inherent,
+        {},
+        default_policy,
+        _residual_proposal(
+            "L3-AUTHENTICATED",
+            "I4-CROSS-SYSTEM",
+            likelihood_refs=["EVID-FORGED"],
+        ),
+    ) == {
+        "status": "UNDETERMINED",
+        "reason": "linked requirements have no valid implementation evidence",
+    }
+
 
 def test_evidence_is_bound_to_the_current_managed_requirement(default_policy):
     requirements = _requirement_document()
@@ -1337,18 +1351,25 @@ def test_evidence_and_residual_cli_validate_project_documents(
     requirements_path.write_text(
         yaml.safe_dump(requirements, sort_keys=False), encoding="utf-8"
     )
+    risk_fixture._write_documents()
+    risk_fixture.confirm_all()
     evidence_path.write_text(
         yaml.safe_dump(evidence, sort_keys=False), encoding="utf-8"
     )
-    risk_fixture.assessment["assessments"][0]["residual"] = {
+    risk.refresh_persisted_assessment(risk_fixture.paths)
+    assessment = yaml.safe_load(
+        risk_fixture.paths["assessment"].read_text(encoding="utf-8")
+    )
+    assessment["assessments"][0]["residual"] = {
         "proposed": _residual_proposal(
             "L3-AUTHENTICATED",
             "I4-CROSS-SYSTEM",
             likelihood_refs=["EVID-AUTHZ-INTEGRATION-01"],
         )
     }
-    risk_fixture._write_documents()
-    risk_fixture.confirm_all()
+    risk_fixture.paths["assessment"].write_text(
+        yaml.safe_dump(assessment, sort_keys=False), encoding="utf-8"
+    )
     command = [sys.executable, "-I", str(PLUGIN_ROOT / "scripts" / "risk.py")]
 
     evidence_result = subprocess.run(
@@ -2224,26 +2245,6 @@ def test_b2b_golden_declares_and_meets_legacy_risk_migration_coverage():
     } == expected
 
 
-def _add_confirmed_residual(risk_fixture):
-    record = risk_fixture.assessment["assessments"][0]
-    record["treatment"] = {
-        "strategy": "mitigate",
-        "owner": "movie-team",
-        "requirement_refs": ["REQ-WRITE-AUTHORIZATION-01"],
-    }
-    record["residual"] = {
-        "status": "CONFIRMED",
-        "calculated": {
-            "likelihood": 3,
-            "impact": 4,
-            "score": 12,
-            "rating": "high",
-        },
-        "evidence_refs": [],
-    }
-    risk_fixture._write_documents()
-
-
 def _risk_cli_document_args(risk_fixture):
     return [
         "--project-root",
@@ -2263,10 +2264,90 @@ def _risk_cli_document_args(risk_fixture):
     ]
 
 
+def _risk_authority_bytes(risk_fixture):
+    trusted = risk.confirmation_state_path(
+        risk_fixture.paths["project_root"], "assessment"
+    )
+    return {
+        path: path.read_bytes()
+        for path in (
+            risk_fixture.paths["assessment"],
+            risk_fixture.paths["state"],
+            trusted,
+        )
+    }
+
+
+def _run_risk_command(risk_fixture, command, *extra):
+    return subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "risk.py"),
+            command,
+            *_risk_cli_document_args(risk_fixture),
+            *extra,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _prepare_first_residual_review(risk_fixture, *, evidence=True):
+    risk_fixture.confirm_all()
+    if evidence:
+        document = {"evidence": [_evidence_record(risk_fixture.requirements)]}
+        risk_fixture.paths["evidence"].write_text(
+            yaml.safe_dump(document, sort_keys=False), encoding="utf-8"
+        )
+    else:
+        risk_fixture.change_threat(
+            "T-01", related_controls=["AC-3", "AC-4"]
+        )
+    refreshed, _messages = risk.refresh_persisted_assessment(risk_fixture.paths)
+    assert "confirmation" not in refreshed
+    refreshed["assessments"][0]["residual"] = {
+        "proposed": _residual_proposal(
+            "L3-AUTHENTICATED",
+            "I4-CROSS-SYSTEM",
+            likelihood_refs=["EVID-AUTHZ-INTEGRATION-01"],
+        )
+    }
+    risk_fixture.paths["assessment"].write_text(
+        yaml.safe_dump(refreshed, sort_keys=False), encoding="utf-8"
+    )
+    return refreshed
+
+
+def _add_confirmed_residual(risk_fixture):
+    """Create confirmed residual state through the production transition."""
+
+    risk_fixture.assessment["assessments"][0]["treatment"] = {
+        "strategy": "mitigate",
+        "owner": "movie-team",
+        "requirement_refs": ["REQ-WRITE-AUTHORIZATION-01"],
+    }
+    risk_fixture._write_documents()
+    _prepare_first_residual_review(risk_fixture)
+    result = _run_risk_command(
+        risk_fixture,
+        "residual-confirm",
+        "--by",
+        "risk-reviewer",
+        "--authority",
+        "self_declared",
+    )
+    assert result.returncode == 0, result.stderr
+    risk_fixture.assessment = yaml.safe_load(
+        risk_fixture.paths["assessment"].read_text(encoding="utf-8")
+    )
+
+
 def _prepare_refresh_bound_residual_review(risk_fixture):
     _add_confirmed_residual(risk_fixture)
-    risk_fixture.confirm_all()
     evidence = {"evidence": [_evidence_record(risk_fixture.requirements)]}
+    evidence["evidence"][0]["artifact"]["digest"] = "sha256:" + "b" * 64
     risk_fixture.paths["evidence"].write_text(
         yaml.safe_dump(evidence, sort_keys=False), encoding="utf-8"
     )
@@ -2307,23 +2388,7 @@ def test_residual_cli_previews_proposal_from_externally_bound_refresh(
 
 
 def test_residual_cli_previews_first_proposal_after_evidence_refresh(risk_fixture):
-    risk_fixture.confirm_all()
-    evidence = {"evidence": [_evidence_record(risk_fixture.requirements)]}
-    risk_fixture.paths["evidence"].write_text(
-        yaml.safe_dump(evidence, sort_keys=False), encoding="utf-8"
-    )
-    refreshed, _messages = risk.refresh_persisted_assessment(risk_fixture.paths)
-    assert "confirmation" not in refreshed
-    refreshed["assessments"][0]["residual"] = {
-        "proposed": _residual_proposal(
-            "L3-AUTHENTICATED",
-            "I4-CROSS-SYSTEM",
-            likelihood_refs=["EVID-AUTHZ-INTEGRATION-01"],
-        )
-    }
-    risk_fixture.paths["assessment"].write_text(
-        yaml.safe_dump(refreshed, sort_keys=False), encoding="utf-8"
-    )
+    _prepare_first_residual_review(risk_fixture)
 
     result = subprocess.run(
         [
@@ -2340,6 +2405,273 @@ def test_residual_cli_previews_first_proposal_after_evidence_refresh(risk_fixtur
 
     assert result.returncode == 0, result.stderr
     assert "T-01 residual risk: high (score 12)" in result.stdout
+
+
+def test_residual_confirm_calculates_and_persists_first_evidenced_result(
+    risk_fixture,
+):
+    _prepare_first_residual_review(risk_fixture)
+    preview = _run_risk_command(risk_fixture, "residual")
+    before_state = yaml.safe_load(
+        risk_fixture.paths["state"].read_text(encoding="utf-8")
+    )
+
+    result = _run_risk_command(
+        risk_fixture,
+        "residual-confirm",
+        "--by",
+        "risk-reviewer",
+        "--authority",
+        "self_declared",
+    )
+
+    assert preview.returncode == 0, preview.stderr
+    assert "T-01 residual risk: high (score 12)" in preview.stdout
+    assert result.returncode == 0, result.stderr
+    assert "confirmed residual risk assessment" in result.stdout
+    assessment = yaml.safe_load(
+        risk_fixture.paths["assessment"].read_text(encoding="utf-8")
+    )
+    residual = assessment["assessments"][0]["residual"]
+    assert residual == {
+        "proposed": _residual_proposal(
+            "L3-AUTHENTICATED",
+            "I4-CROSS-SYSTEM",
+            likelihood_refs=["EVID-AUTHZ-INTEGRATION-01"],
+        ),
+        "status": "CONFIRMED",
+        "calculated": {
+            "likelihood": 3,
+            "impact": 4,
+            "score": 12,
+            "rating": "high",
+        },
+        "evidence_refs": ["EVID-AUTHZ-INTEGRATION-01"],
+    }
+    trusted = yaml.safe_load(
+        risk.confirmation_state_path(
+            risk_fixture.paths["project_root"], "assessment"
+        ).read_text(encoding="utf-8")
+    )
+    state = yaml.safe_load(
+        risk_fixture.paths["state"].read_text(encoding="utf-8")
+    )
+    assert assessment["confirmation"] == trusted
+    assert trusted["confirmed_by"] == "risk-reviewer"
+    assert trusted["risk_state_digest"] == risk.canonical_digest(state)
+    assert len(state["snapshots"]) == len(before_state["snapshots"]) + 1
+    assert state["snapshots"][-1]["event"] == "residual_confirmed"
+    assert risk.check_assessment(risk_fixture.paths) == []
+    check = _run_risk_command(risk_fixture, "check")
+    assert check.returncode == 0, check.stderr
+
+
+@pytest.mark.parametrize(
+    "forgery",
+    [
+        {"status": "CONFIRMED"},
+        {"calculated": {"likelihood": 1, "impact": 1, "score": 1, "rating": "low"}},
+        {"evidence_refs": ["EVID-FORGED"]},
+    ],
+)
+def test_residual_confirm_rejects_model_authored_authoritative_fields_atomically(
+    risk_fixture, forgery
+):
+    assessment = _prepare_first_residual_review(risk_fixture)
+    assessment["assessments"][0]["residual"].update(forgery)
+    risk_fixture.paths["assessment"].write_text(
+        yaml.safe_dump(assessment, sort_keys=False), encoding="utf-8"
+    )
+    before = _risk_authority_bytes(risk_fixture)
+
+    result = _run_risk_command(
+        risk_fixture,
+        "residual-confirm",
+        "--by",
+        "risk-reviewer",
+        "--authority",
+        "self_declared",
+    )
+
+    assert result.returncode == 1
+    assert "changed outside residual proposals" in result.stderr
+    assert _risk_authority_bytes(risk_fixture) == before
+
+
+def test_generic_confirm_cannot_legitimize_residual_proposal(risk_fixture):
+    _prepare_first_residual_review(risk_fixture)
+    before = _risk_authority_bytes(risk_fixture)
+
+    result = _run_risk_command(
+        risk_fixture,
+        "confirm",
+        "--by",
+        "risk-reviewer",
+        "--authority",
+        "self_declared",
+    )
+
+    assert result.returncode == 1
+    assert "residual proposals require residual-confirm" in result.stderr
+    assert _risk_authority_bytes(risk_fixture) == before
+
+
+def test_residual_confirm_keeps_missing_evidence_undetermined_and_atomic(
+    risk_fixture,
+):
+    _prepare_first_residual_review(risk_fixture, evidence=False)
+    preview = _run_risk_command(risk_fixture, "residual")
+    before = _risk_authority_bytes(risk_fixture)
+
+    result = _run_risk_command(
+        risk_fixture,
+        "residual-confirm",
+        "--by",
+        "risk-reviewer",
+        "--authority",
+        "self_declared",
+    )
+
+    assert preview.returncode == 0, preview.stderr
+    assert "T-01 residual risk: UNDETERMINED" in preview.stdout
+    assert result.returncode == 1
+    assert "valid implementation evidence" in result.stderr
+    assert _risk_authority_bytes(risk_fixture) == before
+
+
+def test_stale_evidence_previews_undetermined_and_cannot_be_confirmed(
+    risk_fixture,
+):
+    _prepare_first_residual_review(risk_fixture)
+    evidence = yaml.safe_load(
+        risk_fixture.paths["evidence"].read_text(encoding="utf-8")
+    )
+    evidence["evidence"][0]["valid_until"] = "2026-08-12"
+    risk_fixture.paths["evidence"].write_text(
+        yaml.safe_dump(evidence, sort_keys=False), encoding="utf-8"
+    )
+    # Rebind the changed input without allowing the proposal to become authority.
+    refreshed, _messages = risk.refresh_persisted_assessment(risk_fixture.paths)
+    refreshed["assessments"][0]["residual"]["proposed"] = _residual_proposal(
+        "L3-AUTHENTICATED",
+        "I4-CROSS-SYSTEM",
+        likelihood_refs=["EVID-AUTHZ-INTEGRATION-01"],
+    )
+    risk_fixture.paths["assessment"].write_text(
+        yaml.safe_dump(refreshed, sort_keys=False), encoding="utf-8"
+    )
+    before = _risk_authority_bytes(risk_fixture)
+
+    preview = _run_risk_command(risk_fixture, "residual")
+    result = _run_risk_command(
+        risk_fixture,
+        "residual-confirm",
+        "--by",
+        "risk-reviewer",
+        "--authority",
+        "self_declared",
+    )
+
+    assert preview.returncode == 1
+    assert "T-01 residual risk: UNDETERMINED" in preview.stdout
+    assert "evidence expired" in preview.stderr
+    assert result.returncode == 1
+    assert "evidence expired" in result.stderr
+    assert _risk_authority_bytes(risk_fixture) == before
+
+
+def test_residual_confirm_rolls_back_all_authority_files_on_write_failure(
+    risk_fixture, monkeypatch
+):
+    _prepare_first_residual_review(risk_fixture)
+    before = _risk_authority_bytes(risk_fixture)
+    confirmation_path = risk.confirmation_state_path(
+        risk_fixture.paths["project_root"], "assessment"
+    )
+    real_write = risk.safe_write_text
+    failed = False
+
+    def fail_confirmation_once(path, *args, **kwargs):
+        nonlocal failed
+        if Path(path) == confirmation_path and not failed:
+            failed = True
+            raise OSError("injected external authority write failure")
+        return real_write(path, *args, **kwargs)
+
+    monkeypatch.setattr(risk, "safe_write_text", fail_confirmation_once)
+
+    with pytest.raises(OSError, match="injected external authority write failure"):
+        risk.stamp_residual_assessment(
+            risk_fixture.paths,
+            "risk-reviewer",
+            "self_declared",
+        )
+
+    assert _risk_authority_bytes(risk_fixture) == before
+
+
+def test_residual_confirm_rechecks_exact_evidence_loaded_after_review(
+    risk_fixture, monkeypatch
+):
+    _prepare_first_residual_review(risk_fixture)
+    before = _risk_authority_bytes(risk_fixture)
+    real_documents = risk._validated_evidence_documents
+
+    def substitute_valid_but_unbound_evidence(paths, evaluation_date):
+        requirements, evidence, problems = real_documents(paths, evaluation_date)
+        evidence = copy.deepcopy(evidence)
+        evidence["evidence"][0]["artifact"]["digest"] = "sha256:" + "c" * 64
+        return requirements, evidence, problems
+
+    monkeypatch.setattr(
+        risk, "_validated_evidence_documents", substitute_valid_but_unbound_evidence
+    )
+
+    with pytest.raises(
+        risk.RiskValidationError,
+        match="evidence changed after refreshed state was bound",
+    ):
+        risk.stamp_residual_assessment(
+            risk_fixture.paths,
+            "risk-reviewer",
+            "self_declared",
+        )
+
+    assert _risk_authority_bytes(risk_fixture) == before
+
+
+def test_residual_confirm_rechecks_exact_assessment_loaded_after_review(
+    risk_fixture, monkeypatch
+):
+    _prepare_first_residual_review(risk_fixture)
+    before = _risk_authority_bytes(risk_fixture)
+    assessment_path = risk_fixture.paths["assessment"]
+    real_load = risk._load_mapping
+    assessment_loads = 0
+
+    def substitute_unbound_treatment(path, label):
+        nonlocal assessment_loads
+        document = real_load(path, label)
+        if Path(path) == assessment_path:
+            assessment_loads += 1
+            if assessment_loads == 2:
+                document = copy.deepcopy(document)
+                document["assessments"][0]["rationale"] = "attacker-authored"
+        return document
+
+    monkeypatch.setattr(risk, "_load_mapping", substitute_unbound_treatment)
+
+    with pytest.raises(
+        risk.RiskValidationError,
+        match="changed outside residual proposals",
+    ):
+        risk.stamp_residual_assessment(
+            risk_fixture.paths,
+            "risk-reviewer",
+            "self_declared",
+        )
+
+    assert _risk_authority_bytes(risk_fixture) == before
 
 
 def test_residual_cli_rejects_non_residual_change_during_bound_review(
@@ -2425,7 +2757,6 @@ def test_residual_cli_rejects_top_level_change_during_bound_review(risk_fixture)
 
 def test_refresh_cli_persists_requirement_staleness_before_review(risk_fixture):
     _add_confirmed_residual(risk_fixture)
-    risk_fixture.confirm_all()
     requirements = yaml.safe_load(
         risk_fixture.paths["requirements"].read_text(encoding="utf-8")
     )
@@ -2467,7 +2798,6 @@ def test_refresh_transaction_restores_all_prior_bytes_after_replace_then_raise(
     risk_fixture, monkeypatch
 ):
     _add_confirmed_residual(risk_fixture)
-    risk_fixture.confirm_all()
     requirements = yaml.safe_load(
         risk_fixture.paths["requirements"].read_text(encoding="utf-8")
     )
@@ -2621,7 +2951,6 @@ def test_confirmed_policy_change_refresh_stales_all_active_risk_and_reconfirms(
     risk_fixture,
 ):
     _add_confirmed_residual(risk_fixture)
-    risk_fixture.confirm_all()
     changed_policy = _change_and_confirm_policy(
         risk_fixture, "2026-08-13T00:02:00Z"
     )
@@ -2644,6 +2973,8 @@ def test_confirmed_policy_change_refresh_stales_all_active_risk_and_reconfirms(
     assert [snapshot["event"] for snapshot in state["snapshots"]] == [
         "confirmed",
         "refreshed",
+        "residual_confirmed",
+        "refreshed",
     ]
     assert trusted["status"] == "refresh_bound"
     assert trusted["policy_digest"] == risk.policy_digest(changed_policy)
@@ -2662,7 +2993,6 @@ def test_refresh_bound_policy_change_advances_binding_before_reconfirmation(
     risk_fixture,
 ):
     _add_confirmed_residual(risk_fixture)
-    risk_fixture.confirm_all()
     risk_fixture.change_threat("T-01", scenario="first changed scenario")
     first_refresh, _messages = risk.refresh_persisted_assessment(risk_fixture.paths)
     assert first_refresh["assessments"][0]["status"] == "STALE"
@@ -2688,6 +3018,8 @@ def test_refresh_bound_policy_change_advances_binding_before_reconfirmation(
     assert [snapshot["event"] for snapshot in state_before["snapshots"]] == [
         "confirmed",
         "refreshed",
+        "residual_confirmed",
+        "refreshed",
         "refreshed",
     ]
     assert trusted["risk_state_digest"] == risk.canonical_digest(state_before)
@@ -2703,7 +3035,7 @@ def test_refresh_bound_policy_change_advances_binding_before_reconfirmation(
     state_after = yaml.safe_load(
         risk_fixture.paths["state"].read_text(encoding="utf-8")
     )
-    assert state_after["snapshots"][:3] == state_before["snapshots"]
+    assert state_after["snapshots"][:5] == state_before["snapshots"]
     assert state_after["snapshots"][-1]["event"] == "confirmed"
 
 
@@ -2763,7 +3095,6 @@ def test_check_blocks_changed_requirement_while_residual_remains_confirmed(
     risk_fixture,
 ):
     _add_confirmed_residual(risk_fixture)
-    risk_fixture.confirm_all()
     requirements = yaml.safe_load(
         risk_fixture.paths["requirements"].read_text(encoding="utf-8")
     )
@@ -2794,7 +3125,6 @@ def test_publisher_blocks_changed_requirement_before_public_bytes_change(
     risk_fixture, tmp_path
 ):
     _add_confirmed_residual(risk_fixture)
-    risk_fixture.confirm_all()
     requirements = yaml.safe_load(
         risk_fixture.paths["requirements"].read_text(encoding="utf-8")
     )

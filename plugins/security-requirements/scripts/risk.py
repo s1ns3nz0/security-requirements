@@ -472,6 +472,18 @@ def calculate_residual(
             raise RiskValidationError(f"inherent {axis} score is invalid")
 
     calculated = calculate_inherent(policy, proposed)
+    decreases = any(
+        inherent[axis] > calculated[axis] for axis in ("likelihood", "impact")
+    )
+    if not current and decreases:
+        if requirements is None:
+            return {
+                "status": "UNDETERMINED",
+                "reason": "linked requirements have no valid implementation evidence",
+            }
+        raise RiskValidationError(
+            "residual reduction requires current passing evidence"
+        )
     used_evidence: list[Mapping] = []
     warnings: list[str] = []
     for axis in ("likelihood", "impact"):
@@ -2194,6 +2206,57 @@ def _calculate_confirmed_assessment(
     return result
 
 
+def _residual_blocks(records: object, *, snapshot: bool = False) -> object:
+    """Return canonical threat/residual pairs for approval-bound comparison."""
+
+    if not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
+        return records
+    result = []
+    for record in records:
+        if not isinstance(record, Mapping):
+            result.append(record)
+            continue
+        result.append(
+            {
+                "threat_id": record.get("threat_id"),
+                "residual": copy.deepcopy(record.get("residual")),
+            }
+        )
+    return result
+
+
+def _has_residual_proposal(assessment: Mapping) -> bool:
+    records = assessment.get("assessments")
+    if not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
+        return False
+    return any(
+        isinstance(record, Mapping)
+        and isinstance(record.get("residual"), Mapping)
+        and record["residual"].get("proposed") is not None
+        for record in records
+    )
+
+
+def _reject_unbound_authoritative_residual(assessment: Mapping) -> None:
+    records = assessment.get("assessments")
+    if not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
+        return
+    for record in records:
+        if not isinstance(record, Mapping):
+            continue
+        residual = record.get("residual")
+        if not isinstance(residual, Mapping):
+            continue
+        if residual.get("proposed") is not None:
+            raise RiskValidationError("residual proposals require residual-confirm")
+        if any(field in residual for field in ("calculated", "evidence_refs")) or (
+            residual.get("status") not in (None, "UNDETERMINED")
+        ):
+            raise RiskValidationError(
+                "authoritative residual risk requires residual-confirm"
+            )
+
+
 def stamp_assessment(
     paths: Mapping | object,
     confirmed_by: str,
@@ -2231,6 +2294,22 @@ def stamp_assessment(
         )
         if binding_problems:
             raise RiskValidationError("; ".join(binding_problems))
+        snapshots = risk_state.get("snapshots")
+        snapshot = snapshots[-1] if isinstance(snapshots, list) and snapshots else None
+        if not isinstance(snapshot, Mapping) or snapshot.get("event") != "refreshed":
+            raise RiskValidationError(
+                "externally bound refreshed assessment snapshot is missing"
+            )
+        if canonical_digest(_residual_blocks(assessment.get("assessments"))) != (
+            canonical_digest(_residual_blocks(snapshot.get("assessments"), snapshot=True))
+        ):
+            if _has_residual_proposal(assessment):
+                raise RiskValidationError(
+                    "residual proposals require residual-confirm"
+                )
+            raise RiskValidationError(
+                "refreshed residual assessment changed outside residual-confirm"
+            )
     elif repository_confirmation is not None or trusted is not None:
         confirmation_problems = check_assessment(paths)
         if confirmation_problems:
@@ -2243,6 +2322,8 @@ def stamp_assessment(
         raise RiskValidationError(
             "plugin-owned risk assessment confirmation is missing"
         )
+    elif trusted is None:
+        _reject_unbound_authoritative_residual(assessment)
     legacy = threats.get("version") == "0.1.0"
     confirmed_threats = copy.deepcopy(threats)
     if legacy:
@@ -2418,34 +2499,16 @@ def _without_residual_proposals(records: object, *, snapshot: bool) -> object:
     return result
 
 
-def check_residual_review(paths: Mapping | object) -> list[str]:
-    """Validate confirmed or externally bound state for residual preview.
+def _bound_residual_assessment_problems(
+    trusted: Mapping,
+    risk_state: Mapping,
+    assessment: Mapping,
+    threats: dict,
+    policy: dict,
+) -> list[str]:
+    """Compare the exact assessment being used with its refresh snapshot."""
 
-    A refresh-bound assessment is deliberately unconfirmed while the reviewer
-    adds residual proposals.  Only those proposal fields may differ from the
-    exact digest-bound refresh snapshot; inherent risk, treatment, state, and
-    every material input remain externally bound.
-    """
-
-    project_root, assessment_path = _project_document_path(paths, "assessment")
-    trusted = _read_trusted_confirmation(project_root, "assessment")
-    if not isinstance(trusted, Mapping) or trusted.get("status") != "refresh_bound":
-        return check_assessment(paths)
-
-    _unused_root, policy_path = _project_document_path(paths, "policy")
-    policy = _load_mapping(policy_path, "risk policy")
-    threats, requirements, evidence = _refresh_documents(paths)
-    _unused_root, _state_path, risk_state = _load_risk_state(paths)
-    assessment = _load_mapping(assessment_path, "assessment document")
-    problems = _refresh_binding_problems(
-        trusted,
-        project_root,
-        policy,
-        threats,
-        requirements,
-        evidence,
-        risk_state,
-    )
+    problems: list[str] = []
     if not trusted.get("refreshed_assessment_digest"):
         problems.append(
             "refreshed risk binding is incomplete: refreshed_assessment_digest"
@@ -2490,8 +2553,256 @@ def check_residual_review(paths: Mapping | object) -> list[str]:
         problems.append("refreshed assessment has unexpected top-level fields")
     if assessment.get("version") not in (None, "0.2.0"):
         problems.append("assessment version must be 0.2.0")
-    problems.extend(validate_assessment(threats, assessment, policy))
+    problems.extend(validate_assessment(threats, dict(assessment), policy))
+    return problems
+
+
+def check_residual_review(paths: Mapping | object) -> list[str]:
+    """Validate confirmed or externally bound state for residual preview.
+
+    A refresh-bound assessment is deliberately unconfirmed while the reviewer
+    adds residual proposals.  Only those proposal fields may differ from the
+    exact digest-bound refresh snapshot; inherent risk, treatment, state, and
+    every material input remain externally bound.
+    """
+
+    project_root, assessment_path = _project_document_path(paths, "assessment")
+    trusted = _read_trusted_confirmation(project_root, "assessment")
+    if not isinstance(trusted, Mapping) or trusted.get("status") != "refresh_bound":
+        return check_assessment(paths)
+
+    _unused_root, policy_path = _project_document_path(paths, "policy")
+    policy = _load_mapping(policy_path, "risk policy")
+    threats, requirements, evidence = _refresh_documents(paths)
+    _unused_root, _state_path, risk_state = _load_risk_state(paths)
+    assessment = _load_mapping(assessment_path, "assessment document")
+    problems = _refresh_binding_problems(
+        trusted,
+        project_root,
+        policy,
+        threats,
+        requirements,
+        evidence,
+        risk_state,
+    )
+    problems.extend(
+        _bound_residual_assessment_problems(
+            trusted, risk_state, assessment, threats, policy
+        )
+    )
     return list(dict.fromkeys(problems))
+
+
+def _selected_evidence_refs(proposed: Mapping, threat_id: str) -> list[str]:
+    """Return the canonical evidence selection from both proposed axes."""
+
+    selected: set[str] = set()
+    for axis in ("likelihood", "impact"):
+        axis_data = proposed.get(axis)
+        if not isinstance(axis_data, Mapping):
+            raise RiskValidationError(
+                f"{threat_id} residual {axis} proposal is required"
+            )
+        refs = axis_data.get("evidence_refs", [])
+        if not isinstance(refs, Sequence) or isinstance(refs, (str, bytes)):
+            raise RiskValidationError(
+                f"{threat_id} residual {axis} evidence_refs must be a list"
+            )
+        if any(not _nonempty_text(reference) for reference in refs):
+            raise RiskValidationError(
+                f"{threat_id} residual {axis} evidence_refs are invalid"
+            )
+        selected.update(refs)
+    return sorted(selected)
+
+
+def _validate_selected_evidence(
+    threat_id: str,
+    selected: Sequence[str],
+    current: Mapping[str, Mapping],
+    requirements: dict,
+) -> None:
+    """Require every selected artifact to be current and linked to the threat."""
+
+    if not selected:
+        raise RiskValidationError(
+            f"{threat_id} residual confirmation requires valid implementation evidence"
+        )
+    requirement_records = _records_by_identity(
+        requirements, "requirements", "id", "requirements"
+    )
+    for reference in selected:
+        evidence = current.get(reference)
+        if evidence is None:
+            raise RiskValidationError(
+                f"{threat_id} residual confirmation requires valid implementation "
+                f"evidence that is current and passing: {reference}"
+            )
+        requirement_id = evidence.get("requirement_id")
+        requirement = requirement_records.get(requirement_id)
+        if threat_id not in _risk_refs_for_requirement(requirement):
+            raise RiskValidationError(
+                f"{threat_id} evidence {reference} is not linked through its requirement"
+            )
+
+
+def stamp_residual_assessment(
+    paths: Mapping | object,
+    confirmed_by: str,
+    authority: str,
+    *,
+    confirmed_at: str | None = None,
+) -> dict:
+    """Calculate and atomically confirm refresh-bound residual proposals."""
+
+    policy_problems = check_policy(paths)
+    if policy_problems:
+        raise RiskValidationError("; ".join(policy_problems))
+    project_root, assessment_path = _project_document_path(paths, "assessment")
+    _unused_root, policy_path = _project_document_path(paths, "policy")
+    _unused_root, threats_path = _project_document_path(paths, "threats")
+    state_root, confirmation_path = _state_target(project_root, "assessment")
+    _unused_root, risk_state_path, risk_state = _load_risk_state(paths)
+    trusted = _read_trusted_confirmation(project_root, "assessment")
+    if not isinstance(trusted, Mapping) or trusted.get("status") != "refresh_bound":
+        raise RiskValidationError(
+            "residual confirmation requires externally bound refreshed state"
+        )
+    review_problems = check_residual_review(paths)
+    if review_problems:
+        raise RiskValidationError("; ".join(review_problems))
+
+    policy = _load_mapping(policy_path, "risk policy")
+    threats = _load_mapping(threats_path, "threat document")
+    requirements, evidence, evidence_problems = _validated_evidence_documents(
+        paths, date.today()
+    )
+    if evidence_problems:
+        raise RiskValidationError("; ".join(evidence_problems))
+    current_evidence = _current_passing_evidence(
+        evidence, requirements, date.today()
+    )
+    assessment = _load_mapping(assessment_path, "assessment document")
+    exact_problems = _refresh_binding_problems(
+        trusted,
+        project_root,
+        policy,
+        threats,
+        requirements,
+        evidence,
+        risk_state,
+    )
+    exact_problems.extend(
+        _bound_residual_assessment_problems(
+            trusted, risk_state, assessment, threats, policy
+        )
+    )
+    if exact_problems:
+        raise RiskValidationError("; ".join(dict.fromkeys(exact_problems)))
+    result = _without_confirmation(assessment)
+    records = result.get("assessments")
+    if not isinstance(records, list):
+        raise RiskValidationError("assessments must be a list")
+    active_ids = {threat["id"] for threat in active_threats(threats)}
+    confirmed_count = 0
+    for record in records:
+        if not isinstance(record, dict) or record.get("threat_id") not in active_ids:
+            continue
+        threat_id = record["threat_id"]
+        if record.get("status") != "CONFIRMED":
+            raise RiskValidationError(
+                f"{threat_id} inherent risk must be confirmed before residual confirmation"
+            )
+        residual = record.get("residual")
+        if not isinstance(residual, Mapping) or residual.get("proposed") is None:
+            continue
+        proposed = residual["proposed"]
+        if not isinstance(proposed, Mapping):
+            raise RiskValidationError(
+                f"{threat_id} residual proposal must be a mapping"
+            )
+        selected = _selected_evidence_refs(proposed, threat_id)
+        _validate_selected_evidence(
+            threat_id, selected, current_evidence, requirements
+        )
+        calculated = calculate_residual(
+            record.get("calculated"),
+            evidence,
+            policy,
+            dict(proposed),
+            requirements=requirements,
+            today=date.today(),
+        )
+        if calculated.get("status") == "UNDETERMINED":
+            raise RiskValidationError(
+                f"{threat_id} residual confirmation requires valid implementation evidence"
+            )
+        confirmed = {
+            "proposed": copy.deepcopy(dict(proposed)),
+            "status": "CONFIRMED",
+            "calculated": {
+                field: calculated[field]
+                for field in ("likelihood", "impact", "score", "rating")
+            },
+            "evidence_refs": selected,
+        }
+        if calculated.get("warnings"):
+            confirmed["warnings"] = copy.deepcopy(calculated["warnings"])
+        record["residual"] = confirmed
+        confirmed_count += 1
+    if confirmed_count == 0:
+        raise RiskValidationError("no residual proposals are ready for confirmation")
+
+    transition_at = confirmed_at or datetime.now(timezone.utc).isoformat().replace(
+        "+00:00", "Z"
+    )
+    next_state = append_snapshot(
+        risk_state,
+        _risk_snapshot(
+            "residual_confirmed",
+            threats,
+            result,
+            policy,
+            requirements,
+            evidence,
+            transition_at,
+        ),
+    )
+    result["confirmation"] = _confirmation_metadata(
+        project_root,
+        confirmed_by,
+        authority,
+        transition_at,
+        policy_digest=policy_digest(policy),
+        threat_digest=aggregate_threat_digest(threats),
+        assessment_digest=assessment_digest(result),
+        risk_state_digest=canonical_digest(next_state),
+    )
+    _write_text_transaction(
+        [
+            (
+                assessment_path,
+                project_root,
+                yaml.safe_dump(result, allow_unicode=True, sort_keys=False),
+                False,
+            ),
+            (
+                risk_state_path,
+                project_root,
+                yaml.safe_dump(next_state, allow_unicode=True, sort_keys=False),
+                False,
+            ),
+            (
+                confirmation_path,
+                state_root,
+                yaml.safe_dump(
+                    result["confirmation"], allow_unicode=True, sort_keys=False
+                ),
+                True,
+            ),
+        ]
+    )
+    return result
 
 
 def refresh_persisted_assessment(paths: Mapping | object) -> tuple[dict, list[str]]:
@@ -2688,6 +2999,27 @@ def argument_parser() -> argparse.ArgumentParser:
     ):
         _add_path_argument(residual_command, name)
 
+    residual_confirm = commands.add_parser(
+        "residual-confirm", allow_abbrev=False
+    )
+    for name in (
+        "--project-root",
+        "--policy",
+        "--threats",
+        "--assessment",
+        "--requirements",
+        "--evidence",
+        "--state",
+    ):
+        _add_path_argument(residual_confirm, name)
+    residual_confirm.add_argument("--by", required=True, action=_StoreOnce)
+    residual_confirm.add_argument(
+        "--authority",
+        choices=sorted(AUTHORITIES),
+        required=True,
+        action=_StoreOnce,
+    )
+
     migrate_command = commands.add_parser("migrate", allow_abbrev=False)
     for name in (
         "--project-root",
@@ -2825,6 +3157,21 @@ def _residual_results(
         if proposed is None and residual.get("status") == "UNDETERMINED":
             continue
         inherent = record.get("calculated")
+        if proposed is not None and not _current_passing_evidence(
+            evidence, requirements, evaluation_date
+        ):
+            results.append(
+                (
+                    threat_id,
+                    {
+                        "status": "UNDETERMINED",
+                        "reason": (
+                            "linked requirements have no valid implementation evidence"
+                        ),
+                    },
+                )
+            )
+            continue
         try:
             result = calculate_residual(
                 inherent,
@@ -2892,6 +3239,15 @@ def main(argv: list[str] | None = None) -> int:
                 f"({assessment['confirmation']['assessment_digest']})"
             )
             return 0
+        if args.command == "residual-confirm":
+            assessment = stamp_residual_assessment(
+                paths, args.by, args.authority
+            )
+            print(
+                "confirmed residual risk assessment "
+                f"({assessment['confirmation']['assessment_digest']})"
+            )
+            return 0
         if args.command == "evidence":
             _requirements, evidence, problems = _validated_evidence_documents(
                 paths, date.today()
@@ -2933,23 +3289,32 @@ def main(argv: list[str] | None = None) -> int:
             problems.extend(
                 problem for problem in residual_problems if problem not in problems
             )
+            # Invalid or stale evidence may still render an UNDETERMINED
+            # preview.  Any binding or document-integrity error suppresses all
+            # preview output so untrusted assessment material is never shown as
+            # a calculated result.
+            preview_allowed = not problems or (
+                bool(evidence_problems)
+                and all(problem in evidence_problems for problem in problems)
+            )
+            if preview_allowed:
+                for threat_id, result in results:
+                    if result.get("status") == "UNDETERMINED":
+                        print(
+                            f"{threat_id} residual risk: UNDETERMINED "
+                            f"({result['reason']})"
+                        )
+                        continue
+                    print(
+                        f"{threat_id} residual risk: {result['rating']} "
+                        f"(score {result['score']})"
+                    )
+                    for warning in result.get("warnings", []):
+                        print(f"WARN: {threat_id} {warning}")
             for problem in problems:
                 print(f"ERROR: {problem}", file=sys.stderr)
             if problems:
                 return 1
-            for threat_id, result in results:
-                if result.get("status") == "UNDETERMINED":
-                    print(
-                        f"{threat_id} residual risk: UNDETERMINED "
-                        f"({result['reason']})"
-                    )
-                    continue
-                print(
-                    f"{threat_id} residual risk: {result['rating']} "
-                    f"(score {result['score']})"
-                )
-                for warning in result.get("warnings", []):
-                    print(f"WARN: {threat_id} {warning}")
             return 0
 
         problems = check_policy(paths)

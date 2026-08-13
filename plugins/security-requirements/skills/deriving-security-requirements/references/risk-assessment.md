@@ -74,9 +74,11 @@ evidence. Residual risk may exceed inherent risk.
 
 Run the deterministic residual operation and display a batch table. Preserve
 `UNDETERMINED` when valid evidence is absent. Stop and wait for explicit human
-confirmation before recording the exact validated calculation and confirming
-the canonical assessment digest. Residual `UNDETERMINED` is visible but does
-not block initial publication.
+confirmation, then use only engine-owned `residual-confirm`. The engine writes
+`status`, `calculated`, and canonical `evidence_refs` and confirms the canonical
+assessment digest transactionally. The model never copies those authoritative
+fields. Residual `UNDETERMINED` is visible but does not block initial
+publication.
 
 ## Reporting and locale
 

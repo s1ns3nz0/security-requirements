@@ -279,7 +279,15 @@ def test_both_hosts_expose_the_same_risk_workflow_and_discovery_prompt():
     ) in claude
     for activity in ("assess", "show", "adjust", "evidence", "residual", "policy"):
         assert f"`{activity}`" in claude
-    for operation in ("policy-confirm", "confirm", "check", "refresh", "evidence", "residual"):
+    for operation in (
+        "policy-confirm",
+        "confirm",
+        "check",
+        "refresh",
+        "evidence",
+        "residual",
+        "residual-confirm",
+    ):
         assert f'/scripts/risk.py" {operation}' in claude
 
 
@@ -337,6 +345,36 @@ def test_complete_proposed_and_stale_risk_records_remain_confirmable():
         "`PROPOSED` and `STALE` block publication until confirmation"
         in reference
     )
+
+
+def test_residual_confirmation_is_engine_owned_on_both_hosts():
+    command = (ROOT / "commands" / "sec-req-risk.md").read_text(encoding="utf-8")
+    codex = ENTRY_SKILLS["risk"].read_text(encoding="utf-8")
+    reference = (
+        ROOT
+        / "skills"
+        / "deriving-security-requirements"
+        / "references"
+        / "risk-assessment.md"
+    ).read_text(encoding="utf-8")
+    exact = (
+        f'python3 -I "{PLUGIN_ROOT_LITERAL}/scripts/risk.py" residual-confirm \\\n'
+        '    --project-root "$PWD" \\\n'
+        '    --policy .security-requirements/risk-policy.yaml \\\n'
+        '    --threats .security-requirements/threats.yaml \\\n'
+        '    --assessment .security-requirements/risk-assessment.yaml \\\n'
+        '    --requirements .security-requirements/requirements.yaml \\\n'
+        '    --evidence .security-requirements/risk-evidence.yaml \\\n'
+        '    --state .security-requirements/risk-state.yaml \\\n'
+        '    --by user --authority self_declared'
+    )
+
+    assert exact in command
+    assert "engine writes `status`, `calculated`, and canonical `evidence_refs`" in (
+        command + reference
+    )
+    assert "record the exact validated likelihood, impact, score, rating" not in command
+    assert "never copy calculated residual fields" in codex
 
 
 def test_repository_scan_loads_the_untrusted_input_policy():

@@ -236,11 +236,29 @@ threat, inherent rating, residual criterion/result preview, evidence IDs,
 warnings, and unresolved field. Invalid or unsupported reduction stops review.
 
 Stop and wait for explicit confirmation of the exact residual batch. On resume,
-run the evidence validation and residual calculation again in fresh calls. If
-they still pass and match the displayed batch, preflight the assessment again,
-record the exact validated likelihood, impact, score, rating, evidence refs,
-and `CONFIRMED` residual status, then run the `risk.py confirm` command above to
-bind the complete canonical assessment and history externally. Finally run
+do not Write or Edit calculated results, status, or canonical evidence refs.
+Run the evidence validation and residual calculation again in fresh calls. If
+they still pass and match the displayed batch, invoke the engine-owned
+confirmation transition:
+
+```bash
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/risk.py" residual-confirm \
+    --project-root "$PWD" \
+    --policy .security-requirements/risk-policy.yaml \
+    --threats .security-requirements/threats.yaml \
+    --assessment .security-requirements/risk-assessment.yaml \
+    --requirements .security-requirements/requirements.yaml \
+    --evidence .security-requirements/risk-evidence.yaml \
+    --state .security-requirements/risk-state.yaml \
+    --by user --authority self_declared
+```
+
+The engine writes `status`, `calculated`, and canonical `evidence_refs`, binds
+the new assessment and state externally, and appends immutable history as one
+transaction. Any caller-authored authoritative residual field is a stopping
+condition. Generic `confirm` cannot approve a residual proposal. Finally run
 `risk.py check` and `risk.py residual` again. Never infer residual confirmation
 from passing evidence alone.
 

@@ -78,6 +78,11 @@ python3 -I "<exact absolute plugin root>/scripts/safe_paths.py" --project-root "
    from an ambient Claude variable. Substitute the captured literals into every
    placeholder without copying or reconstructing risk semantics here.
 
+For residual approval, invoke only the loaded workflow's exact
+`residual-confirm` command; never copy calculated residual fields, status, or
+canonical evidence references into the assessment; the shared engine owns that
+transaction.
+
 ## Confirmation gate
 
 At every policy, inherent, treatment, and residual confirmation gate, stop and wait
