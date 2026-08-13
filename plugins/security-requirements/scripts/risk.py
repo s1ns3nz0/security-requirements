@@ -1925,6 +1925,76 @@ def _confirmation_metadata(
     }
 
 
+def _refresh_binding_metadata(
+    project_root: Path,
+    trusted: object,
+    policy: dict,
+    threats: dict,
+    requirements: dict,
+    evidence: dict,
+    assessment: dict,
+    risk_state: dict,
+    bound_at: str,
+) -> dict:
+    """Bind an unconfirmed refreshed view to plugin-owned authoritative state."""
+
+    return {
+        "status": "refresh_bound",
+        "project": str(project_root.resolve()),
+        "policy_digest": policy_digest(policy),
+        "threat_document_digest": canonical_digest(threats),
+        "requirements_digest": canonical_digest(requirements),
+        "evidence_digest": canonical_digest(evidence),
+        "refreshed_assessment_digest": assessment_digest(assessment),
+        "risk_state_digest": canonical_digest(risk_state),
+        "previous_binding_digest": canonical_digest(trusted),
+        "bound_at": bound_at,
+    }
+
+
+def _refresh_binding_problems(
+    binding: object,
+    project_root: Path,
+    policy: dict,
+    threats: dict,
+    requirements: dict,
+    evidence: dict,
+    risk_state: dict,
+    *,
+    require_matching_inputs: bool = True,
+) -> list[str]:
+    if not isinstance(binding, Mapping) or binding.get("status") != "refresh_bound":
+        return ["plugin-owned refreshed risk binding is missing"]
+    required = (
+        "project",
+        "policy_digest",
+        "threat_document_digest",
+        "requirements_digest",
+        "evidence_digest",
+        "risk_state_digest",
+        "previous_binding_digest",
+        "bound_at",
+    )
+    missing = [field for field in required if not binding.get(field)]
+    if missing:
+        return ["refreshed risk binding is incomplete: " + ", ".join(missing)]
+    problems: list[str] = []
+    if binding["project"] != str(project_root.resolve()):
+        problems.append("project identity changed")
+    if binding["risk_state_digest"] != canonical_digest(risk_state):
+        problems.append("externally bound refreshed state changed")
+    if require_matching_inputs:
+        if binding["policy_digest"] != policy_digest(policy):
+            problems.append("policy changed after refreshed state was bound")
+        if binding["threat_document_digest"] != canonical_digest(threats):
+            problems.append("threats changed after refreshed state was bound")
+        if binding["requirements_digest"] != canonical_digest(requirements):
+            problems.append("requirements changed after refreshed state was bound")
+        if binding["evidence_digest"] != canonical_digest(evidence):
+            problems.append("evidence changed after refreshed state was bound")
+    return problems
+
+
 def _write_confirmation(
     document_path: Path,
     document: dict,
@@ -2132,6 +2202,36 @@ def stamp_assessment(
     policy = _load_mapping(policy_path, "risk policy")
     threats, requirements, evidence = _refresh_documents(paths)
     assessment = _load_mapping(assessment_path, "assessment document")
+    trusted = _read_trusted_confirmation(project_root, "assessment")
+    repository_confirmation = assessment.get("confirmation")
+    if isinstance(trusted, Mapping) and trusted.get("status") == "refresh_bound":
+        if repository_confirmation is not None:
+            raise RiskValidationError(
+                "refreshed assessment must remain unconfirmed before review"
+            )
+        binding_problems = _refresh_binding_problems(
+            trusted,
+            project_root,
+            policy,
+            threats,
+            requirements,
+            evidence,
+            risk_state,
+        )
+        if binding_problems:
+            raise RiskValidationError("; ".join(binding_problems))
+    elif repository_confirmation is not None or trusted is not None:
+        confirmation_problems = check_assessment(paths)
+        if confirmation_problems:
+            raise RiskValidationError("; ".join(confirmation_problems))
+    elif any(
+        isinstance(snapshot, Mapping)
+        and snapshot.get("event") in {"confirmed", "refreshed"}
+        for snapshot in risk_state.get("snapshots", [])
+    ):
+        raise RiskValidationError(
+            "plugin-owned risk assessment confirmation is missing"
+        )
     legacy = threats.get("version") == "0.1.0"
     confirmed_threats = copy.deepcopy(threats)
     if legacy:
@@ -2296,8 +2396,26 @@ def refresh_persisted_assessment(paths: Mapping | object) -> tuple[dict, list[st
     policy = _load_mapping(policy_path, "risk policy")
     assessment = _load_mapping(assessment_path, "assessment document")
     trusted = _read_trusted_confirmation(project_root, "assessment")
+    state_root, trusted_path = _state_target(project_root, "assessment")
     repository_confirmation = assessment.get("confirmation")
-    if repository_confirmation is not None or trusted is not None:
+    if isinstance(trusted, Mapping) and trusted.get("status") == "refresh_bound":
+        if repository_confirmation is not None:
+            raise RiskValidationError(
+                "refreshed assessment must remain unconfirmed before review"
+            )
+        binding_problems = _refresh_binding_problems(
+            trusted,
+            project_root,
+            policy,
+            threats,
+            requirements,
+            evidence,
+            risk_state,
+            require_matching_inputs=False,
+        )
+        if binding_problems:
+            raise RiskValidationError("; ".join(binding_problems))
+    elif repository_confirmation is not None or trusted is not None:
         problems = _base_confirmation_problems(
             "assessment", repository_confirmation, trusted, project_root
         )
@@ -2318,7 +2436,10 @@ def refresh_persisted_assessment(paths: Mapping | object) -> tuple[dict, list[st
         previous_evidence=baseline.get("evidence"),
         current_evidence=evidence,
     )
-    if canonical_digest(refreshed) == canonical_digest(assessment):
+    next_baseline = _refresh_baseline(threats, requirements, evidence)
+    assessment_changed = canonical_digest(refreshed) != canonical_digest(assessment)
+    inputs_changed = canonical_digest(next_baseline) != canonical_digest(baseline)
+    if not assessment_changed and not inputs_changed:
         return assessment, []
 
     messages: list[str] = []
@@ -2348,10 +2469,9 @@ def refresh_persisted_assessment(paths: Mapping | object) -> tuple[dict, list[st
                 f"{threat_id} residual risk is {new_residual.get('status')}"
             )
 
+    transition_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     next_state = copy.deepcopy(risk_state)
-    next_state["refresh_baseline"] = _refresh_baseline(
-        threats, requirements, evidence
-    )
+    next_state["refresh_baseline"] = next_baseline
     next_state = append_snapshot(
         next_state,
         _risk_snapshot(
@@ -2361,8 +2481,19 @@ def refresh_persisted_assessment(paths: Mapping | object) -> tuple[dict, list[st
             policy,
             requirements,
             evidence,
-            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            transition_at,
         ),
+    )
+    refresh_binding = _refresh_binding_metadata(
+        project_root,
+        trusted,
+        policy,
+        threats,
+        requirements,
+        evidence,
+        refreshed,
+        next_state,
+        transition_at,
     )
     _write_text_transaction(
         [
@@ -2377,6 +2508,14 @@ def refresh_persisted_assessment(paths: Mapping | object) -> tuple[dict, list[st
                 project_root,
                 yaml.safe_dump(next_state, allow_unicode=True, sort_keys=False),
                 False,
+            ),
+            (
+                trusted_path,
+                state_root,
+                yaml.safe_dump(
+                    refresh_binding, allow_unicode=True, sort_keys=False
+                ),
+                True,
             ),
         ]
     )

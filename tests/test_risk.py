@@ -2342,6 +2342,139 @@ def test_refresh_transaction_restores_all_prior_bytes_after_replace_then_raise(
     assert trusted_path.read_bytes() == trusted_before
 
 
+@pytest.mark.parametrize("tamper", ["delete", "rewrite"])
+def test_reconfirm_rejects_tampered_externally_bound_refresh_history(
+    risk_fixture, tamper
+):
+    risk_fixture.confirm_all()
+    risk_fixture.change_threat("T-01", scenario="changed after confirmation")
+    risk.refresh_persisted_assessment(risk_fixture.paths)
+    trusted_path = risk.confirmation_state_path(
+        risk_fixture.paths["project_root"], "assessment"
+    )
+    trusted = yaml.safe_load(trusted_path.read_text(encoding="utf-8"))
+    assert trusted["status"] == "refresh_bound"
+    trusted_before = trusted_path.read_bytes()
+
+    state = yaml.safe_load(risk_fixture.paths["state"].read_text(encoding="utf-8"))
+    if tamper == "delete":
+        state["snapshots"] = []
+    else:
+        state["snapshots"][0]["event"] = "forged"
+    risk_fixture.paths["state"].write_text(
+        yaml.safe_dump(state, sort_keys=False), encoding="utf-8"
+    )
+
+    with pytest.raises(
+        risk.RiskValidationError, match="externally bound refreshed state changed"
+    ):
+        risk.stamp_assessment(
+            risk_fixture.paths,
+            "risk-owner",
+            "self_declared",
+            confirmed_at="2026-08-13T00:02:00Z",
+        )
+
+    assert trusted_path.read_bytes() == trusted_before
+
+
+def test_untampered_refresh_reconfirmation_preserves_bound_history(risk_fixture):
+    risk_fixture.confirm_all()
+    risk_fixture.change_threat("T-01", scenario="changed after confirmation")
+    refreshed, _messages = risk.refresh_persisted_assessment(risk_fixture.paths)
+    assert "confirmation" not in refreshed
+    trusted_path = risk.confirmation_state_path(
+        risk_fixture.paths["project_root"], "assessment"
+    )
+    binding = yaml.safe_load(trusted_path.read_text(encoding="utf-8"))
+    state_before = yaml.safe_load(
+        risk_fixture.paths["state"].read_text(encoding="utf-8")
+    )
+    assert binding["status"] == "refresh_bound"
+    assert binding["risk_state_digest"] == risk.canonical_digest(state_before)
+    assert [snapshot["event"] for snapshot in state_before["snapshots"]] == [
+        "confirmed",
+        "refreshed",
+    ]
+
+    risk.stamp_assessment(
+        risk_fixture.paths,
+        "risk-owner",
+        "self_declared",
+        confirmed_at="2026-08-13T00:02:00Z",
+    )
+
+    state_after = yaml.safe_load(
+        risk_fixture.paths["state"].read_text(encoding="utf-8")
+    )
+    assert state_after["snapshots"][:2] == state_before["snapshots"]
+    assert [snapshot["event"] for snapshot in state_after["snapshots"]] == [
+        "confirmed",
+        "refreshed",
+        "confirmed",
+    ]
+
+
+def test_bound_refresh_can_advance_after_another_material_input_change(risk_fixture):
+    risk_fixture.confirm_all()
+    risk_fixture.change_threat("T-01", scenario="first changed scenario")
+    risk.refresh_persisted_assessment(risk_fixture.paths)
+    requirements = yaml.safe_load(
+        risk_fixture.paths["requirements"].read_text(encoding="utf-8")
+    )
+    requirements["requirements"][0]["managed"]["statement"] = "Changed again."
+    risk_fixture.paths["requirements"].write_text(
+        yaml.safe_dump(requirements, sort_keys=False), encoding="utf-8"
+    )
+
+    risk.refresh_persisted_assessment(risk_fixture.paths)
+
+    state = yaml.safe_load(risk_fixture.paths["state"].read_text(encoding="utf-8"))
+    trusted = yaml.safe_load(
+        risk.confirmation_state_path(
+            risk_fixture.paths["project_root"], "assessment"
+        ).read_text(encoding="utf-8")
+    )
+    assert [snapshot["event"] for snapshot in state["snapshots"]] == [
+        "confirmed",
+        "refreshed",
+        "refreshed",
+    ]
+    assert trusted["risk_state_digest"] == risk.canonical_digest(state)
+
+
+def test_refresh_external_binding_failure_restores_repository_and_trusted_bytes(
+    risk_fixture, monkeypatch
+):
+    risk_fixture.confirm_all()
+    risk_fixture.change_threat("T-01", scenario="changed after confirmation")
+    trusted_path = risk.confirmation_state_path(
+        risk_fixture.paths["project_root"], "assessment"
+    )
+    assessment_before = risk_fixture.paths["assessment"].read_bytes()
+    state_before = risk_fixture.paths["state"].read_bytes()
+    trusted_before = trusted_path.read_bytes()
+    real_write = risk.safe_write_text
+    failed = False
+
+    def replace_binding_then_fail(path, *args, **kwargs):
+        nonlocal failed
+        result = real_write(path, *args, **kwargs)
+        if Path(path) == trusted_path and not failed:
+            failed = True
+            raise OSError("injected external binding failure")
+        return result
+
+    monkeypatch.setattr(risk, "safe_write_text", replace_binding_then_fail)
+
+    with pytest.raises(OSError, match="injected external binding failure"):
+        risk.refresh_persisted_assessment(risk_fixture.paths)
+
+    assert risk_fixture.paths["assessment"].read_bytes() == assessment_before
+    assert risk_fixture.paths["state"].read_bytes() == state_before
+    assert trusted_path.read_bytes() == trusted_before
+
+
 def test_check_blocks_changed_requirement_while_residual_remains_confirmed(
     risk_fixture,
 ):
