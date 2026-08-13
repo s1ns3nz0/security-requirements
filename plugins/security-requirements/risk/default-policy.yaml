@@ -1,0 +1,19 @@
+version: "1.0.0"
+thresholds:
+  - {min: 1, max: 4, rating: low}
+  - {min: 5, max: 9, rating: medium}
+  - {min: 10, max: 16, rating: high}
+  - {min: 17, max: 25, rating: critical}
+likelihood:
+  L1-EXCEPTIONAL: {score: 1, definition: "Requires multiple independent, exceptional preconditions."}
+  L2-RESTRICTED: {score: 2, definition: "Requires restricted access and non-trivial preconditions."}
+  L3-AUTHENTICATED: {score: 3, definition: "Requires ordinary authenticated or internal access."}
+  L4-PUBLIC-LOW-COMPLEXITY: {score: 4, definition: "Reachable from a public surface with low complexity."}
+  L5-DIRECT-AUTOMATABLE: {score: 5, definition: "Directly reproducible without an effective control and readily automated."}
+impact:
+  I1-LOCAL-RECOVERABLE: {score: 1, definition: "Localised and immediately recoverable effect."}
+  I2-LIMITED-SCOPE: {score: 2, definition: "Limited users or records with routine recovery."}
+  I3-CORE-SERVICE: {score: 3, definition: "Core service function or a broad record set is materially affected."}
+  I4-CROSS-SYSTEM: {score: 4, definition: "Account-wide, cross-system, prolonged, contractual, or regulated effect."}
+  I5-ORGANISATION-IRREVERSIBLE: {score: 5, definition: "Organisation-wide compromise, irreversible harm, or safety impact."}
+publish_risk_summary: false
