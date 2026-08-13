@@ -268,7 +268,7 @@ def test_both_hosts_expose_the_same_risk_workflow_and_discovery_prompt():
         "Assess and review threat risk for this repository."
         in manifest["interface"]["defaultPrompt"]
     )
-    assert manifest["version"] == "0.1.0"
+    assert manifest["version"] == "0.2.0"
 
     claude = command.read_text(encoding="utf-8")
     codex = codex_skill.read_text(encoding="utf-8")

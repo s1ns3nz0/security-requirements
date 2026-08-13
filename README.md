@@ -29,10 +29,15 @@ docs/security/
   requirements.md      organised by CSF 2.0 function, so it reads as work
   traceability.md      control -> requirement, so an auditor can check coverage
   responsibility.md    who owns what, and what evidence backs each claim
+  risk-summary.md      optional aggregate-only risk summary; never emitted by default
 
 .security-requirements/
   profile.yaml         confirmed inputs and impact derivation
   threats.yaml         DFD boundaries and service-specific threats
+  risk-policy.yaml     digest-bound policy proposal or bundled default
+  risk-assessment.yaml inherent and residual assessment records
+  risk-evidence.yaml   implementation evidence for residual-risk reductions
+  reports/risk-register.md  sensitive internal risk register
   requirements.yaml    stable records, review state, exceptions, evidence links
   status.yaml          assurance state; never inferred from prose alone
 ```
@@ -99,6 +104,51 @@ Profile confirmation is a hard gate, not a formality. A wrong region or recovery
 objective changes hundreds of downstream decisions while still producing
 convincing prose. Unknown input stays `UNDETERMINED`: it surfaces a consequence
 and a refresh instruction rather than being quietly replaced with a guess.
+
+## How threat risk is rated
+
+Each active `threat × persona × attack path` receives a reviewable inherent-risk
+proposal. The bundled policy is a deterministic 5×5 matrix:
+
+| Likelihood × impact | Rating |
+|---:|---|
+| 1–4 | low |
+| 5–9 | medium |
+| 10–16 | high |
+| 17–25 | critical |
+
+The model proposes criterion IDs, structured evidence, consequences, rationale,
+and a treatment. The engine resolves the numeric score and rating. A human
+reviews the complete batch and confirms the exact digest; the model proposes
+but does not approve a score or treatment. Repository content cannot forge that
+approval because the authoritative confirmation is stored outside the inspected
+repository and bound to the project, threats, policy, and assessment digests.
+Until every active threat has confirmed inherent risk, publication stops.
+
+Requirement priority is not a risk rating. `priority` says how directly a
+requirement follows from the service threat model and selected baseline; a risk
+rating says how large a threat is. Neither field is copied into the other.
+Accepted risk also keeps its original score and remains visible in the overall
+rating. Acceptance is a separate, human-confirmed, time-bounded treatment with
+an owner, rationale, approver, role, and expiry; expiry makes it unresolved.
+
+Residual risk is a fresh assessment, not an arithmetic discount. A decrease in
+likelihood or impact is allowed only when current passing implementation evidence
+shows the corresponding attack condition or consequence changed. A written
+requirement is not implementation evidence. Missing or stale evidence leaves
+residual risk `UNDETERMINED`; that does not block the initial publication.
+
+The full risk register stays under `.security-requirements/` because it contains
+attack paths, unimplemented controls, owners, acceptance details, and internal
+artifact locations. A public `docs/security/risk-summary.md` is generated only
+when the approved policy explicitly sets `publish_risk_summary: true`; it contains
+only overall ratings, distribution, and coverage.
+
+Legacy threat schema `0.1.0` remains readable. Refresh creates unconfirmed
+policy, assessment, evidence, and state scaffolding without changing prior
+published documents or inventing approval. Only human confirmation advances
+the threat schema to `0.2.0`. Existing requirement exceptions remain in place
+until their proposed threat-level accepted-risk migration is reviewed.
 
 ## Who has to do it
 
@@ -211,13 +261,14 @@ cd security-requirements
 /plugin install security-requirements@security-requirements
 ```
 
-Claude keeps the three slash-command entry points. In the repository whose
+Claude keeps four slash-command entry points. In the repository whose
 requirements you are deriving, run:
 
 ```text
 /security-requirements:sec-req-init      scan the repository, interview the gaps, confirm impact
 /security-requirements:sec-req-build     threat model, responsibility split, write requirements
 /security-requirements:sec-req-refresh   re-derive after a change, preserving human edits
+/security-requirements:sec-req-risk      assess, review, evidence, residual risk, and policy
 ```
 
 You can also register the published repository directly with
@@ -231,12 +282,14 @@ codex plugin list --marketplace security-requirements
 codex plugin add security-requirements@security-requirements
 ```
 
-Codex exposes the same three workflows as natural-language skills rather than
-slash commands. Start a chat with one of these prompts:
+Codex exposes the same four workflows as natural-language skills rather than
+slash commands. For risk work, select `security-requirements-risk` or start a
+chat with the risk starter prompt. The four starter prompts are:
 
 - “Initialize the security requirements profile for this repository.”
 - “Build security requirements from the confirmed profile.”
 - “Refresh security requirements after service changes.”
+- “Assess and review threat risk for this repository.”
 
 The installed entry skill finds the shared payload from its own selected path;
 it never derives the payload from the target repository's working directory.
@@ -253,7 +306,7 @@ codex plugin marketplace add .
 codex plugin add security-requirements@security-requirements
 ```
 
-Claude Code uses the manifest version (`0.1.0`) to decide whether a plugin
+Claude Code uses the manifest version (`0.2.0`) to decide whether a plugin
 update is available. After pulling a changed local clone with that same version,
 refresh and reinstall in this order; the marketplace is already registered, so
 do not add it again:
@@ -295,9 +348,11 @@ The sequence underneath them:
 1. Scan the repository as untrusted evidence; do not execute its code.
 2. Present the inferred architecture and ask the seven owner questions.
 3. Confirm the complete profile and impact derivation.
-4. Select the baseline, model threats, classify responsibility, run overlays.
-5. Draft atomic requirements, lint identifiers and links, then render.
-6. Re-run overlays against the written requirements to expose the assurance gap.
+4. Select the baseline, model threats, and propose inherent risk.
+5. Stop for human confirmation of risk criteria, treatment, and the exact digest.
+6. Classify responsibility, run overlays, and draft atomic requirements.
+7. Link requirements to risk, lint identifiers and links, then render.
+8. Re-run overlays against the written requirements to expose the assurance gap.
 
 Where a profile triggers a regulation an overlay covers,
 `/security-requirements:sec-req-build` reports
@@ -395,7 +450,7 @@ summarised in our own words with links, never reproduced.
 
 ```bash
 python3 -I plugins/security-requirements/scripts/rebuild_catalogs.py  # rebuild every catalog from upstream
-python3 -m pytest tests/                # deterministic layer, 978 tests
+python3 -m pytest tests/                # deterministic layer, 1,219 tests
 python3 -m pytest tests/test_distribution_docs.py -q
 python3 scripts/validate_distribution.py .
 ```

@@ -18,6 +18,20 @@ CANONICAL_BUILD_PREFLIGHT = (
     'python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/safe_paths.py" '
     '--project-root "$PWD" --check-output .security-requirements docs/security'
 )
+RISK_ASSETS = (
+    "risk/default-policy.yaml",
+    "scripts/risk.py",
+    "commands/sec-req-risk.md",
+    "skills/security-requirements-risk/SKILL.md",
+    "skills/deriving-security-requirements/references/risk-assessment.md",
+)
+RISK_PROMPT = "Assess and review threat risk for this repository."
+WORKFLOW_PROMPTS = (
+    "Initialize the security requirements profile for this repository.",
+    "Build security requirements from the confirmed profile.",
+    "Refresh security requirements after service changes.",
+    RISK_PROMPT,
+)
 LEGACY_BUILD_PREFLIGHT = (
     'python3 -I "<absolute plugin root>/scripts/safe_paths.py" '
     '--project-root "$PWD" --check-output .security-requirements docs/security'
@@ -83,6 +97,25 @@ def test_clean_clone_documentation_covers_claude_and_codex_installation():
         "Refresh security requirements after service changes",
     ):
         assert prompt in readme
+
+
+def test_documentation_exposes_risk_rating_governance_on_both_hosts():
+    readme = _read(REPO_ROOT / "README.md")
+    design = _read(REPO_ROOT / "DESIGN.md")
+    combined = f"{readme}\n{design}"
+
+    assert "/security-requirements:sec-req-risk" in readme
+    assert "security-requirements-risk" in readme
+    assert RISK_PROMPT in readme
+    assert "1–4" in combined and "5–9" in combined
+    assert "10–16" in combined and "17–25" in combined
+    assert "model proposes" in combined.lower()
+    assert "does not approve" in combined.lower()
+    assert "publish_risk_summary: true" in combined
+    assert "Residual" in combined and "implementation evidence" in combined
+    assert "legacy" in combined.lower() and "0.1.0" in combined
+    assert "accepted risk" in combined.lower()
+    assert "Requirement priority is not a risk rating" in combined
 
 
 def test_clean_clone_documentation_covers_updates_dependencies_and_state():
@@ -1369,3 +1402,267 @@ def test_distribution_validator_rejects_runtime_copies_outside_the_payload(tmp_p
     errors = module.validate(clone)
     assert any(f"top-level runtime directory: {directory}" in error for error in errors)
     assert any(f"duplicate runtime directory: {directory}" in error for error in errors)
+
+
+@pytest.mark.parametrize("relative", RISK_ASSETS)
+def test_distribution_validator_requires_each_canonical_risk_asset(tmp_path, relative):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    asset = clone / "plugins" / PLUGIN_NAME / relative
+    asset.unlink()
+    if asset.parent.name == "security-requirements-risk":
+        asset.parent.rmdir()
+
+    errors = module.validate(clone)
+
+    assert f"missing required risk asset: {relative}" in errors
+
+
+@pytest.mark.parametrize(
+    ("relative", "duplicate"),
+    (
+        ("risk/default-policy.yaml", "plugins/another/risk/default-policy.yaml"),
+        ("scripts/risk.py", "plugins/another/scripts/risk.py"),
+        ("commands/sec-req-risk.md", "plugins/another/commands/sec-req-risk.md"),
+    ),
+)
+def test_distribution_validator_rejects_duplicate_risk_assets(
+    tmp_path, relative, duplicate
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    source = clone / "plugins" / PLUGIN_NAME / relative
+    target = clone / duplicate
+    target.parent.mkdir(parents=True)
+    shutil.copyfile(source, target)
+
+    errors = module.validate(clone)
+
+    assert any(
+        "duplicate risk asset" in error and duplicate in error for error in errors
+    ), errors
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        lambda text: text.replace("max: 4", "max: 5", 1),
+        lambda text: text.replace(
+            "L5-DIRECT-AUTOMATABLE: {score: 5",
+            "L5-DIRECT-AUTOMATABLE: {score: 4",
+        ),
+        lambda text: text.replace("publish_risk_summary: false\n", ""),
+        lambda text: text + "unexpected: true\n",
+        lambda text: text.replace('version: "1.0.0"', "version: !unsafe 1.0.0"),
+    ),
+)
+def test_distribution_validator_rejects_invalid_bundled_default_policy(
+    tmp_path, mutation
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    policy = clone / "plugins" / PLUGIN_NAME / "risk" / "default-policy.yaml"
+    policy.write_text(mutation(_read(policy)), encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any("invalid bundled default risk policy" in error for error in errors), errors
+
+
+def test_distribution_validator_requires_release_and_schema_version_agreement(tmp_path):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    claude_path = clone / "plugins" / PLUGIN_NAME / ".claude-plugin" / "plugin.json"
+    codex_path = clone / "plugins" / PLUGIN_NAME / ".codex-plugin" / "plugin.json"
+    threat_reference = (
+        clone
+        / "plugins"
+        / PLUGIN_NAME
+        / "skills"
+        / "deriving-security-requirements"
+        / "references"
+        / "threat-modeling.md"
+    )
+    claude = json.loads(_read(claude_path))
+    codex = json.loads(_read(codex_path))
+    claude["version"] = "0.2.0"
+    codex["version"] = "0.3.0"
+    claude_path.write_text(json.dumps(claude), encoding="utf-8")
+    codex_path.write_text(json.dumps(codex), encoding="utf-8")
+    threat_reference.write_text(
+        _read(threat_reference).replace("schema version `0.2.0`", "schema version `0.3.0`"),
+        encoding="utf-8",
+    )
+
+    errors = module.validate(clone)
+
+    assert any("payload manifest versions must both equal 0.2.0" in error for error in errors)
+    assert any("threat schema version must agree with release 0.2.0" in error for error in errors)
+
+
+def test_distribution_validator_requires_engine_schema_version_agreement(tmp_path):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    engine = clone / "plugins" / PLUGIN_NAME / "scripts" / "risk.py"
+    engine.write_text(_read(engine).replace('"0.2.0"', '"0.3.0"'), encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any("risk engine schema versions must agree with release 0.2.0" in error for error in errors)
+
+
+def test_payload_manifests_publish_020_while_marketplace_metadata_is_unchanged():
+    payload = REPO_ROOT / "plugins" / PLUGIN_NAME
+    claude = json.loads(_read(payload / ".claude-plugin" / "plugin.json"))
+    codex = json.loads(_read(payload / ".codex-plugin" / "plugin.json"))
+    marketplace = json.loads(_read(REPO_ROOT / ".claude-plugin" / "marketplace.json"))
+
+    assert claude["version"] == codex["version"] == "0.2.0"
+    assert marketplace["metadata"]["version"] == "0.1.0"
+
+
+@pytest.mark.parametrize("host", ("claude", "codex"))
+def test_distribution_validator_requires_exactly_four_host_entrypoints(tmp_path, host):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    payload = clone / "plugins" / PLUGIN_NAME
+    if host == "claude":
+        extra = payload / "commands" / "sec-req-extra.md"
+        extra.write_text("---\ndescription: extra\n---\n", encoding="utf-8")
+    else:
+        extra = payload / "skills" / "security-requirements-extra" / "SKILL.md"
+        extra.parent.mkdir()
+        extra.write_text("---\nname: security-requirements-extra\n---\n", encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any(f"unexpected {host.title()} entry point" in error for error in errors), errors
+
+
+def test_distribution_validator_requires_exactly_four_ordered_codex_prompts(tmp_path):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    manifest_path = clone / "plugins" / PLUGIN_NAME / ".codex-plugin" / "plugin.json"
+    manifest = json.loads(_read(manifest_path))
+    manifest["version"] = "0.2.0"
+    manifest["interface"]["defaultPrompt"] = [*WORKFLOW_PROMPTS, RISK_PROMPT]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert "Codex manifest must declare exactly the four canonical workflow prompts" in errors
+
+
+def test_distribution_validator_rejects_unapproved_payload_components_without_execution(
+    tmp_path
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    marker = tmp_path / "repository-code-ran"
+    probe = clone / "plugins" / PLUGIN_NAME / "scripts" / "unapproved_probe.py"
+    probe.write_text(
+        "from pathlib import Path\n"
+        f"Path({str(marker)!r}).write_text('executed', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+
+    errors = module.validate(clone)
+
+    assert any("unapproved payload component" in error for error in errors), errors
+    assert not marker.exists()
+
+
+def test_distribution_validator_rejects_junctions_without_traversing_them(
+    tmp_path, monkeypatch
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    redirect = clone / "plugins" / PLUGIN_NAME / "risk" / "redirect"
+    redirect.mkdir()
+    (redirect / "default-policy.yaml").write_text("unsafe", encoding="utf-8")
+    real_is_junction = Path.is_junction
+
+    def simulated_junction(path):
+        return path == redirect or real_is_junction(path)
+
+    monkeypatch.setattr(Path, "is_junction", simulated_junction)
+
+    errors = module.validate(clone)
+
+    assert any("junction is not allowed in plugin distribution" in error for error in errors), errors
+    assert not any(
+        "duplicate risk asset" in error and "redirect/default-policy.yaml" in error
+        for error in errors
+    )
+
+
+def test_distribution_validator_rejects_a_junction_beside_the_payload(
+    tmp_path, monkeypatch
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    redirect = clone / "plugins" / "duplicate-payload"
+    redirect.mkdir()
+    real_is_junction = Path.is_junction
+
+    def simulated_junction(path):
+        return path == redirect or real_is_junction(path)
+
+    monkeypatch.setattr(Path, "is_junction", simulated_junction)
+
+    errors = module.validate(clone)
+
+    assert any("junction is not allowed in plugin distribution" in error for error in errors)
+
+
+@pytest.mark.parametrize("relative", RISK_ASSETS)
+def test_distribution_validator_never_reads_a_redirected_canonical_risk_asset(
+    tmp_path, monkeypatch, relative
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    asset = clone / "plugins" / PLUGIN_NAME / relative
+    real_is_junction = Path.is_junction
+    real_read_text = Path.read_text
+    reads = []
+
+    def simulated_junction(path):
+        return path == asset or real_is_junction(path)
+
+    def observed_read(path, *args, **kwargs):
+        if path == asset:
+            reads.append(path)
+        return real_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "is_junction", simulated_junction)
+    monkeypatch.setattr(Path, "read_text", observed_read)
+
+    errors = module.validate(clone)
+
+    assert any("junction is not allowed in plugin distribution" in error for error in errors)
+    assert reads == []
+
+
+def test_distribution_validator_aggregates_risk_distribution_errors(tmp_path):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    payload = clone / "plugins" / PLUGIN_NAME
+    (payload / "scripts" / "risk.py").unlink()
+    (payload / "risk" / "default-policy.yaml").write_text(
+        "publish_risk_summary: true\n", encoding="utf-8"
+    )
+    manifest_path = payload / ".codex-plugin" / "plugin.json"
+    manifest = json.loads(_read(manifest_path))
+    manifest["interface"]["defaultPrompt"] = []
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    (payload / "unknown-component").mkdir()
+
+    errors = module.validate(clone)
+
+    for expected in (
+        "missing required risk asset: scripts/risk.py",
+        "invalid bundled default risk policy",
+        "exactly the four canonical workflow prompts",
+        "unapproved payload component",
+    ):
+        assert any(expected in error for error in errors), errors

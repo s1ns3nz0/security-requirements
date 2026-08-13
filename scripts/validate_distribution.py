@@ -3,17 +3,47 @@
 
 from __future__ import annotations
 
+import ast
 import json
+import os
 from pathlib import Path
 import re
 import shlex
 import sys
 
+import yaml
+
 
 PLUGIN_NAME = "security-requirements"
 PAYLOAD = Path("plugins") / PLUGIN_NAME
+RELEASE_VERSION = "0.2.0"
+THREAT_SCHEMA_VERSION = "0.2.0"
 RUNTIME_DIRECTORIES = ("scripts", "catalogs", "overlays", "responsibility", "skills")
 WORKFLOWS = ("init", "build", "refresh", "risk")
+WORKFLOW_PROMPTS = (
+    "Initialize the security requirements profile for this repository.",
+    "Build security requirements from the confirmed profile.",
+    "Refresh security requirements after service changes.",
+    "Assess and review threat risk for this repository.",
+)
+RISK_ASSETS = (
+    Path("risk") / "default-policy.yaml",
+    Path("scripts") / "risk.py",
+    Path("commands") / "sec-req-risk.md",
+    Path("skills") / "security-requirements-risk" / "SKILL.md",
+    Path("skills") / "deriving-security-requirements" / "references" / "risk-assessment.md",
+)
+APPROVED_PAYLOAD_ROOTS = {
+    ".claude-plugin",
+    ".codex-plugin",
+    "catalogs",
+    "commands",
+    "overlays",
+    "responsibility",
+    "risk",
+    "scripts",
+    "skills",
+}
 FORBIDDEN_CODEX_COMPONENTS = ("mcpServers", "apps", "hooks")
 METADATA_FILES = (
     Path(".claude-plugin") / "marketplace.json",
@@ -43,6 +73,7 @@ TRUSTED_WORKFLOW_SCRIPTS = {
     "merge.py",
     "mutate.py",
     "profile_locale.py",
+    "profile_schema.py",
     "publish.py",
     "rebuild_catalogs.py",
     "rebuild_overlay_hipaa.py",
@@ -54,6 +85,7 @@ TRUSTED_WORKFLOW_SCRIPTS = {
     "semantic_review.py",
     "validate_overlays.py",
 }
+APPROVED_SCRIPT_FILES = TRUSTED_WORKFLOW_SCRIPTS - {"<trusted packaged script name.py>"}
 TRUSTED_SCRIPT_PREFIXES = (
     "<absolute plugin root>/scripts/",
     "<exact absolute plugin root>/scripts/",
@@ -79,7 +111,84 @@ CANONICAL_SAFE_OUTPUT_PREFLIGHTS_BY_PATH = {
 }
 
 
-def _read_json(path: Path, errors: list[str]) -> dict:
+def _redirect_kind(path: Path) -> str | None:
+    """Return the redirect kind without following repository-controlled paths."""
+
+    try:
+        if path.is_symlink():
+            return "symlink"
+        if path.is_junction():
+            return "junction"
+    except OSError:
+        return "redirect"
+    return None
+
+
+def _redirect_in_path(path: Path, boundary: Path) -> tuple[Path, str] | None:
+    """Find a redirect from *boundary* through *path*, including both endpoints."""
+
+    try:
+        relative = path.relative_to(boundary)
+    except ValueError:
+        return path, "outside-boundary"
+    current = boundary
+    for part in relative.parts:
+        current = current / part
+        kind = _redirect_kind(current)
+        if kind is not None:
+            return current, kind
+    return None
+
+
+def _walk_no_redirect(
+    base: Path,
+    errors: list[str],
+    *,
+    label: str,
+    report_redirects: bool = True,
+) -> list[Path]:
+    """List descendants without following symlinks or junctions."""
+
+    entries: list[Path] = []
+    kind = _redirect_kind(base)
+    if kind is not None:
+        if report_redirects:
+            errors.append(f"{kind} is not allowed in {label}: {base}")
+        return entries
+    if not base.is_dir():
+        return entries
+
+    pending = [base]
+    while pending:
+        directory = pending.pop()
+        try:
+            children = sorted(os.scandir(directory), key=lambda item: item.name)
+        except OSError as error:
+            errors.append(f"cannot inspect {label}: {directory}: {error}")
+            continue
+        for child in children:
+            path = Path(child.path)
+            entries.append(path)
+            redirect = _redirect_kind(path)
+            if redirect is not None:
+                if report_redirects:
+                    errors.append(f"{redirect} is not allowed in {label}: {path}")
+                continue
+            try:
+                if child.is_dir(follow_symlinks=False):
+                    pending.append(path)
+            except OSError as error:
+                errors.append(f"cannot inspect {label}: {path}: {error}")
+    return entries
+
+
+def _read_json(path: Path, errors: list[str], boundary: Path | None = None) -> dict:
+    if boundary is not None:
+        redirected = _redirect_in_path(path, boundary)
+        if redirected is not None:
+            redirect, kind = redirected
+            errors.append(f"{kind} is not allowed in distribution metadata: {redirect}")
+            return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except UnicodeDecodeError as error:
@@ -121,6 +230,11 @@ def _relative_path(value: object, base: Path, label: str, errors: list[str]) -> 
         errors.append(f"{label} must not use an absolute or traversal path: {value}")
         return
     path = base / value
+    redirected = _redirect_in_path(path, base)
+    if redirected is not None:
+        redirect, kind = redirected
+        errors.append(f"{label} must not traverse a {kind}: {redirect}")
+        return
     try:
         path.resolve().relative_to(base.resolve())
     except ValueError:
@@ -186,15 +300,21 @@ def _metadata_symlinks(root: Path, errors: list[str]) -> None:
     for relative in METADATA_FILES:
         path = root / relative
         while path != root:
-            if path.is_symlink() and path not in found:
+            redirect = _redirect_kind(path)
+            if redirect is not None and path not in found:
                 errors.append(
-                    f"symlink is not allowed in distribution metadata: {path.relative_to(root)}"
+                    f"{redirect} is not allowed in distribution metadata: {path.relative_to(root)}"
                 )
                 found.add(path)
             path = path.parent
 
 
-def _duplicate_runtime_directories(root: Path, payload: Path, errors: list[str]) -> None:
+def _duplicate_runtime_directories(
+    root: Path,
+    payload: Path,
+    errors: list[str],
+    plugin_entries: list[Path],
+) -> None:
     root_scripts = root / "scripts"
     if root_scripts.is_dir():
         allowed = {"validate_distribution.py", "__pycache__"}
@@ -206,11 +326,11 @@ def _duplicate_runtime_directories(root: Path, payload: Path, errors: list[str])
 
     for directory in RUNTIME_DIRECTORIES:
         expected = payload / directory
-        if not expected.is_dir():
+        if _redirect_in_path(expected, payload) is not None or not expected.is_dir():
             errors.append(f"missing runtime directory: {expected}")
             continue
-        for path in payload.parent.rglob(directory):
-            if path.is_dir() and path != expected:
+        for path in plugin_entries:
+            if path.name == directory and path.is_dir() and path != expected:
                 errors.append(f"duplicate runtime directory: {directory} at {path}")
 
 
@@ -313,8 +433,10 @@ def _trusted_workflow_script(script: str, tokens: list[str]) -> bool:
     return True
 
 
-def _workflow_python_invocations(payload: Path, errors: list[str]) -> None:
-    for path in payload.rglob("*"):
+def _workflow_python_invocations(
+    payload: Path, errors: list[str], payload_entries: list[Path]
+) -> None:
+    for path in payload_entries:
         if not path.is_file() or path.suffix.lower() not in TEXT_PAYLOAD_SUFFIXES:
             continue
         try:
@@ -464,7 +586,7 @@ def _bash_blocks(text: str) -> list[list[str]]:
 def _safe_output_preflights(payload: Path, errors: list[str]) -> None:
     for workflow, required_outputs in SAFE_OUTPUTS.items():
         path = payload / "commands" / f"sec-req-{workflow}.md"
-        if not path.is_file():
+        if _redirect_in_path(path, payload) is not None or not path.is_file():
             continue
         try:
             text = path.read_text(encoding="utf-8")
@@ -496,15 +618,204 @@ def _safe_output_preflights(payload: Path, errors: list[str]) -> None:
             )
 
 
+def _risk_asset_contract(
+    root: Path,
+    payload: Path,
+    errors: list[str],
+    repository_entries: list[Path],
+) -> None:
+    for relative in RISK_ASSETS:
+        expected = payload / relative
+        if _redirect_in_path(expected, payload) is not None or not expected.is_file():
+            errors.append(f"missing required risk asset: {relative.as_posix()}")
+
+        matches = [
+            path
+            for path in repository_entries
+            if path != expected
+            and path.is_file()
+            and (
+                path.relative_to(root).as_posix().endswith(relative.as_posix())
+                or (relative == Path("scripts/risk.py") and path.name == "risk.py")
+            )
+        ]
+        for duplicate in matches:
+            errors.append(
+                "duplicate risk asset: "
+                f"{duplicate.relative_to(root).as_posix()} duplicates {relative.as_posix()}"
+            )
+
+
+def _policy_contract(payload: Path, errors: list[str]) -> None:
+    path = payload / "risk" / "default-policy.yaml"
+    if _redirect_in_path(path, payload) is not None or not path.is_file():
+        return
+    try:
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as error:
+        errors.append(f"invalid bundled default risk policy: cannot parse YAML: {error}")
+        return
+
+    expected_ids = {
+        "likelihood": [
+            "L1-EXCEPTIONAL",
+            "L2-RESTRICTED",
+            "L3-AUTHENTICATED",
+            "L4-PUBLIC-LOW-COMPLEXITY",
+            "L5-DIRECT-AUTOMATABLE",
+        ],
+        "impact": [
+            "I1-LOCAL-RECOVERABLE",
+            "I2-LIMITED-SCOPE",
+            "I3-CORE-SERVICE",
+            "I4-CROSS-SYSTEM",
+            "I5-ORGANISATION-IRREVERSIBLE",
+        ],
+    }
+    expected_thresholds = [
+        {"min": 1, "max": 4, "rating": "low"},
+        {"min": 5, "max": 9, "rating": "medium"},
+        {"min": 10, "max": 16, "rating": "high"},
+        {"min": 17, "max": 25, "rating": "critical"},
+    ]
+    problems: list[str] = []
+    if not isinstance(document, dict):
+        problems.append("document must be a mapping")
+    else:
+        allowed = {"version", "thresholds", "likelihood", "impact", "publish_risk_summary"}
+        if set(document) != allowed:
+            problems.append("top-level fields must match the bundled policy schema exactly")
+        if document.get("version") != "1.0.0":
+            problems.append("version must be 1.0.0")
+        if document.get("thresholds") != expected_thresholds:
+            problems.append("thresholds must define the complete canonical 5x5 bands")
+        if document.get("publish_risk_summary") is not False:
+            problems.append("public summary must default to false")
+        for axis, ids in expected_ids.items():
+            criteria = document.get(axis)
+            if not isinstance(criteria, dict) or list(criteria) != ids:
+                problems.append(f"{axis} must declare the five canonical criteria in order")
+                continue
+            for score, criterion_id in enumerate(ids, start=1):
+                criterion = criteria.get(criterion_id)
+                if (
+                    not isinstance(criterion, dict)
+                    or set(criterion) != {"score", "definition"}
+                    or criterion.get("score") != score
+                    or not isinstance(criterion.get("definition"), str)
+                    or not criterion["definition"].strip()
+                ):
+                    problems.append(f"{axis} criterion {criterion_id} is invalid")
+    for problem in problems:
+        errors.append(f"invalid bundled default risk policy: {problem}")
+
+
+def _release_contract(payload: Path, manifests: dict[str, dict], errors: list[str]) -> None:
+    versions = {host: manifest.get("version") for host, manifest in manifests.items()}
+    if any(version != RELEASE_VERSION for version in versions.values()):
+        errors.append(
+            f"payload manifest versions must both equal {RELEASE_VERSION}: "
+            f"Claude={versions['Claude']!r}, Codex={versions['Codex']!r}"
+        )
+
+    reference = (
+        payload
+        / "skills"
+        / "deriving-security-requirements"
+        / "references"
+        / "threat-modeling.md"
+    )
+    if _redirect_in_path(reference, payload) is None:
+        try:
+            threat_text = reference.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            threat_text = ""
+        declared = re.findall(r"schema version `([^`]+)`", threat_text)
+        if declared != [THREAT_SCHEMA_VERSION]:
+            errors.append(
+                f"threat schema version must agree with release {THREAT_SCHEMA_VERSION}: "
+                f"found {declared!r}"
+            )
+
+    engine = payload / "scripts" / "risk.py"
+    if _redirect_in_path(engine, payload) is None:
+        try:
+            syntax = ast.parse(engine.read_text(encoding="utf-8"), filename=str(engine))
+        except (OSError, UnicodeDecodeError, SyntaxError) as error:
+            errors.append(f"cannot inspect risk engine schema versions: {error}")
+        else:
+            engine_versions = {
+                node.value
+                for node in ast.walk(syntax)
+                if isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and re.fullmatch(r"\d+\.\d+\.\d+", node.value)
+            }
+            expected_versions = {"0.1.0", THREAT_SCHEMA_VERSION}
+            if engine_versions != expected_versions:
+                errors.append(
+                    f"risk engine schema versions must agree with release {THREAT_SCHEMA_VERSION}: "
+                    f"found {sorted(engine_versions)!r}"
+                )
+
+    prompts = manifests["Codex"].get("interface", {}).get("defaultPrompt")
+    if prompts != list(WORKFLOW_PROMPTS):
+        errors.append("Codex manifest must declare exactly the four canonical workflow prompts")
+
+
+def _entrypoint_contract(payload: Path, errors: list[str], payload_entries: list[Path]) -> None:
+    expected_commands = {f"sec-req-{workflow}.md" for workflow in WORKFLOWS}
+    commands = payload / "commands"
+    for path in payload_entries:
+        if path.parent == commands and path.is_file() and path.suffix == ".md":
+            if path.name not in expected_commands:
+                errors.append(f"unexpected Claude entry point: {path.relative_to(payload)}")
+
+    expected_skills = {f"security-requirements-{workflow}" for workflow in WORKFLOWS}
+    skills = payload / "skills"
+    for path in payload_entries:
+        if path.parent == skills and path.is_dir() and path.name.startswith("security-requirements-"):
+            if path.name not in expected_skills:
+                errors.append(f"unexpected Codex entry point: {path.relative_to(payload)}")
+
+
+def _approved_payload_contract(payload: Path, errors: list[str], payload_entries: list[Path]) -> None:
+    for path in payload_entries:
+        relative = path.relative_to(payload)
+        if len(relative.parts) == 1 and relative.name not in APPROVED_PAYLOAD_ROOTS:
+            errors.append(f"unapproved payload component: {relative.as_posix()}")
+        if (
+            relative.parent == Path("scripts")
+            and path.is_file()
+            and relative.name not in APPROVED_SCRIPT_FILES
+            and relative.name != "__pycache__"
+        ):
+            errors.append(f"unapproved payload component: {relative.as_posix()}")
+
+
 def validate(root: Path) -> list[str]:
     """Return every detected packaging error without changing *root*."""
     root = root.resolve()
     errors: list[str] = []
     payload = root / PAYLOAD
+    repository_entries = _walk_no_redirect(
+        root, errors, label="distribution", report_redirects=False
+    )
+    plugins_root = root / "plugins"
+    plugin_entries = _walk_no_redirect(
+        plugins_root, errors, label="plugin distribution"
+    )
+    payload_entries = [
+        path
+        for path in plugin_entries
+        if path != payload
+        and payload in path.parents
+        and _redirect_in_path(path, payload) is None
+    ]
     claude_marketplace_path = root / ".claude-plugin" / "marketplace.json"
     codex_marketplace_path = root / ".agents" / "plugins" / "marketplace.json"
-    claude_marketplace = _read_json(claude_marketplace_path, errors)
-    codex_marketplace = _read_json(codex_marketplace_path, errors)
+    claude_marketplace = _read_json(claude_marketplace_path, errors, root)
+    codex_marketplace = _read_json(codex_marketplace_path, errors, root)
     _metadata_symlinks(root, errors)
     claude_entry = _plugin_entry(claude_marketplace, "Claude", errors)
     codex_entry = _plugin_entry(codex_marketplace, "Codex", errors)
@@ -528,8 +839,8 @@ def validate(root: Path) -> list[str]:
             errors.append(f"{host} marketplace name must equal payload folder: {payload.name}")
 
     manifests = {
-        "Claude": _read_json(payload / ".claude-plugin" / "plugin.json", errors),
-        "Codex": _read_json(payload / ".codex-plugin" / "plugin.json", errors),
+        "Claude": _read_json(payload / ".claude-plugin" / "plugin.json", errors, root),
+        "Codex": _read_json(payload / ".codex-plugin" / "plugin.json", errors, root),
     }
     for host, manifest in manifests.items():
         if manifest.get("name") != payload.name:
@@ -545,23 +856,21 @@ def validate(root: Path) -> list[str]:
         if (payload / component).exists():
             errors.append(f"Codex payload must not include {component}")
 
-    if payload.is_symlink():
-        errors.append(f"symlink is not allowed in payload: {PAYLOAD}")
-    elif payload.exists():
-        for path in payload.rglob("*"):
-            if path.is_symlink():
-                errors.append(f"symlink is not allowed in payload: {path.relative_to(root)}")
-
-    _duplicate_runtime_directories(root, payload, errors)
-    _workflow_python_invocations(payload, errors)
+    _duplicate_runtime_directories(root, payload, errors, plugin_entries)
+    _workflow_python_invocations(payload, errors, payload_entries)
     _safe_output_preflights(payload, errors)
+    _risk_asset_contract(root, payload, errors, repository_entries)
+    _policy_contract(payload, errors)
+    _release_contract(payload, manifests, errors)
+    _entrypoint_contract(payload, errors, payload_entries)
+    _approved_payload_contract(payload, errors, payload_entries)
 
     for workflow in WORKFLOWS:
         command = payload / "commands" / f"sec-req-{workflow}.md"
         skill = payload / "skills" / f"security-requirements-{workflow}" / "SKILL.md"
-        if not command.is_file():
+        if _redirect_in_path(command, payload) is not None or not command.is_file():
             errors.append(f"missing Claude entry point: {command.relative_to(root)}")
-        if not skill.is_file():
+        if _redirect_in_path(skill, payload) is not None or not skill.is_file():
             errors.append(f"missing Codex entry point: {skill.relative_to(root)}")
     return errors
 
