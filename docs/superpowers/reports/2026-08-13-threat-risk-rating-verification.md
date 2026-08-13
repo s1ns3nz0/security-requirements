@@ -18,10 +18,12 @@ Review found that the earlier movie witness did not execute the public
 confirmation boundary, installed payloads came from a mutable worktree, event
 checks were aggregate string searches, and project/config hash scopes were
 incomplete. This fix round corrected the deterministic witness and README. It
-also built a stricter host harness. The final current-commit run reached an
-immutable installation and the Codex model phase, but did not produce accepted
-Python execution records or reach the Claude model phase, so the dual-host
-witness remains incomplete.
+also built a stricter host harness. The latest current-commit run proved an
+isolated login-shell interpreter binding, immutable installation, and an
+unchanged hostile project across the Codex model phase. Codex did not emit the
+adapter-prescribed command sequence, however, so the run was rejected before
+its execution log or confirmation stop could be accepted and before the Claude
+model phase. The dual-host witness therefore remains incomplete.
 
 ## Environment
 
@@ -145,6 +147,77 @@ They do not by themselves prove adapter execution.
 ## Installed-host evidence gap
 
 No fix-round host run is accepted as end-to-end evidence.
+
+### Isolated `ZDOTDIR` attempt against `3129efa`
+
+The final ignored harness revision bound each host to its own mode-`0700`
+`ZDOTDIR`. The mode-`0400` `.zprofile` exported an exact two-component PATH:
+the compiled-shim directory first and an isolated required-tools directory
+second. Before archive creation, installation, or model execution, both hosts
+ran the exact nested login-shell probe:
+
+```text
+/bin/zsh -lc 'command -v python3; python3 -I <probe>'
+```
+
+For Codex and Claude, `command -v` returned the exact compiled shim and the
+append-only binary log contained exactly one successful framed record with the
+expected `python3 -I <probe>` argv. Exact inventories found that shim as the
+only Python/PyPy interpreter command; retained `python*-config` and
+`python-build` entries were reported separately as non-interpreter helpers.
+`ZDOTDIR` was also passed into each model-host environment.
+
+Before the live run, six compiled-shim tests and 27 event/log/harness tests
+passed. Adversarial coverage included alternate, absolute, versioned, direct,
+indirect, quoted, escaped, parameter-built, glob-built, and launcher-prefixed
+interpreter commands; exact ordered Codex root revalidation; duplicate and
+extra calls; and realistic Codex `item.started` plus `item.completed` command
+lifecycle events. The final independent frozen-scope review was clean. Zsh
+syntax, the standalone `ZDOTDIR` probe, and `git diff --check` also passed.
+
+Exactly one material live run used only
+`git archive 3129efa3f2453c41a24af18e9b0e7f3e30aa3ab2`, SHA-256
+`82dfe56b53363398f64e65d472c670c819628fe6324f1d83816766cd4745b489`.
+The extracted distribution validator passed. Both isolated installs again
+byte-matched all three runtime scripts and the matching Claude/Codex adapter
+from that immutable archive. The complete hostile project matched immediately
+before and after the Codex phase:
+
+```text
+2c4b60ecca0d4041bb1e984f8df4f5caaf007a4e5863cf91d28dcb9bfb4de6c8
+```
+
+The run then failed closed during Codex structured-command verification:
+
+```text
+codex structured shell commands missed expected installed invocation:
+['check', 'residual', 'runtime_skill', 'safe_paths']
+FALLBACK_TEMP_ROOT_ABSENT=pass
+```
+
+The Codex model did not follow the exact installed adapter sequence required by
+the harness. Consequently its framed model-phase execution log and assistant
+confirmation-stop output are not accepted. The Claude model phase was not
+reached, no `TASK11_HOST_E2E=pass` marker was emitted, and the one-run rule
+prohibited a retry.
+
+Fallback cleanup removed the exact temporary root
+`security requirements risk E2E 테스트-3129efa.dMr8D2`; an independent check
+confirmed it absent. Immediate independent post-failure hashes matched every
+declared pre-run nonvolatile scope and the pinned interpreter:
+
+| Measured scope | SHA-256 before and after |
+|---|---|
+| Codex config/control | `cf20e23f3c9e27b8c2365d655334c67910f4f997878d6c231986486776d0fb1a` |
+| Claude config/control | `01c858a36d6c4201b080b6fd2433d34941e8bb13630d92454505c76380ebe35d` |
+| Claude plugin control | `f52da02d688ae7468f6308616cbc4ab3320004c99368803e61ad1200551459ab` |
+| security-requirements persistent risk data | `27fb3bc2458de6aeb70fa84e77d3693d81d5c8ed27a72bf7116816f0db066176` |
+| trusted Python 3.12.11 executable | `f99b6dedada5ef94e58e6479f0015a2e112f6f34b3e7e7e925611ce96ca0d3de` |
+
+This attempt strengthens interpreter-resolution, immutable-install,
+hostile-project immutability, cleanup, and scoped real-state evidence. It does
+not prove a completed equivalent Claude-and-Codex risk workflow. Items 14, the
+complete live portion of 15, and 17 therefore remain unproven.
 
 ### Final compiled-shim attempt against `6360308`
 
