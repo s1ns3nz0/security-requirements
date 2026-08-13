@@ -2480,8 +2480,10 @@ def check_assessment(paths: Mapping | object) -> list[str]:
     return problems
 
 
-def _without_residual_proposals(records: object, *, snapshot: bool) -> object:
-    """Return assessment records with only reviewable residual proposals removed."""
+def _without_active_residual_proposals(
+    records: object, active_ids: set[str], *, snapshot: bool
+) -> object:
+    """Remove proposals only from active records eligible for this review."""
 
     if not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
         return records
@@ -2492,7 +2494,7 @@ def _without_residual_proposals(records: object, *, snapshot: bool) -> object:
         if snapshot:
             record.pop("lifecycle", None)
         residual = record.get("residual")
-        if isinstance(residual, dict):
+        if isinstance(residual, dict) and record.get("threat_id") in active_ids:
             residual.pop("proposed", None)
             if not residual:
                 record.pop("residual", None)
@@ -2521,6 +2523,7 @@ def _bound_residual_assessment_problems(
     if not isinstance(snapshot, Mapping) or snapshot.get("event") != "refreshed":
         problems.append("externally bound refreshed assessment snapshot is missing")
     else:
+        active_ids = {threat["id"] for threat in active_threats(threats)}
         if trusted.get("refreshed_assessment_digest") != snapshot.get(
             "assessment_digest"
         ):
@@ -2534,11 +2537,11 @@ def _bound_residual_assessment_problems(
         bound_document["assessments"] = bound_records
         if assessment_digest(bound_document) != snapshot.get("assessment_digest"):
             problems.append("refreshed assessment top-level material changed")
-        current_records = _without_residual_proposals(
-            assessment.get("assessments"), snapshot=False
+        current_records = _without_active_residual_proposals(
+            assessment.get("assessments"), active_ids, snapshot=False
         )
-        snapshot_records = _without_residual_proposals(
-            snapshot.get("assessments"), snapshot=True
+        snapshot_records = _without_active_residual_proposals(
+            snapshot.get("assessments"), active_ids, snapshot=True
         )
         if canonical_digest(current_records) != canonical_digest(snapshot_records):
             problems.append("refreshed assessment changed outside residual proposals")
@@ -2624,10 +2627,6 @@ def _validate_selected_evidence(
 ) -> None:
     """Require every selected artifact to be current and linked to the threat."""
 
-    if not selected:
-        raise RiskValidationError(
-            f"{threat_id} residual confirmation requires valid implementation evidence"
-        )
     requirement_records = _records_by_identity(
         requirements, "requirements", "id", "requirements"
     )
@@ -2721,22 +2720,30 @@ def stamp_residual_assessment(
             raise RiskValidationError(
                 f"{threat_id} residual proposal must be a mapping"
             )
-        selected = _selected_evidence_refs(proposed, threat_id)
-        _validate_selected_evidence(
-            threat_id, selected, current_evidence, requirements
-        )
-        calculated = calculate_residual(
-            record.get("calculated"),
-            evidence,
-            policy,
-            dict(proposed),
-            requirements=requirements,
-            today=date.today(),
-        )
+        try:
+            calculated = calculate_residual(
+                record.get("calculated"),
+                evidence,
+                policy,
+                dict(proposed),
+                requirements=requirements,
+                today=date.today(),
+            )
+        except RiskValidationError as exc:
+            if "residual reduction requires current passing evidence" in str(exc):
+                raise RiskValidationError(
+                    f"{threat_id} residual confirmation requires valid "
+                    f"implementation evidence: {exc}"
+                ) from exc
+            raise
         if calculated.get("status") == "UNDETERMINED":
             raise RiskValidationError(
                 f"{threat_id} residual confirmation requires valid implementation evidence"
             )
+        selected = _selected_evidence_refs(proposed, threat_id)
+        _validate_selected_evidence(
+            threat_id, selected, current_evidence, requirements
+        )
         confirmed = {
             "proposed": copy.deepcopy(dict(proposed)),
             "status": "CONFIRMED",
@@ -3157,28 +3164,17 @@ def _residual_results(
         if proposed is None and residual.get("status") == "UNDETERMINED":
             continue
         inherent = record.get("calculated")
-        if proposed is not None and not _current_passing_evidence(
-            evidence, requirements, evaluation_date
-        ):
-            results.append(
-                (
-                    threat_id,
-                    {
-                        "status": "UNDETERMINED",
-                        "reason": (
-                            "linked requirements have no valid implementation evidence"
-                        ),
-                    },
-                )
-            )
-            continue
+        current = _current_passing_evidence(evidence, requirements, evaluation_date)
         try:
             result = calculate_residual(
                 inherent,
                 evidence,
                 policy,
                 proposed,
-                requirements=requirements,
+                # No-current-evidence previews still calculate unchanged or
+                # increased risk, while calculate_residual returns
+                # UNDETERMINED for any attempted reduction.
+                requirements=requirements if current else None,
                 today=evaluation_date,
             )
         except RiskValidationError as exc:

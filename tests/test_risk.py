@@ -2467,6 +2467,123 @@ def test_residual_confirm_calculates_and_persists_first_evidenced_result(
 
 
 @pytest.mark.parametrize(
+    "likelihood,impact,expected",
+    [
+        (
+            "L4-PUBLIC-LOW-COMPLEXITY",
+            "I4-CROSS-SYSTEM",
+            {"likelihood": 4, "impact": 4, "score": 16, "rating": "high"},
+        ),
+        (
+            "L5-DIRECT-AUTOMATABLE",
+            "I5-ORGANISATION-IRREVERSIBLE",
+            {"likelihood": 5, "impact": 5, "score": 25, "rating": "critical"},
+        ),
+    ],
+)
+def test_residual_confirm_allows_unchanged_or_increased_risk_without_evidence(
+    risk_fixture, likelihood, impact, expected
+):
+    assessment = _prepare_first_residual_review(risk_fixture, evidence=False)
+    assessment["assessments"][0]["residual"]["proposed"] = _residual_proposal(
+        likelihood,
+        impact,
+    )
+    risk_fixture.paths["assessment"].write_text(
+        yaml.safe_dump(assessment, sort_keys=False), encoding="utf-8"
+    )
+
+    preview = _run_risk_command(risk_fixture, "residual")
+    result = _run_risk_command(
+        risk_fixture,
+        "residual-confirm",
+        "--by",
+        "risk-reviewer",
+        "--authority",
+        "self_declared",
+    )
+
+    assert preview.returncode == 0, preview.stderr
+    assert f"{expected['rating']} (score {expected['score']})" in preview.stdout
+    assert result.returncode == 0, result.stderr
+    confirmed = yaml.safe_load(
+        risk_fixture.paths["assessment"].read_text(encoding="utf-8")
+    )["assessments"][0]["residual"]
+    assert confirmed["status"] == "CONFIRMED"
+    assert confirmed["calculated"] == expected
+    assert confirmed["evidence_refs"] == []
+
+
+def test_residual_confirm_requires_evidence_only_for_the_decreased_axis(
+    risk_fixture,
+):
+    assessment = _prepare_first_residual_review(risk_fixture)
+    assessment["assessments"][0]["residual"]["proposed"] = _residual_proposal(
+        "L3-AUTHENTICATED",
+        "I5-ORGANISATION-IRREVERSIBLE",
+        likelihood_refs=["EVID-AUTHZ-INTEGRATION-01"],
+    )
+    risk_fixture.paths["assessment"].write_text(
+        yaml.safe_dump(assessment, sort_keys=False), encoding="utf-8"
+    )
+
+    preview = _run_risk_command(risk_fixture, "residual")
+    result = _run_risk_command(
+        risk_fixture,
+        "residual-confirm",
+        "--by",
+        "risk-reviewer",
+        "--authority",
+        "self_declared",
+    )
+
+    assert preview.returncode == 0, preview.stderr
+    assert "high (score 15)" in preview.stdout
+    assert result.returncode == 0, result.stderr
+    confirmed = yaml.safe_load(
+        risk_fixture.paths["assessment"].read_text(encoding="utf-8")
+    )["assessments"][0]["residual"]
+    assert confirmed["calculated"] == {
+        "likelihood": 3,
+        "impact": 5,
+        "score": 15,
+        "rating": "high",
+    }
+    assert confirmed["evidence_refs"] == ["EVID-AUTHZ-INTEGRATION-01"]
+
+
+def test_mixed_residual_cannot_use_increased_axis_evidence_for_a_reduction(
+    risk_fixture,
+):
+    assessment = _prepare_first_residual_review(risk_fixture)
+    assessment["assessments"][0]["residual"]["proposed"] = _residual_proposal(
+        "L3-AUTHENTICATED",
+        "I5-ORGANISATION-IRREVERSIBLE",
+        impact_refs=["EVID-AUTHZ-INTEGRATION-01"],
+    )
+    risk_fixture.paths["assessment"].write_text(
+        yaml.safe_dump(assessment, sort_keys=False), encoding="utf-8"
+    )
+    before = _risk_authority_bytes(risk_fixture)
+
+    preview = _run_risk_command(risk_fixture, "residual")
+    result = _run_risk_command(
+        risk_fixture,
+        "residual-confirm",
+        "--by",
+        "risk-reviewer",
+        "--authority",
+        "self_declared",
+    )
+
+    assert preview.returncode == 1
+    assert "current passing evidence for likelihood" in preview.stderr
+    assert result.returncode == 1
+    assert "current passing evidence for likelihood" in result.stderr
+    assert _risk_authority_bytes(risk_fixture) == before
+
+
+@pytest.mark.parametrize(
     "forgery",
     [
         {"status": "CONFIRMED"},
@@ -2671,6 +2788,70 @@ def test_residual_confirm_rechecks_exact_assessment_loaded_after_review(
             "self_declared",
         )
 
+    assert _risk_authority_bytes(risk_fixture) == before
+
+
+@pytest.mark.parametrize(
+    "forgery",
+    [
+        {
+            "proposed": _residual_proposal(
+                "L1-EXCEPTIONAL", "I1-LOCAL-RECOVERABLE"
+            )
+        },
+        {"status": "CONFIRMED"},
+        {
+            "calculated": {
+                "likelihood": 1,
+                "impact": 1,
+                "score": 1,
+                "rating": "low",
+            }
+        },
+        {"evidence_refs": ["EVID-FORGED"]},
+    ],
+)
+@pytest.mark.parametrize("inactive_status", ["retired", "superseded"])
+def test_residual_confirm_rejects_inactive_residual_mutations_atomically(
+    risk_fixture, forgery, inactive_status
+):
+    inactive = threat_record("T-INACTIVE", status=inactive_status)
+    if inactive_status == "superseded":
+        inactive["lifecycle"]["superseded_by"] = ["T-01"]
+    risk_fixture.threats["threats"].append(inactive)
+    risk_fixture.assessment["assessments"].append(
+        {
+            "threat_id": "T-INACTIVE",
+            "status": "PROPOSED",
+            "proposed": proposal(
+                "L4-PUBLIC-LOW-COMPLEXITY", "I4-CROSS-SYSTEM"
+            ),
+        }
+    )
+    risk_fixture._write_documents()
+    assessment = _prepare_first_residual_review(risk_fixture)
+    inactive_record = next(
+        record
+        for record in assessment["assessments"]
+        if record["threat_id"] == "T-INACTIVE"
+    )
+    inactive_record["residual"] = copy.deepcopy(forgery)
+    risk_fixture.paths["assessment"].write_text(
+        yaml.safe_dump(assessment, sort_keys=False), encoding="utf-8"
+    )
+    before = _risk_authority_bytes(risk_fixture)
+
+    result = _run_risk_command(
+        risk_fixture,
+        "residual-confirm",
+        "--by",
+        "risk-reviewer",
+        "--authority",
+        "self_declared",
+    )
+
+    assert result.returncode == 1
+    assert "changed outside residual proposals" in result.stderr
     assert _risk_authority_bytes(risk_fixture) == before
 
 

@@ -218,10 +218,13 @@ stale. Evidence registration is not residual-risk confirmation.
 
 ## `residual`
 
-Require the evidence validation and refresh transition above first. If there
-is no current passing evidence, preserve `UNDETERMINED`, explain why, and stop
-the residual confirmation path. Immediately before writing residual proposals,
-preflight the assessment target:
+Require the evidence validation and refresh transition above first. Calculate
+the canonical residual criteria before deciding whether evidence is required.
+Each decreased axis requires current passing evidence for that axis. An
+unchanged or increased axis requires no evidence and may retain an empty
+evidence-ref list. Without evidence for a proposed decrease, preserve
+`UNDETERMINED`, explain why, and stop the residual confirmation path.
+Immediately before writing residual proposals, preflight the assessment target:
 
 ```bash
 SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \

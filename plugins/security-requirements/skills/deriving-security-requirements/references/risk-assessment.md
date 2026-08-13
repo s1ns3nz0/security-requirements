@@ -72,13 +72,15 @@ consequence. Likelihood-only evidence cannot lower impact. A two-level decrease
 requires an independent-review warning. Score 1 requires attack-path-removal
 evidence. Residual risk may exceed inherent risk.
 
-Run the deterministic residual operation and display a batch table. Preserve
-`UNDETERMINED` when valid evidence is absent. Stop and wait for explicit human
-confirmation, then use only engine-owned `residual-confirm`. The engine writes
-`status`, `calculated`, and canonical `evidence_refs` and confirms the canonical
-assessment digest transactionally. The model never copies those authoritative
-fields. Residual `UNDETERMINED` is visible but does not block initial
-publication.
+Run the deterministic residual operation and display a batch table. Calculate
+the canonical result first: require current passing evidence only for each axis
+that decreases, while unchanged or increased axes may use no evidence. Preserve
+`UNDETERMINED` when a decrease lacks valid evidence. Stop and wait for explicit
+human confirmation, then use only engine-owned `residual-confirm`. The engine
+writes `status`, `calculated`, and canonical `evidence_refs` and confirms the
+canonical assessment digest transactionally. The model never copies those
+authoritative fields. Residual `UNDETERMINED` is visible but does not block
+initial publication.
 
 ## Reporting and locale
 
@@ -107,8 +109,9 @@ the exact affected IDs when any of these applies:
 - any inherent proposal has an unresolved likelihood, impact consequence,
   rationale, treatment owner, or required acceptance field;
 - the user has not explicitly confirmed the complete canonical batch;
-- evidence is missing, expired, requirement-stale, future-dated, failing, or
-  lacks artifact identity and digest;
+- evidence cited by a proposal or required for a residual decrease is missing,
+  expired, requirement-stale, future-dated, failing, or lacks artifact identity
+  and digest;
 - residual reduction is unsupported, or a residual batch still needs review;
 - a policy or assessment digest differs from plugin-owned external state.
 
