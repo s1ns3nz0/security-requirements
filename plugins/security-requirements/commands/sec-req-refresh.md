@@ -148,6 +148,24 @@ scaffolding already exists, preserve it and resume that same risk confirmation
 review instead of running migration again. Only a successful human-confirmed
 `risk.py confirm` call may advance the threat schema to `0.2.0`.
 
+For a `0.2.0` project, persist selective stale/new/reopened transitions from
+the current threats, requirements, and evidence before displaying the risk
+review. This command verifies the externally bound prior risk state before it
+uses that state as the comparison baseline:
+
+```
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/risk.py" refresh \
+    --project-root "$PWD" \
+    --policy .security-requirements/risk-policy.yaml \
+    --threats .security-requirements/threats.yaml \
+    --assessment .security-requirements/risk-assessment.yaml \
+    --requirements .security-requirements/requirements.yaml \
+    --evidence .security-requirements/risk-evidence.yaml \
+    --state .security-requirements/risk-state.yaml
+```
+
 Re-evaluate inherent risk immediately after the threat update. Preserve
 unchanged human rationale, treatment, owner, acceptance, and evidence. New or
 changed threats remain proposed or stale until reviewed; never silently reuse
@@ -199,6 +217,9 @@ python3 -I "<exact absolute plugin root>/scripts/risk.py" confirm \
     --policy .security-requirements/risk-policy.yaml \
     --threats .security-requirements/threats.yaml \
     --assessment .security-requirements/risk-assessment.yaml \
+    --requirements .security-requirements/requirements.yaml \
+    --evidence .security-requirements/risk-evidence.yaml \
+    --state .security-requirements/risk-state.yaml \
     --by user --authority self_declared
 ```
 
@@ -209,7 +230,10 @@ python3 -I "<exact absolute plugin root>/scripts/risk.py" check \
     --project-root "$PWD" \
     --policy .security-requirements/risk-policy.yaml \
     --threats .security-requirements/threats.yaml \
-    --assessment .security-requirements/risk-assessment.yaml
+    --assessment .security-requirements/risk-assessment.yaml \
+    --requirements .security-requirements/requirements.yaml \
+    --evidence .security-requirements/risk-evidence.yaml \
+    --state .security-requirements/risk-state.yaml
 ```
 
 Any unresolved inherent record blocks publication. Residual `UNDETERMINED` is

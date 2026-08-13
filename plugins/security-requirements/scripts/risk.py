@@ -1207,12 +1207,72 @@ def append_snapshot(state: dict, snapshot: dict) -> dict:
     missing = [field for field in SNAPSHOT_FIELDS if field not in snapshot]
     if missing:
         raise RiskValidationError("risk snapshot is incomplete: " + ", ".join(missing))
+    declared_digest = snapshot.get("snapshot_digest")
+    if declared_digest is not None:
+        digest_material = copy.deepcopy(dict(snapshot))
+        digest_material.pop("snapshot_digest", None)
+        if declared_digest != canonical_digest(digest_material):
+            raise RiskValidationError("risk snapshot digest is invalid")
     snapshots = state.get("snapshots", [])
     if not isinstance(snapshots, Sequence) or isinstance(snapshots, (str, bytes)):
         raise RiskValidationError("risk state snapshots must be a list")
     result = copy.deepcopy(dict(state))
     result["snapshots"] = copy.deepcopy(list(snapshots)) + [copy.deepcopy(dict(snapshot))]
     return result
+
+
+def _risk_snapshot(
+    event: str,
+    threats: dict,
+    assessment: dict,
+    policy: dict,
+    requirements: dict,
+    evidence: dict,
+    assessed_at: str,
+) -> dict:
+    """Build a digest-bound immutable view of one risk lifecycle transition."""
+
+    threat_by_id = {
+        threat.get("id"): threat
+        for threat in threats.get("threats", [])
+        if isinstance(threat, Mapping) and _nonempty_text(threat.get("id"))
+    }
+    records: list[dict] = []
+    residual: dict[str, object] = {}
+    treatment: dict[str, object] = {}
+    evidence_refs: set[str] = set()
+    for source in assessment.get("assessments", []):
+        if not isinstance(source, Mapping):
+            continue
+        record = copy.deepcopy(dict(source))
+        threat_id = record.get("threat_id")
+        threat = threat_by_id.get(threat_id)
+        lifecycle = threat.get("lifecycle") if isinstance(threat, Mapping) else None
+        record["lifecycle"] = copy.deepcopy(
+            lifecycle if isinstance(lifecycle, Mapping) else {"status": "active"}
+        )
+        records.append(record)
+        if _nonempty_text(threat_id):
+            residual[threat_id] = copy.deepcopy(record.get("residual"))
+            treatment[threat_id] = copy.deepcopy(record.get("treatment"))
+        evidence_refs.update(_residual_evidence_refs(record))
+
+    snapshot = {
+        "event": event,
+        "assessed_at": assessed_at,
+        "policy_digest": policy_digest(policy),
+        "threat_digest": aggregate_threat_digest(threats),
+        "assessment_digest": assessment_digest(assessment),
+        "requirements_digest": canonical_digest(requirements),
+        "evidence_digest": canonical_digest(evidence),
+        "inherent": aggregate_risk(threats, assessment),
+        "residual": residual,
+        "treatment": treatment,
+        "evidence_refs": sorted(evidence_refs),
+        "assessments": records,
+    }
+    snapshot["snapshot_digest"] = canonical_digest(snapshot)
+    return snapshot
 
 
 def _snapshot_records(snapshot: Mapping) -> dict[str, Mapping]:
@@ -1456,6 +1516,12 @@ def migrate(threats: dict, requirements: dict) -> dict:
     policy = load_policy(
         Path(__file__).resolve().parent.parent / "risk" / "default-policy.yaml"
     )
+    evidence = {"evidence": []}
+    refresh_baseline = {
+        "threats": copy.deepcopy(dict(threats)),
+        "requirements": copy.deepcopy(dict(requirements)),
+        "evidence": evidence,
+    }
     return {
         **migration,
         "threats": copy.deepcopy(dict(threats)),
@@ -1470,6 +1536,7 @@ def migrate(threats: dict, requirements: dict) -> dict:
             "version": "0.2.0",
             "migration": copy.deepcopy(migration),
             "snapshots": [],
+            "refresh_baseline": refresh_baseline,
             "pending_requirement_migrations": copy.deepcopy(
                 pending_requirement_migrations
             ),
@@ -1754,7 +1821,19 @@ def _path_from(paths: Mapping | object, name: str) -> Path:
 
 def _project_document_path(paths: Mapping | object, name: str) -> tuple[Path, Path]:
     project_root = _path_from(paths, "project_root")
-    document_path = _path_from(paths, name)
+    try:
+        document_path = _path_from(paths, name)
+    except ValueError:
+        canonical_names = {
+            "requirements": "requirements.yaml",
+            "evidence": "risk-evidence.yaml",
+            "state": "risk-state.yaml",
+        }
+        if name not in canonical_names:
+            raise
+        document_path = (
+            project_root / ".security-requirements" / canonical_names[name]
+        )
     validated_path = safe_path(document_path, project_root=project_root)
     return project_root, validated_path
 
@@ -1764,6 +1843,49 @@ def _load_mapping(path: Path, label: str) -> dict:
     if not isinstance(value, dict):
         raise RiskValidationError(f"{label} must be a mapping")
     return value
+
+
+def _load_optional_mapping(path: Path, label: str, empty: dict) -> dict:
+    if not path.exists():
+        return copy.deepcopy(empty)
+    return _load_mapping(path, label)
+
+
+def _refresh_documents(paths: Mapping | object) -> tuple[dict, dict, dict]:
+    _unused_root, threats_path = _project_document_path(paths, "threats")
+    _unused_root, requirements_path = _project_document_path(paths, "requirements")
+    _unused_root, evidence_path = _project_document_path(paths, "evidence")
+    return (
+        _load_mapping(threats_path, "threat document"),
+        _load_optional_mapping(
+            requirements_path, "requirements document", {"requirements": []}
+        ),
+        _load_optional_mapping(evidence_path, "evidence document", {"evidence": []}),
+    )
+
+
+def _refresh_baseline(threats: dict, requirements: dict, evidence: dict) -> dict:
+    return {
+        "threats": copy.deepcopy(threats),
+        "requirements": copy.deepcopy(requirements),
+        "evidence": copy.deepcopy(evidence),
+    }
+
+
+def _load_risk_state(paths: Mapping | object) -> tuple[Path, Path, dict]:
+    project_root, state_path = _project_document_path(paths, "state")
+    state = _load_optional_mapping(
+        state_path,
+        "risk state",
+        {"version": "0.2.0", "snapshots": []},
+    )
+    if state.get("version") != "0.2.0":
+        raise RiskValidationError("risk state version must be 0.2.0")
+    if not isinstance(state.get("snapshots"), Sequence) or isinstance(
+        state.get("snapshots"), (str, bytes)
+    ):
+        raise RiskValidationError("risk state snapshots must be a list")
+    return project_root, state_path, state
 
 
 def _state_target(project_root: Path, kind: str) -> tuple[Path, Path]:
@@ -1825,6 +1947,84 @@ def _write_confirmation(
         project_root=state_root,
         create_parents=True,
     )
+
+
+def _write_text_transaction(
+    entries: Sequence[tuple[Path, Path, str, bool]],
+    *,
+    require_absent: bool = False,
+) -> None:
+    """Write a complete document set and restore every target on failure."""
+
+    targets: list[tuple[Path, Path, str, bool, bytes | None]] = []
+    seen: set[Path] = set()
+    for path, root, content, create_parents in entries:
+        validated = safe_path(path, project_root=root)
+        if validated in seen:
+            raise RiskValidationError(f"duplicate transaction target: {validated}")
+        seen.add(validated)
+        prior = validated.read_bytes() if validated.exists() else None
+        if require_absent and prior is not None:
+            raise RiskValidationError(f"transaction target already exists: {validated}")
+        targets.append((validated, root, content, create_parents, prior))
+
+    try:
+        for path, root, content, create_parents, _prior in targets:
+            safe_write_text(
+                path,
+                content,
+                encoding="utf-8",
+                project_root=root,
+                create_parents=create_parents,
+            )
+    except BaseException as write_error:
+        rollback_errors: list[str] = []
+
+        def restore(target: tuple[Path, Path, str, bool, bytes | None]) -> None:
+            path, root, _content, _create_parents, prior = target
+            if prior is None:
+                safe_path(path, project_root=root).unlink(missing_ok=True)
+            else:
+                safe_write_text(
+                    path,
+                    prior.decode("utf-8"),
+                    encoding="utf-8",
+                    project_root=root,
+                    create_parents=True,
+                )
+
+        def matches(target: tuple[Path, Path, str, bool, bytes | None]) -> bool:
+            path, _root, _content, _create_parents, prior = target
+            if prior is None:
+                return not path.exists()
+            return path.exists() and path.read_bytes() == prior
+
+        # Restore the entire declared set, including a target whose writer
+        # replaced the file before raising. A second pass handles transient
+        # cleanup failures without preventing restoration of later targets.
+        for target in reversed(targets):
+            try:
+                restore(target)
+            except BaseException as rollback_error:
+                rollback_errors.append(f"{target[0]}: {rollback_error}")
+        for target in reversed(targets):
+            if matches(target):
+                continue
+            try:
+                restore(target)
+            except BaseException as rollback_error:
+                rollback_errors.append(f"{target[0]}: {rollback_error}")
+
+        mismatched = [str(target[0]) for target in targets if not matches(target)]
+        if mismatched:
+            details = rollback_errors + [
+                "state not restored: " + ", ".join(mismatched)
+            ]
+            raise RuntimeError(
+                "document transaction failed and rollback was incomplete: "
+                + "; ".join(details)
+            ) from write_error
+        raise
 
 
 def stamp_policy(
@@ -1927,9 +2127,10 @@ def stamp_assessment(
     project_root, assessment_path = _project_document_path(paths, "assessment")
     _unused_root, policy_path = _project_document_path(paths, "policy")
     _unused_root, threats_path = _project_document_path(paths, "threats")
-    state_root, state_path = _state_target(project_root, "assessment")
+    state_root, confirmation_state_path = _state_target(project_root, "assessment")
+    _unused_root, risk_state_path, risk_state = _load_risk_state(paths)
     policy = _load_mapping(policy_path, "risk policy")
-    threats = _load_mapping(threats_path, "threat document")
+    threats, requirements, evidence = _refresh_documents(paths)
     assessment = _load_mapping(assessment_path, "assessment document")
     legacy = threats.get("version") == "0.1.0"
     confirmed_threats = copy.deepcopy(threats)
@@ -1938,66 +2139,70 @@ def stamp_assessment(
     calculated = _calculate_confirmed_assessment(
         confirmed_threats, assessment, policy
     )
+    transition_at = confirmed_at or datetime.now(timezone.utc).isoformat().replace(
+        "+00:00", "Z"
+    )
+    next_risk_state = copy.deepcopy(risk_state)
+    next_risk_state["refresh_baseline"] = _refresh_baseline(
+        confirmed_threats, requirements, evidence
+    )
+    next_risk_state = append_snapshot(
+        next_risk_state,
+        _risk_snapshot(
+            "confirmed",
+            confirmed_threats,
+            calculated,
+            policy,
+            requirements,
+            evidence,
+            transition_at,
+        ),
+    )
     calculated["confirmation"] = _confirmation_metadata(
         project_root,
         confirmed_by,
         authority,
-        confirmed_at,
+        transition_at,
         policy_digest=policy_digest(policy),
         threat_digest=aggregate_threat_digest(confirmed_threats),
         assessment_digest=assessment_digest(calculated),
+        risk_state_digest=canonical_digest(next_risk_state),
     )
-    preflight_output_paths(
-        [assessment_path, threats_path], project_root=project_root
-    )
-    if not legacy:
-        _write_confirmation(
-            assessment_path, calculated, state_path, state_root, project_root
+    entries = [
+        (
+            assessment_path,
+            project_root,
+            yaml.safe_dump(calculated, allow_unicode=True, sort_keys=False),
+            False,
+        ),
+        (
+            confirmation_state_path,
+            state_root,
+            yaml.safe_dump(
+                calculated["confirmation"], allow_unicode=True, sort_keys=False
+            ),
+            True,
+        ),
+        (
+            risk_state_path,
+            project_root,
+            yaml.safe_dump(next_risk_state, allow_unicode=True, sort_keys=False),
+            True,
+        ),
+    ]
+    if legacy:
+        entries.insert(
+            2,
+            (
+                threats_path,
+                project_root,
+                yaml.safe_dump(
+                    confirmed_threats, allow_unicode=True, sort_keys=False
+                ),
+                False,
+            ),
         )
-        return calculated
-
-    assessment_before = assessment_path.read_text(encoding="utf-8")
-    threats_before = threats_path.read_text(encoding="utf-8")
-    state_existed = state_path.exists()
-    state_before = state_path.read_text(encoding="utf-8") if state_existed else None
-    try:
-        _write_confirmation(
-            assessment_path, calculated, state_path, state_root, project_root
-        )
-        safe_write_text(
-            threats_path,
-            yaml.safe_dump(confirmed_threats, allow_unicode=True, sort_keys=False),
-            encoding="utf-8",
-            project_root=project_root,
-        )
-    except BaseException:
-        rollback_errors: list[BaseException] = []
-        for path, content, root in (
-            (assessment_path, assessment_before, project_root),
-            (threats_path, threats_before, project_root),
-        ):
-            try:
-                safe_write_text(path, content, encoding="utf-8", project_root=root)
-            except BaseException as rollback_error:
-                rollback_errors.append(rollback_error)
-        try:
-            if state_existed:
-                safe_write_text(
-                    state_path,
-                    state_before,
-                    encoding="utf-8",
-                    project_root=state_root,
-                )
-            else:
-                safe_path(state_path, project_root=state_root).unlink(missing_ok=True)
-        except BaseException as rollback_error:
-            rollback_errors.append(rollback_error)
-        if rollback_errors:
-            raise RuntimeError(
-                "legacy risk confirmation failed and rollback was incomplete: "
-                + "; ".join(str(error) for error in rollback_errors)
-            ) from rollback_errors[0]
-        raise
+    _write_text_transaction(entries)
     return calculated
 
 
@@ -2007,7 +2212,8 @@ def check_assessment(paths: Mapping | object) -> list[str]:
     _unused_root, policy_path = _project_document_path(paths, "policy")
     _unused_root, threats_path = _project_document_path(paths, "threats")
     policy = _load_mapping(policy_path, "risk policy")
-    threats = _load_mapping(threats_path, "threat document")
+    threats, requirements, evidence = _refresh_documents(paths)
+    _unused_root, _risk_state_path, risk_state = _load_risk_state(paths)
     assessment = _load_mapping(assessment_path, "assessment document")
     trusted = _read_trusted_confirmation(project_root, "assessment")
     problems = _base_confirmation_problems(
@@ -2015,7 +2221,12 @@ def check_assessment(paths: Mapping | object) -> list[str]:
     )
     if problems:
         return problems
-    required_digests = ("policy_digest", "threat_digest", "assessment_digest")
+    required_digests = (
+        "policy_digest",
+        "threat_digest",
+        "assessment_digest",
+        "risk_state_digest",
+    )
     missing = [name for name in required_digests if not trusted.get(name)]
     if missing:
         return ["risk assessment confirmation is incomplete: " + ", ".join(missing)]
@@ -2025,8 +2236,151 @@ def check_assessment(paths: Mapping | object) -> list[str]:
         problems.append("threat digest changed")
     if trusted["assessment_digest"] != assessment_digest(assessment):
         problems.append("assessment digest changed")
+    if trusted["risk_state_digest"] != canonical_digest(risk_state):
+        problems.append("risk state digest changed")
+    baseline = risk_state.get("refresh_baseline")
+    if not isinstance(baseline, Mapping):
+        problems.append("risk refresh baseline is missing")
+    elif trusted["risk_state_digest"] == canonical_digest(risk_state):
+        previous_threats = baseline.get("threats")
+        previous_requirements = baseline.get("requirements")
+        previous_evidence = baseline.get("evidence")
+        try:
+            preview = refresh_assessment(
+                previous_threats,
+                threats,
+                assessment,
+                previous_requirements=previous_requirements,
+                current_requirements=requirements,
+                previous_evidence=previous_evidence,
+                current_evidence=evidence,
+            )
+        except RiskValidationError as exc:
+            problems.append(f"risk refresh baseline is invalid: {exc}")
+        else:
+            old_records = {
+                row.get("threat_id"): row
+                for row in assessment.get("assessments", [])
+                if isinstance(row, Mapping)
+            }
+            for row in preview.get("assessments", []):
+                if not isinstance(row, Mapping):
+                    continue
+                threat_id = row.get("threat_id")
+                old = old_records.get(threat_id)
+                if not isinstance(old, Mapping):
+                    continue
+                old_residual = old.get("residual")
+                new_residual = row.get("residual")
+                if (
+                    isinstance(old_residual, Mapping)
+                    and old_residual.get("status") == "CONFIRMED"
+                    and isinstance(new_residual, Mapping)
+                    and new_residual.get("status") == "STALE"
+                ):
+                    problems.append(
+                        f"risk refresh required: {threat_id} residual risk "
+                        "would become STALE"
+                    )
     problems.extend(validate_assessment(threats, assessment, policy))
     return problems
+
+
+def refresh_persisted_assessment(paths: Mapping | object) -> tuple[dict, list[str]]:
+    """Apply selective refresh transitions to canonical project state."""
+
+    project_root, assessment_path = _project_document_path(paths, "assessment")
+    _unused_root, policy_path = _project_document_path(paths, "policy")
+    _unused_root, risk_state_path, risk_state = _load_risk_state(paths)
+    threats, requirements, evidence = _refresh_documents(paths)
+    policy = _load_mapping(policy_path, "risk policy")
+    assessment = _load_mapping(assessment_path, "assessment document")
+    trusted = _read_trusted_confirmation(project_root, "assessment")
+    repository_confirmation = assessment.get("confirmation")
+    if repository_confirmation is not None or trusted is not None:
+        problems = _base_confirmation_problems(
+            "assessment", repository_confirmation, trusted, project_root
+        )
+        if problems:
+            raise RiskValidationError("; ".join(problems))
+        if trusted.get("risk_state_digest") != canonical_digest(risk_state):
+            raise RiskValidationError("risk state digest changed")
+
+    baseline = risk_state.get("refresh_baseline")
+    if not isinstance(baseline, Mapping):
+        raise RiskValidationError("risk refresh baseline is missing")
+    refreshed = refresh_assessment(
+        baseline.get("threats"),
+        threats,
+        assessment,
+        previous_requirements=baseline.get("requirements"),
+        current_requirements=requirements,
+        previous_evidence=baseline.get("evidence"),
+        current_evidence=evidence,
+    )
+    if canonical_digest(refreshed) == canonical_digest(assessment):
+        return assessment, []
+
+    messages: list[str] = []
+    old_by_id = {
+        row.get("threat_id"): row
+        for row in assessment.get("assessments", [])
+        if isinstance(row, Mapping)
+    }
+    for row in refreshed.get("assessments", []):
+        if not isinstance(row, Mapping):
+            continue
+        threat_id = row.get("threat_id")
+        old = old_by_id.get(threat_id)
+        if not isinstance(old, Mapping):
+            messages.append(f"{threat_id} inherent risk is PROPOSED")
+            continue
+        if old.get("status") != row.get("status"):
+            messages.append(f"{threat_id} inherent risk is {row.get('status')}")
+        old_residual = old.get("residual")
+        new_residual = row.get("residual")
+        if (
+            isinstance(old_residual, Mapping)
+            and isinstance(new_residual, Mapping)
+            and old_residual.get("status") != new_residual.get("status")
+        ):
+            messages.append(
+                f"{threat_id} residual risk is {new_residual.get('status')}"
+            )
+
+    next_state = copy.deepcopy(risk_state)
+    next_state["refresh_baseline"] = _refresh_baseline(
+        threats, requirements, evidence
+    )
+    next_state = append_snapshot(
+        next_state,
+        _risk_snapshot(
+            "refreshed",
+            threats,
+            refreshed,
+            policy,
+            requirements,
+            evidence,
+            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        ),
+    )
+    _write_text_transaction(
+        [
+            (
+                assessment_path,
+                project_root,
+                yaml.safe_dump(refreshed, allow_unicode=True, sort_keys=False),
+                False,
+            ),
+            (
+                risk_state_path,
+                project_root,
+                yaml.safe_dump(next_state, allow_unicode=True, sort_keys=False),
+                False,
+            ),
+        ]
+    )
+    return refreshed, messages
 
 
 def _add_path_argument(parser: argparse.ArgumentParser, name: str) -> None:
@@ -2048,10 +2402,16 @@ def argument_parser() -> argparse.ArgumentParser:
 
     for name in ("confirm", "check"):
         command = commands.add_parser(name, allow_abbrev=False)
-        _add_path_argument(command, "--project-root")
-        _add_path_argument(command, "--policy")
-        _add_path_argument(command, "--threats")
-        _add_path_argument(command, "--assessment")
+        for path_name in (
+            "--project-root",
+            "--policy",
+            "--threats",
+            "--assessment",
+            "--requirements",
+            "--evidence",
+            "--state",
+        ):
+            _add_path_argument(command, path_name)
         if name == "confirm":
             command.add_argument("--by", required=True, action=_StoreOnce)
             command.add_argument(
@@ -2074,6 +2434,7 @@ def argument_parser() -> argparse.ArgumentParser:
         "--assessment",
         "--requirements",
         "--evidence",
+        "--state",
     ):
         _add_path_argument(residual_command, name)
 
@@ -2087,6 +2448,18 @@ def argument_parser() -> argparse.ArgumentParser:
         "--state",
     ):
         _add_path_argument(migrate_command, name)
+
+    refresh_command = commands.add_parser("refresh", allow_abbrev=False)
+    for name in (
+        "--project-root",
+        "--policy",
+        "--threats",
+        "--assessment",
+        "--requirements",
+        "--evidence",
+        "--state",
+    ):
+        _add_path_argument(refresh_command, name)
     return parser
 
 
@@ -2129,25 +2502,34 @@ def write_migration(paths: Mapping | object) -> dict:
     threats = _load_mapping(threats_path, "threat document")
     requirements = _load_mapping(requirements_path, "requirements document")
     result = migrate(threats, requirements)
-    written: list[Path] = []
-    try:
-        for path, document in (
-            (policy_path, result["policy"]),
-            (assessment_path, result["assessment"]),
-            (state_path, result["state"]),
-        ):
-            safe_write_text(
+    result["state"] = append_snapshot(
+        result["state"],
+        _risk_snapshot(
+            "migrated",
+            result["threats"],
+            result["assessment"],
+            result["policy"],
+            requirements,
+            {"evidence": []},
+            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        ),
+    )
+    _write_text_transaction(
+        [
+            (
                 path,
+                project_root,
                 yaml.safe_dump(document, allow_unicode=True, sort_keys=False),
-                encoding="utf-8",
-                project_root=project_root,
-                create_parents=True,
+                True,
             )
-            written.append(path)
-    except BaseException:
-        for path in reversed(written):
-            safe_path(path, project_root=project_root).unlink(missing_ok=True)
-        raise
+            for path, document in (
+                (policy_path, result["policy"]),
+                (assessment_path, result["assessment"]),
+                (state_path, result["state"]),
+            )
+        ],
+        require_absent=True,
+    )
     return result
 
 
@@ -2240,6 +2622,14 @@ def main(argv: list[str] | None = None) -> int:
                 "before publication."
             )
             print("Prior published documents were not modified.")
+            return 0
+        if args.command == "refresh":
+            _assessment, messages = refresh_persisted_assessment(paths)
+            if not messages:
+                print("risk refresh: no assessment state transitions")
+            else:
+                for message in messages:
+                    print(message)
             return 0
         if args.command == "policy-confirm":
             policy = stamp_policy(paths, args.by, args.authority)

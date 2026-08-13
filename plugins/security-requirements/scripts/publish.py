@@ -1065,6 +1065,9 @@ def _risk_paths(project_root: Path) -> dict[str, Path]:
         "policy": internal / "risk-policy.yaml",
         "threats": internal / "threats.yaml",
         "assessment": internal / "risk-assessment.yaml",
+        "requirements": internal / "requirements.yaml",
+        "evidence": internal / "risk-evidence.yaml",
+        "state": internal / "risk-state.yaml",
     }
 
 

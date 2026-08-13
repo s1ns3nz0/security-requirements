@@ -329,7 +329,10 @@ def test_build_and_refresh_gate_publication_on_confirmed_inherent_risk():
         '    --project-root "$PWD" \\\n'
         '    --policy .security-requirements/risk-policy.yaml \\\n'
         '    --threats .security-requirements/threats.yaml \\\n'
-        '    --assessment .security-requirements/risk-assessment.yaml'
+        '    --assessment .security-requirements/risk-assessment.yaml \\\n'
+        '    --requirements .security-requirements/requirements.yaml \\\n'
+        '    --evidence .security-requirements/risk-evidence.yaml \\\n'
+        '    --state .security-requirements/risk-state.yaml'
     )
     for workflow, threat_marker in (
         ("build", "Write `.security-requirements/threats.yaml`"),
@@ -346,6 +349,9 @@ def test_build_and_refresh_gate_publication_on_confirmed_inherent_risk():
         assert exact_check in text
         assert text.index(threat_marker) < text.index(confirm)
         assert text.index(confirm) < text.index(exact_check) < first_official_output
+        confirm_block = text[text.index(confirm) : text.index("```", text.index(confirm))]
+        for argument in ("--requirements", "--evidence", "--state"):
+            assert argument in confirm_block
         review = text[text.index(threat_marker) : text.index(confirm)]
         assert "batch review table" in review
         assert "explicit confirmation" in review
@@ -379,6 +385,29 @@ def test_refresh_routes_legacy_threats_through_non_destructive_risk_migration():
     assert "Stop this refresh" in legacy_block
     assert "risk confirmation review" in legacy_block
     assert "must not edit the threat schema version" in legacy_block
+
+
+def test_refresh_persists_selective_risk_transitions_before_review_and_check():
+    refresh = (ROOT / "commands" / "sec-req-refresh.md").read_text(
+        encoding="utf-8"
+    )
+    command = (
+        f'python3 -I "{PLUGIN_ROOT_LITERAL}/scripts/risk.py" refresh \\\n'
+        '    --project-root "$PWD" \\\n'
+        '    --policy .security-requirements/risk-policy.yaml \\\n'
+        '    --threats .security-requirements/threats.yaml \\\n'
+        '    --assessment .security-requirements/risk-assessment.yaml \\\n'
+        '    --requirements .security-requirements/requirements.yaml \\\n'
+        '    --evidence .security-requirements/risk-evidence.yaml \\\n'
+        '    --state .security-requirements/risk-state.yaml'
+    )
+
+    assert command in refresh
+    refresh_position = refresh.index(command)
+    assert refresh.index("Update the threat model incrementally") < refresh_position
+    assert refresh_position < refresh.index("batch review table")
+    assert refresh_position < refresh.index('/scripts/risk.py" check')
+    assert refresh_position < refresh.index('/scripts/publish.py"')
 
 
 def test_build_and_refresh_publish_only_from_an_external_staging_directory():

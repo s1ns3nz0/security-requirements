@@ -134,6 +134,9 @@ python3 -I "<exact absolute plugin root>/scripts/risk.py" confirm \
     --policy .security-requirements/risk-policy.yaml \
     --threats .security-requirements/threats.yaml \
     --assessment .security-requirements/risk-assessment.yaml \
+    --requirements .security-requirements/requirements.yaml \
+    --evidence .security-requirements/risk-evidence.yaml \
+    --state .security-requirements/risk-state.yaml \
     --by user --authority self_declared
 ```
 
@@ -144,7 +147,10 @@ python3 -I "<exact absolute plugin root>/scripts/risk.py" check \
     --project-root "$PWD" \
     --policy .security-requirements/risk-policy.yaml \
     --threats .security-requirements/threats.yaml \
-    --assessment .security-requirements/risk-assessment.yaml
+    --assessment .security-requirements/risk-assessment.yaml \
+    --requirements .security-requirements/requirements.yaml \
+    --evidence .security-requirements/risk-evidence.yaml \
+    --state .security-requirements/risk-state.yaml
 ```
 
 Any `PROPOSED`, `STALE`, or `UNDETERMINED` inherent assessment is a blocker.

@@ -29,6 +29,13 @@ class _RiskFixture:
             "assessment": project
             / ".security-requirements"
             / "risk-assessment.yaml",
+            "requirements": project
+            / ".security-requirements"
+            / "requirements.yaml",
+            "evidence": project
+            / ".security-requirements"
+            / "risk-evidence.yaml",
+            "state": project / ".security-requirements" / "risk-state.yaml",
         }
         self.paths["policy"].parent.mkdir(parents=True)
         self.paths["policy"].write_text(
@@ -42,7 +49,16 @@ class _RiskFixture:
         self.assessment = {
             "assessments": [assessment_record("T-01", "PROPOSED", proposed=proposed)]
         }
+        self.requirements = _requirement_document()
+        self.requirements["requirements"][0]["managed"]["risk_refs"] = ["T-01"]
+        self.evidence = {"evidence": []}
         self._write_documents()
+        self.paths["requirements"].write_text(
+            yaml.safe_dump(self.requirements, sort_keys=False), encoding="utf-8"
+        )
+        self.paths["evidence"].write_text(
+            yaml.safe_dump(self.evidence, sort_keys=False), encoding="utf-8"
+        )
 
     def _write_documents(self):
         self.paths["threats"].write_text(
@@ -1249,6 +1265,12 @@ def test_cli_confirmation_survives_separate_processes_and_calculates_scores(
             str(risk_fixture.paths["threats"]),
             "--assessment",
             str(risk_fixture.paths["assessment"]),
+            "--requirements",
+            str(risk_fixture.paths["requirements"]),
+            "--evidence",
+            str(risk_fixture.paths["evidence"]),
+            "--state",
+            str(risk_fixture.paths["state"]),
             "--by",
             "risk owner",
             "--authority",
@@ -1267,6 +1289,12 @@ def test_cli_confirmation_survives_separate_processes_and_calculates_scores(
             str(risk_fixture.paths["threats"]),
             "--assessment",
             str(risk_fixture.paths["assessment"]),
+            "--requirements",
+            str(risk_fixture.paths["requirements"]),
+            "--evidence",
+            str(risk_fixture.paths["evidence"]),
+            "--state",
+            str(risk_fixture.paths["state"]),
         ],
         capture_output=True,
         text=True,
@@ -1354,6 +1382,8 @@ def test_evidence_and_residual_cli_validate_project_documents(
             str(requirements_path),
             "--evidence",
             str(evidence_path),
+            "--state",
+            str(risk_fixture.paths["state"]),
         ],
         capture_output=True,
         text=True,
@@ -1402,6 +1432,8 @@ def test_residual_cli_renders_undetermined_without_a_traceback(risk_fixture):
             str(requirements_path),
             "--evidence",
             str(evidence_path),
+            "--state",
+            str(risk_fixture.paths["state"]),
         ],
         capture_output=True,
         text=True,
@@ -1827,7 +1859,15 @@ def _seed_legacy_migration_project(project: Path):
         "threats": [
             {
                 "id": "T-LEGACY-01",
+                "boundary": "TB-1",
+                "category": "STRIDE:T",
+                "novelty": "service_specific",
+                "persona": "anonymous_external",
+                "attack_path": "anonymous_rating_write",
                 "scenario": "anonymous callers can alter movie ratings",
+                "affected_assets": ["movie_ratings"],
+                "related_controls": ["AC-3"],
+                "lifecycle": {"status": "active", "superseded_by": []},
             }
         ],
     }
@@ -1835,7 +1875,10 @@ def _seed_legacy_migration_project(project: Path):
         "requirements": [
             {
                 "id": "REQ-RATING-AUTHZ-01",
-                "managed": {"statement": "Authorise movie-rating writes."},
+                "managed": {
+                    "statement": "Authorise movie-rating writes.",
+                    "risk_refs": ["T-LEGACY-01"],
+                },
                 "human": {},
             }
         ]
@@ -1916,7 +1959,8 @@ def test_migration_cli_scaffolds_internal_proposals_without_publishing(tmp_path)
         )
     )
     assert state["migration"]["source_schema"] == "0.1.0"
-    assert state["snapshots"] == []
+    assert [snapshot["event"] for snapshot in state["snapshots"]] == ["migrated"]
+    assert state["snapshots"][0]["assessments"][0]["status"] == "PROPOSED"
 
 
 def test_failed_migration_preserves_public_bytes_and_creates_no_scaffolding(tmp_path):
@@ -2009,6 +2053,7 @@ def test_migration_scaffolding_rolls_back_all_outputs_on_write_failure(
         nonlocal writes
         writes += 1
         if writes == 2:
+            real_write(*args, **kwargs)
             raise OSError("injected migration write failure")
         return real_write(*args, **kwargs)
 
@@ -2025,6 +2070,52 @@ def test_migration_scaffolding_rolls_back_all_outputs_on_write_failure(
     with pytest.raises(OSError, match="injected migration write failure"):
         risk.write_migration(paths)
 
+    assert not paths["policy"].exists()
+    assert not paths["assessment"].exists()
+    assert not paths["state"].exists()
+
+
+def test_migration_rollback_continues_after_transient_unlink_failure(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "legacy rollback cleanup"
+    threats_path, requirements_path = _seed_legacy_migration_project(project)
+    internal = project / ".security-requirements"
+    paths = {
+        "project_root": project,
+        "threats": threats_path,
+        "requirements": requirements_path,
+        "policy": internal / "risk-policy.yaml",
+        "assessment": internal / "risk-assessment.yaml",
+        "state": internal / "risk-state.yaml",
+    }
+    real_write = risk.safe_write_text
+    writes = 0
+
+    def fail_state_write(*args, **kwargs):
+        nonlocal writes
+        writes += 1
+        if writes == 3:
+            raise OSError("injected migration state failure")
+        return real_write(*args, **kwargs)
+
+    real_unlink = Path.unlink
+    failed_unlink = False
+
+    def fail_first_assessment_unlink(path, *args, **kwargs):
+        nonlocal failed_unlink
+        if Path(path) == paths["assessment"] and not failed_unlink:
+            failed_unlink = True
+            raise OSError("injected transient unlink failure")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(risk, "safe_write_text", fail_state_write)
+    monkeypatch.setattr(Path, "unlink", fail_first_assessment_unlink)
+
+    with pytest.raises(OSError, match="injected migration state failure"):
+        risk.write_migration(paths)
+
+    assert failed_unlink is True
     assert not paths["policy"].exists()
     assert not paths["assessment"].exists()
     assert not paths["state"].exists()
@@ -2131,3 +2222,329 @@ def test_b2b_golden_declares_and_meets_legacy_risk_migration_coverage():
         ),
         "published_documents_modified": False,
     } == expected
+
+
+def _add_confirmed_residual(risk_fixture):
+    record = risk_fixture.assessment["assessments"][0]
+    record["treatment"] = {
+        "strategy": "mitigate",
+        "owner": "movie-team",
+        "requirement_refs": ["REQ-WRITE-AUTHORIZATION-01"],
+    }
+    record["residual"] = {
+        "status": "CONFIRMED",
+        "calculated": {
+            "likelihood": 3,
+            "impact": 4,
+            "score": 12,
+            "rating": "high",
+        },
+        "evidence_refs": [],
+    }
+    risk_fixture._write_documents()
+
+
+def _risk_cli_document_args(risk_fixture):
+    return [
+        "--project-root",
+        str(risk_fixture.paths["project_root"]),
+        "--policy",
+        str(risk_fixture.paths["policy"]),
+        "--threats",
+        str(risk_fixture.paths["threats"]),
+        "--assessment",
+        str(risk_fixture.paths["assessment"]),
+        "--requirements",
+        str(risk_fixture.paths["requirements"]),
+        "--evidence",
+        str(risk_fixture.paths["evidence"]),
+        "--state",
+        str(risk_fixture.paths["state"]),
+    ]
+
+
+def test_refresh_cli_persists_requirement_staleness_before_review(risk_fixture):
+    _add_confirmed_residual(risk_fixture)
+    risk_fixture.confirm_all()
+    requirements = yaml.safe_load(
+        risk_fixture.paths["requirements"].read_text(encoding="utf-8")
+    )
+    requirements["requirements"][0]["managed"]["statement"] = (
+        "Every movie-rating write requires explicit authorisation."
+    )
+    risk_fixture.paths["requirements"].write_text(
+        yaml.safe_dump(requirements, sort_keys=False), encoding="utf-8"
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "risk.py"),
+            "refresh",
+            *_risk_cli_document_args(risk_fixture),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "T-01 residual risk is STALE" in result.stdout
+    assessment = yaml.safe_load(
+        risk_fixture.paths["assessment"].read_text(encoding="utf-8")
+    )
+    assert assessment["assessments"][0]["status"] == "CONFIRMED"
+    assert assessment["assessments"][0]["residual"]["status"] == "STALE"
+    assert "confirmation" not in assessment
+    state = yaml.safe_load(
+        risk_fixture.paths["state"].read_text(encoding="utf-8")
+    )
+    assert state["refresh_baseline"]["requirements"] == requirements
+
+
+def test_refresh_transaction_restores_all_prior_bytes_after_replace_then_raise(
+    risk_fixture, monkeypatch
+):
+    _add_confirmed_residual(risk_fixture)
+    risk_fixture.confirm_all()
+    requirements = yaml.safe_load(
+        risk_fixture.paths["requirements"].read_text(encoding="utf-8")
+    )
+    requirements["requirements"][0]["managed"]["statement"] = "Changed."
+    risk_fixture.paths["requirements"].write_text(
+        yaml.safe_dump(requirements, sort_keys=False), encoding="utf-8"
+    )
+    assessment_before = risk_fixture.paths["assessment"].read_bytes()
+    state_before = risk_fixture.paths["state"].read_bytes()
+    trusted_path = risk.confirmation_state_path(
+        risk_fixture.paths["project_root"], "assessment"
+    )
+    trusted_before = trusted_path.read_bytes()
+    real_write = risk.safe_write_text
+    failed = False
+
+    def replace_state_then_fail(path, *args, **kwargs):
+        nonlocal failed
+        result = real_write(path, *args, **kwargs)
+        if Path(path) == risk_fixture.paths["state"] and not failed:
+            failed = True
+            raise OSError("injected refresh state failure")
+        return result
+
+    monkeypatch.setattr(risk, "safe_write_text", replace_state_then_fail)
+
+    with pytest.raises(OSError, match="injected refresh state failure"):
+        risk.refresh_persisted_assessment(risk_fixture.paths)
+
+    assert risk_fixture.paths["assessment"].read_bytes() == assessment_before
+    assert risk_fixture.paths["state"].read_bytes() == state_before
+    assert trusted_path.read_bytes() == trusted_before
+
+
+def test_check_blocks_changed_requirement_while_residual_remains_confirmed(
+    risk_fixture,
+):
+    _add_confirmed_residual(risk_fixture)
+    risk_fixture.confirm_all()
+    requirements = yaml.safe_load(
+        risk_fixture.paths["requirements"].read_text(encoding="utf-8")
+    )
+    requirements["requirements"][0]["managed"]["statement"] = "Changed."
+    risk_fixture.paths["requirements"].write_text(
+        yaml.safe_dump(requirements, sort_keys=False), encoding="utf-8"
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "risk.py"),
+            "check",
+            *_risk_cli_document_args(risk_fixture),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "risk refresh required" in result.stderr
+    assert "T-01 residual risk would become STALE" in result.stderr
+
+
+def test_publisher_blocks_changed_requirement_before_public_bytes_change(
+    risk_fixture, tmp_path
+):
+    _add_confirmed_residual(risk_fixture)
+    risk_fixture.confirm_all()
+    requirements = yaml.safe_load(
+        risk_fixture.paths["requirements"].read_text(encoding="utf-8")
+    )
+    requirements["requirements"][0]["managed"]["statement"] = "Changed."
+    risk_fixture.paths["requirements"].write_text(
+        yaml.safe_dump(requirements, sort_keys=False), encoding="utf-8"
+    )
+    public = risk_fixture.paths["project_root"] / "docs" / "security"
+    public.mkdir(parents=True)
+    (public / "requirements.md").write_text("old requirements\n", encoding="utf-8")
+    before = (public / "requirements.md").read_bytes()
+    generated = tmp_path / "generated"
+    generated.mkdir()
+    for name in ("requirements.md", "traceability.md", "responsibility.md"):
+        (generated / name).write_text(f"new {name}\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "publish.py"),
+            "--project-root",
+            str(risk_fixture.paths["project_root"]),
+            "--generated",
+            str(generated),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "risk refresh required" in result.stderr
+    assert (public / "requirements.md").read_bytes() == before
+
+
+def test_risk_history_records_migrate_confirm_refresh_and_reconfirm(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "legacy history project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted"))
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
+    threats_path, requirements_path = _seed_legacy_migration_project(project)
+    internal = project / ".security-requirements"
+    evidence_path = internal / "risk-evidence.yaml"
+    evidence_path.write_text("evidence: []\n", encoding="utf-8")
+    migration = _run_migration_cli(project, threats_path, requirements_path)
+    assert migration.returncode == 0, migration.stderr
+
+    assessment_path = internal / "risk-assessment.yaml"
+    assessment = yaml.safe_load(assessment_path.read_text(encoding="utf-8"))
+    assessment["assessments"][0]["proposed"] = proposal(
+        "L4-PUBLIC-LOW-COMPLEXITY", "I3-CORE-SERVICE"
+    )
+    assessment["assessments"][0]["treatment"] = {
+        "strategy": "mitigate",
+        "owner": "movie-team",
+    }
+    assessment_path.write_text(
+        yaml.safe_dump(assessment, sort_keys=False), encoding="utf-8"
+    )
+    command = [sys.executable, "-I", str(PLUGIN_ROOT / "scripts" / "risk.py")]
+    policy_path = internal / "risk-policy.yaml"
+    state_path = internal / "risk-state.yaml"
+    policy = subprocess.run(
+        [
+            *command,
+            "policy-confirm",
+            "--project-root",
+            str(project),
+            "--policy",
+            str(policy_path),
+            "--by",
+            "risk-owner",
+            "--authority",
+            "self_declared",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    common = [
+        "--project-root",
+        str(project),
+        "--policy",
+        str(policy_path),
+        "--threats",
+        str(threats_path),
+        "--assessment",
+        str(assessment_path),
+        "--requirements",
+        str(requirements_path),
+        "--evidence",
+        str(evidence_path),
+        "--state",
+        str(state_path),
+    ]
+    confirmed = subprocess.run(
+        [
+            *command,
+            "confirm",
+            *common,
+            "--by",
+            "risk-owner",
+            "--authority",
+            "self_declared",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert policy.returncode == 0, policy.stderr
+    assert confirmed.returncode == 0, confirmed.stderr
+
+    threats = yaml.safe_load(threats_path.read_text(encoding="utf-8"))
+    threats["threats"][0]["scenario"] = "anonymous bulk rating manipulation"
+    threats_path.write_text(
+        yaml.safe_dump(threats, sort_keys=False), encoding="utf-8"
+    )
+    refreshed = subprocess.run(
+        [*command, "refresh", *common],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    reconfirmed = subprocess.run(
+        [
+            *command,
+            "confirm",
+            *common,
+            "--by",
+            "risk-owner",
+            "--authority",
+            "self_declared",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert refreshed.returncode == 0, refreshed.stderr
+    assert reconfirmed.returncode == 0, reconfirmed.stderr
+
+    state = yaml.safe_load(state_path.read_text(encoding="utf-8"))
+    snapshots = state["snapshots"]
+    assert [row["event"] for row in snapshots] == [
+        "migrated",
+        "confirmed",
+        "refreshed",
+        "confirmed",
+    ]
+    assert [row["assessments"][0]["status"] for row in snapshots] == [
+        "PROPOSED",
+        "CONFIRMED",
+        "STALE",
+        "CONFIRMED",
+    ]
+    for snapshot in snapshots:
+        declared = snapshot["snapshot_digest"]
+        material = copy.deepcopy(snapshot)
+        material.pop("snapshot_digest")
+        assert declared == risk.canonical_digest(material)
+        assert snapshot["assessments"][0]["lifecycle"]["status"] == "active"
+    repository = yaml.safe_load(assessment_path.read_text(encoding="utf-8"))
+    trusted = yaml.safe_load(
+        risk.confirmation_state_path(project, "assessment").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert repository["confirmation"] == trusted
+    assert trusted["risk_state_digest"] == risk.canonical_digest(state)
