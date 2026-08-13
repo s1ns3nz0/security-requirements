@@ -1399,6 +1399,337 @@ def propose_exception_migration(requirements: dict) -> dict:
     return result
 
 
+def migrate(threats: dict, requirements: dict) -> dict:
+    """Create review-only risk scaffolding for a legacy threat document.
+
+    Migration is intentionally pure: callers receive candidate internal
+    documents, while the legacy threat document and human-owned requirements
+    remain unchanged.  Criterion choices, numeric results, and confirmation
+    metadata belong to the later human review and are never inferred here.
+    """
+
+    if not isinstance(threats, Mapping) or threats.get("version") != "0.1.0":
+        raise RiskValidationError("legacy threat schema must be 0.1.0")
+    records = threats.get("threats")
+    if not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
+        raise RiskValidationError("legacy threats must be a list")
+
+    seen_ids: set[str] = set()
+    active_ids: list[str] = []
+    for record in records:
+        if not isinstance(record, Mapping):
+            raise RiskValidationError("legacy threat must be a mapping")
+        threat_id = record.get("id")
+        if not _nonempty_text(threat_id):
+            raise RiskValidationError("legacy threat id is required")
+        if threat_id in seen_ids:
+            raise RiskValidationError(f"duplicate legacy threat id: {threat_id}")
+        seen_ids.add(threat_id)
+        if _lifecycle_status(record) == "active":
+            active_ids.append(threat_id)
+
+    migrated_requirements = propose_exception_migration(requirements)
+    pending_requirement_migrations: list[dict] = []
+    for record in migrated_requirements["requirements"]:
+        if not isinstance(record, Mapping):
+            continue
+        pending = record.get("pending_review")
+        proposal = pending.get("risk_treatment") if isinstance(pending, Mapping) else None
+        if isinstance(proposal, Mapping):
+            pending_requirement_migrations.append(
+                {
+                    "requirement_id": record.get("id"),
+                    **copy.deepcopy(dict(proposal)),
+                }
+            )
+
+    assessments = [
+        {"threat_id": threat_id, "status": "PROPOSED"}
+        for threat_id in active_ids
+    ]
+    migration = {
+        "status": "legacy_unassessed",
+        "source_schema": "0.1.0",
+        "target_schema": "0.2.0",
+        "active_legacy_threats": len(active_ids),
+    }
+    policy = load_policy(
+        Path(__file__).resolve().parent.parent / "risk" / "default-policy.yaml"
+    )
+    return {
+        **migration,
+        "threats": copy.deepcopy(dict(threats)),
+        "policy": policy,
+        "assessment": {
+            "version": "0.2.0",
+            "migration": copy.deepcopy(migration),
+            "assessments": copy.deepcopy(assessments),
+        },
+        "assessments": assessments,
+        "state": {
+            "version": "0.2.0",
+            "migration": copy.deepcopy(migration),
+            "snapshots": [],
+            "pending_requirement_migrations": copy.deepcopy(
+                pending_requirement_migrations
+            ),
+        },
+        "pending_requirement_migrations": pending_requirement_migrations,
+    }
+
+
+INHERENT_REFRESH_FIELDS = (
+    "scenario",
+    "boundary",
+    "persona",
+    "attack_path",
+    "affected_assets",
+)
+
+
+def _records_by_identity(
+    document: object, field: str, identity: str, label: str
+) -> dict[str, Mapping]:
+    records = _document_records(document, field, label)
+    indexed: dict[str, Mapping] = {}
+    for record in records:
+        if not isinstance(record, Mapping):
+            raise RiskValidationError(f"{label[:-1]} must be a mapping")
+        record_id = record.get(identity)
+        if not _nonempty_text(record_id):
+            raise RiskValidationError(f"{label[:-1]} {identity} is required")
+        if record_id in indexed:
+            raise RiskValidationError(f"duplicate {label[:-1]} {identity}: {record_id}")
+        indexed[record_id] = record
+    return indexed
+
+
+def _changed_record_ids(
+    previous: object,
+    current: object,
+    *,
+    field: str,
+    identity: str,
+    label: str,
+    material: str | None = None,
+) -> tuple[set[str], dict[str, Mapping], dict[str, Mapping]]:
+    previous_by_id = _records_by_identity(previous, field, identity, label)
+    current_by_id = _records_by_identity(current, field, identity, label)
+    changed: set[str] = set()
+    for record_id in previous_by_id.keys() | current_by_id.keys():
+        old = previous_by_id.get(record_id)
+        new = current_by_id.get(record_id)
+        old_value = old.get(material) if old is not None and material else old
+        new_value = new.get(material) if new is not None and material else new
+        if canonical_digest(old_value) != canonical_digest(new_value):
+            changed.add(record_id)
+    return changed, previous_by_id, current_by_id
+
+
+def _risk_refs_for_requirement(record: Mapping | None) -> set[str]:
+    if record is None:
+        return set()
+    values: list[object] = [record.get("risk_refs")]
+    managed = record.get("managed")
+    if isinstance(managed, Mapping):
+        values.append(managed.get("risk_refs"))
+    return {
+        reference
+        for refs in values
+        if isinstance(refs, Sequence) and not isinstance(refs, (str, bytes))
+        for reference in refs
+        if _nonempty_text(reference)
+    }
+
+
+def _record_refs(record: Mapping, container: str, field: str) -> set[str]:
+    value = record.get(container)
+    if not isinstance(value, Mapping):
+        return set()
+    refs = value.get(field)
+    if not isinstance(refs, Sequence) or isinstance(refs, (str, bytes)):
+        return set()
+    return {reference for reference in refs if _nonempty_text(reference)}
+
+
+def _residual_evidence_refs(record: Mapping) -> set[str]:
+    residual = record.get("residual")
+    if not isinstance(residual, Mapping):
+        return set()
+    refs = residual.get("evidence_refs")
+    result = (
+        {reference for reference in refs if _nonempty_text(reference)}
+        if isinstance(refs, Sequence) and not isinstance(refs, (str, bytes))
+        else set()
+    )
+    proposed = residual.get("proposed")
+    if isinstance(proposed, Mapping):
+        for axis in ("likelihood", "impact"):
+            axis_data = proposed.get(axis)
+            axis_refs = axis_data.get("evidence_refs") if isinstance(axis_data, Mapping) else None
+            if isinstance(axis_refs, Sequence) and not isinstance(axis_refs, (str, bytes)):
+                result.update(
+                    reference for reference in axis_refs if _nonempty_text(reference)
+                )
+    return result
+
+
+def _mark_residual_stale(record: dict) -> bool:
+    residual = record.get("residual")
+    if not isinstance(residual, dict) or residual.get("status") != "CONFIRMED":
+        return False
+    residual["status"] = "STALE"
+    return True
+
+
+def refresh_assessment(
+    previous_threats: dict,
+    current_threats: dict,
+    assessment: dict,
+    *,
+    previous_requirements: dict | None = None,
+    current_requirements: dict | None = None,
+    previous_evidence: dict | None = None,
+    current_evidence: dict | None = None,
+) -> dict:
+    """Reuse unchanged risk records and stale only refresh-affected decisions."""
+
+    if not isinstance(assessment, Mapping):
+        raise RiskValidationError("assessment document must be a mapping")
+    old_threats = _records_by_identity(
+        previous_threats, "threats", "id", "threats"
+    )
+    new_threats = _records_by_identity(current_threats, "threats", "id", "threats")
+    _records_by_identity(
+        assessment, "assessments", "threat_id", "assessments"
+    )
+    result = copy.deepcopy(dict(assessment))
+    result_records = result.get("assessments")
+    if not isinstance(result_records, list):
+        raise RiskValidationError("assessments must be a list")
+    result_by_id = {
+        record["threat_id"]: record
+        for record in result_records
+        if isinstance(record, dict) and _nonempty_text(record.get("threat_id"))
+    }
+    changed = False
+
+    affected_requirement_ids: set[str] = set()
+    old_requirements: dict[str, Mapping] = {}
+    new_requirements: dict[str, Mapping] = {}
+    if previous_requirements is not None or current_requirements is not None:
+        affected_requirement_ids, old_requirements, new_requirements = (
+            _changed_record_ids(
+                previous_requirements or {"requirements": []},
+                current_requirements or {"requirements": []},
+                field="requirements",
+                identity="id",
+                label="requirements",
+                material="managed",
+            )
+        )
+
+    affected_evidence_ids: set[str] = set()
+    old_evidence: dict[str, Mapping] = {}
+    new_evidence: dict[str, Mapping] = {}
+    if previous_evidence is not None or current_evidence is not None:
+        affected_evidence_ids, old_evidence, new_evidence = _changed_record_ids(
+            previous_evidence or {"evidence": []},
+            current_evidence or {"evidence": []},
+            field="evidence",
+            identity="id",
+            label="evidence",
+        )
+
+    requirement_affected_threats: set[str] = set()
+    for requirement_id in affected_requirement_ids:
+        requirement_affected_threats.update(
+            _risk_refs_for_requirement(old_requirements.get(requirement_id))
+        )
+        requirement_affected_threats.update(
+            _risk_refs_for_requirement(new_requirements.get(requirement_id))
+        )
+    for evidence_id in affected_evidence_ids:
+        for evidence_record in (old_evidence.get(evidence_id), new_evidence.get(evidence_id)):
+            requirement_id = (
+                evidence_record.get("requirement_id")
+                if isinstance(evidence_record, Mapping)
+                else None
+            )
+            if _nonempty_text(requirement_id):
+                requirement_affected_threats.update(
+                    _risk_refs_for_requirement(old_requirements.get(requirement_id))
+                )
+                requirement_affected_threats.update(
+                    _risk_refs_for_requirement(new_requirements.get(requirement_id))
+                )
+
+    for threat_id, current in new_threats.items():
+        current_status = _lifecycle_status(current)
+        previous = old_threats.get(threat_id)
+        previous_status = _lifecycle_status(previous) if previous is not None else None
+        record = result_by_id.get(threat_id)
+
+        if current_status == "active" and record is None:
+            record = {"threat_id": threat_id, "status": "PROPOSED"}
+            result_records.append(record)
+            result_by_id[threat_id] = record
+            changed = True
+        if record is None:
+            continue
+
+        if current_status == "active" and previous is None:
+            if record.get("status") != "PROPOSED":
+                record["status"] = "PROPOSED"
+                changed = True
+            changed = _mark_residual_stale(record) or changed
+        elif current_status == "active" and previous_status != "active":
+            if record.get("status") != "PROPOSED":
+                record["status"] = "PROPOSED"
+                changed = True
+            changed = _mark_residual_stale(record) or changed
+        elif current_status == "active" and previous is not None and any(
+            canonical_digest(previous.get(field)) != canonical_digest(current.get(field))
+            for field in INHERENT_REFRESH_FIELDS
+        ):
+            if record.get("status") == "CONFIRMED":
+                record["status"] = "STALE"
+                changed = True
+
+        if (
+            current_status == "active"
+            and previous is not None
+            and canonical_digest(previous.get("related_controls"))
+            != canonical_digest(current.get("related_controls"))
+        ):
+            changed = _mark_residual_stale(record) or changed
+
+        treatment_requirement_refs = _record_refs(
+            record, "treatment", "requirement_refs"
+        )
+        if (
+            current_status == "active"
+            and (
+                threat_id in requirement_affected_threats
+                or bool(treatment_requirement_refs & affected_requirement_ids)
+                or bool(_residual_evidence_refs(record) & affected_evidence_ids)
+            )
+        ):
+            changed = _mark_residual_stale(record) or changed
+
+        if previous is None or previous_status != current_status or any(
+            canonical_digest(previous.get(field)) != canonical_digest(current.get(field))
+            for field in THREAT_DIGEST_FIELDS
+        ):
+            changed = True
+
+    if set(old_threats) != set(new_threats):
+        changed = True
+    if changed:
+        result.pop("confirmation", None)
+    return result
+
+
 def aggregate_threat_digest(threats: dict) -> str:
     """Digest the material identity of the active threat set."""
     material = sorted(
@@ -1571,7 +1902,9 @@ def _calculate_confirmed_assessment(
             continue
         proposed = record.get("proposed")
         if not isinstance(proposed, dict):
-            continue
+            raise RiskValidationError(
+                f"{record.get('threat_id', '<unknown>')} assessment proposal is required"
+            )
         record["status"] = "CONFIRMED"
         record["calculated"] = calculate_inherent(policy, proposed)
     problems = validate_assessment(threats, result, policy)
@@ -1598,19 +1931,73 @@ def stamp_assessment(
     policy = _load_mapping(policy_path, "risk policy")
     threats = _load_mapping(threats_path, "threat document")
     assessment = _load_mapping(assessment_path, "assessment document")
-    calculated = _calculate_confirmed_assessment(threats, assessment, policy)
+    legacy = threats.get("version") == "0.1.0"
+    confirmed_threats = copy.deepcopy(threats)
+    if legacy:
+        confirmed_threats["version"] = "0.2.0"
+    calculated = _calculate_confirmed_assessment(
+        confirmed_threats, assessment, policy
+    )
     calculated["confirmation"] = _confirmation_metadata(
         project_root,
         confirmed_by,
         authority,
         confirmed_at,
         policy_digest=policy_digest(policy),
-        threat_digest=aggregate_threat_digest(threats),
+        threat_digest=aggregate_threat_digest(confirmed_threats),
         assessment_digest=assessment_digest(calculated),
     )
-    _write_confirmation(
-        assessment_path, calculated, state_path, state_root, project_root
+    preflight_output_paths(
+        [assessment_path, threats_path], project_root=project_root
     )
+    if not legacy:
+        _write_confirmation(
+            assessment_path, calculated, state_path, state_root, project_root
+        )
+        return calculated
+
+    assessment_before = assessment_path.read_text(encoding="utf-8")
+    threats_before = threats_path.read_text(encoding="utf-8")
+    state_existed = state_path.exists()
+    state_before = state_path.read_text(encoding="utf-8") if state_existed else None
+    try:
+        _write_confirmation(
+            assessment_path, calculated, state_path, state_root, project_root
+        )
+        safe_write_text(
+            threats_path,
+            yaml.safe_dump(confirmed_threats, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+            project_root=project_root,
+        )
+    except BaseException:
+        rollback_errors: list[BaseException] = []
+        for path, content, root in (
+            (assessment_path, assessment_before, project_root),
+            (threats_path, threats_before, project_root),
+        ):
+            try:
+                safe_write_text(path, content, encoding="utf-8", project_root=root)
+            except BaseException as rollback_error:
+                rollback_errors.append(rollback_error)
+        try:
+            if state_existed:
+                safe_write_text(
+                    state_path,
+                    state_before,
+                    encoding="utf-8",
+                    project_root=state_root,
+                )
+            else:
+                safe_path(state_path, project_root=state_root).unlink(missing_ok=True)
+        except BaseException as rollback_error:
+            rollback_errors.append(rollback_error)
+        if rollback_errors:
+            raise RuntimeError(
+                "legacy risk confirmation failed and rollback was incomplete: "
+                + "; ".join(str(error) for error in rollback_errors)
+            ) from rollback_errors[0]
+        raise
     return calculated
 
 
@@ -1689,7 +2076,79 @@ def argument_parser() -> argparse.ArgumentParser:
         "--evidence",
     ):
         _add_path_argument(residual_command, name)
+
+    migrate_command = commands.add_parser("migrate", allow_abbrev=False)
+    for name in (
+        "--project-root",
+        "--threats",
+        "--requirements",
+        "--policy",
+        "--assessment",
+        "--state",
+    ):
+        _add_path_argument(migrate_command, name)
     return parser
+
+
+def write_migration(paths: Mapping | object) -> dict:
+    """Write legacy migration scaffolding only to validated internal paths."""
+
+    project_root, threats_path = _project_document_path(paths, "threats")
+    _unused_root, requirements_path = _project_document_path(paths, "requirements")
+    _unused_root, policy_path = _project_document_path(paths, "policy")
+    _unused_root, assessment_path = _project_document_path(paths, "assessment")
+    _unused_root, state_path = _project_document_path(paths, "state")
+
+    canonical_outputs = {
+        "policy": project_root / ".security-requirements" / "risk-policy.yaml",
+        "assessment": project_root
+        / ".security-requirements"
+        / "risk-assessment.yaml",
+        "state": project_root / ".security-requirements" / "risk-state.yaml",
+    }
+    for name, actual in (
+        ("policy", policy_path),
+        ("assessment", assessment_path),
+        ("state", state_path),
+    ):
+        expected = safe_path(canonical_outputs[name], project_root=project_root)
+        if actual != expected:
+            raise RiskValidationError(
+                f"{name} is not the canonical migration path: {expected}"
+            )
+
+    outputs = [policy_path, assessment_path, state_path]
+    preflight_output_paths(outputs, project_root=project_root)
+    existing = [path for path in outputs if path.exists()]
+    if existing:
+        raise RiskValidationError(
+            "migration output already exists: "
+            + ", ".join(str(path) for path in existing)
+        )
+
+    threats = _load_mapping(threats_path, "threat document")
+    requirements = _load_mapping(requirements_path, "requirements document")
+    result = migrate(threats, requirements)
+    written: list[Path] = []
+    try:
+        for path, document in (
+            (policy_path, result["policy"]),
+            (assessment_path, result["assessment"]),
+            (state_path, result["state"]),
+        ):
+            safe_write_text(
+                path,
+                yaml.safe_dump(document, allow_unicode=True, sort_keys=False),
+                encoding="utf-8",
+                project_root=project_root,
+                create_parents=True,
+            )
+            written.append(path)
+    except BaseException:
+        for path in reversed(written):
+            safe_path(path, project_root=project_root).unlink(missing_ok=True)
+        raise
+    return result
 
 
 def _validated_evidence_documents(
@@ -1769,9 +2228,19 @@ def main(argv: list[str] | None = None) -> int:
                 "assessment",
                 "requirements",
                 "evidence",
+                "state",
             )
             if hasattr(args, name)
         }
+        if args.command == "migrate":
+            migration = write_migration(paths)
+            print(
+                f"legacy_unassessed: {migration['active_legacy_threats']} "
+                "active legacy threat(s); review and confirm risk proposals "
+                "before publication."
+            )
+            print("Prior published documents were not modified.")
+            return 0
         if args.command == "policy-confirm":
             policy = stamp_policy(paths, args.by, args.authority)
             print(f"confirmed risk policy ({policy['confirmation']['policy_digest']})")

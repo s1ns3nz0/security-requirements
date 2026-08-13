@@ -122,6 +122,32 @@ python3 -I "<exact absolute plugin root>/scripts/safe_paths.py" \
 Update the threat model incrementally. New components and new flows get new
 threats; existing threats keep their identifiers.
 
+If the stored threat document uses schema `0.1.0`, treat it as
+`legacy_unassessed`. Count its active legacy threats and, when the three risk
+scaffolding files do not yet exist, run the deterministic migration once:
+
+```
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/risk.py" migrate \
+    --project-root "$PWD" \
+    --threats .security-requirements/threats.yaml \
+    --requirements .security-requirements/requirements.yaml \
+    --policy .security-requirements/risk-policy.yaml \
+    --assessment .security-requirements/risk-assessment.yaml \
+    --state .security-requirements/risk-state.yaml
+```
+
+Show the CLI's exact active legacy threat count and its statement,
+`Prior published documents were not modified.` The migration creates review-only
+internal proposals and preserves existing requirement exceptions. The model
+must not edit the threat schema version or invent scores, ratings, approval, or
+confirmation. Stop this refresh after scaffolding and direct the user into the
+risk confirmation review; do not silently continue to publication. If the
+scaffolding already exists, preserve it and resume that same risk confirmation
+review instead of running migration again. Only a successful human-confirmed
+`risk.py confirm` call may advance the threat schema to `0.2.0`.
+
 Re-evaluate inherent risk immediately after the threat update. Preserve
 unchanged human rationale, treatment, owner, acceptance, and evidence. New or
 changed threats remain proposed or stale until reviewed; never silently reuse

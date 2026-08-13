@@ -15,6 +15,13 @@
 
 version: "0.1.0"
 profile: b2b-saas-aws
+risk_migration:
+  source_schema: "0.1.0"
+  target_schema: "0.2.0"
+  status: legacy_unassessed
+  active_threats: 8
+  confirmed_assessments: 0
+  published_documents_modified: false
 
 topics:
 

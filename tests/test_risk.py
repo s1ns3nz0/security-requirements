@@ -1524,3 +1524,610 @@ def test_relative_document_paths_are_resolved_from_project_not_process_cwd(
 
     assert stamped["confirmation"]["policy_digest"].startswith("sha256:")
     assert risk.check_policy(relative_paths) == []
+
+
+def test_legacy_migration_proposes_without_confirmed_numbers_or_input_mutation():
+    legacy_threats = {
+        "version": "0.1.0",
+        "threats": [
+            {
+                "id": "T-LEGACY-01",
+                "boundary": "TB-1",
+                "category": "STRIDE:T",
+                "novelty": "service_specific",
+                "persona": "anonymous_external",
+                "scenario": "anonymous callers can alter movie ratings",
+                "affected_assets": ["movie_ratings"],
+                "related_controls": ["AC-3"],
+            }
+        ],
+    }
+    requirements = {
+        "requirements": [
+            {
+                "id": "REQ-RATING-AUTHZ-01",
+                "managed": {"statement": "Only authorised users change ratings."},
+                "human": {
+                    "status": "exception",
+                    "owner": "movie-team",
+                    "exception": {
+                        "approver": "risk-owner",
+                        "role": "risk_manager",
+                        "reason": "legacy launch exception",
+                        "expires": "2026-12-31",
+                        "authority": "self_declared",
+                    },
+                },
+                "threat_refs": ["T-LEGACY-01"],
+            }
+        ]
+    }
+    before_threats = copy.deepcopy(legacy_threats)
+    before_requirements = copy.deepcopy(requirements)
+
+    result = risk.migrate(legacy_threats, requirements)
+
+    assert result["status"] == "legacy_unassessed"
+    assert result["source_schema"] == "0.1.0"
+    assert result["active_legacy_threats"] == 1
+    assert result["threats"] == before_threats
+    assert result["threats"]["version"] == "0.1.0"
+    assert result["assessments"] == [
+        {"threat_id": "T-LEGACY-01", "status": "PROPOSED"}
+    ]
+    assert all(
+        set(row).isdisjoint({"calculated", "confirmed", "confirmation", "approval"})
+        for row in result["assessments"]
+    )
+    assert result["pending_requirement_migrations"][0]["threat_refs"] == [
+        "T-LEGACY-01"
+    ]
+    assert legacy_threats == before_threats
+    assert requirements == before_requirements
+
+
+@pytest.mark.parametrize("version", ["0.2.0", "1.0.0", None])
+def test_migration_accepts_only_legacy_threat_schema(version):
+    threats = {"version": version, "threats": []}
+
+    with pytest.raises(risk.RiskValidationError, match="legacy threat schema must be 0.1.0"):
+        risk.migrate(threats, {"requirements": []})
+
+
+def test_legacy_migration_rejects_duplicate_threat_ids():
+    duplicate = {
+        "version": "0.1.0",
+        "threats": [
+            {"id": "T-01", "scenario": "first"},
+            {"id": "T-01", "scenario": "second"},
+        ],
+    }
+
+    with pytest.raises(risk.RiskValidationError, match="duplicate legacy threat id: T-01"):
+        risk.migrate(duplicate, {"requirements": []})
+
+
+def _confirmed_refresh_assessment():
+    return {
+        "confirmation": {"status": "confirmed", "assessment_digest": "sha256:old"},
+        "assessments": [
+            {
+                "threat_id": "T-01",
+                "status": "CONFIRMED",
+                "proposed": proposal(
+                    "L4-PUBLIC-LOW-COMPLEXITY", "I4-CROSS-SYSTEM"
+                ),
+                "calculated": {
+                    "likelihood": 4,
+                    "impact": 4,
+                    "score": 16,
+                    "rating": "high",
+                },
+                "treatment": {
+                    "strategy": "mitigate",
+                    "owner": "movie-team",
+                    "requirement_refs": ["REQ-RATING-AUTHZ-01"],
+                },
+                "residual": {
+                    "status": "CONFIRMED",
+                    "calculated": {
+                        "likelihood": 3,
+                        "impact": 4,
+                        "score": 12,
+                        "rating": "high",
+                    },
+                    "evidence_refs": ["EVID-RATING-AUTHZ-01"],
+                },
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"scenario": "bulk movie-rating manipulation"},
+        {"boundary": "TB-2"},
+        {"persona": "authenticated_viewer"},
+        {"attack_path": "bulk_rating_write"},
+        {"affected_assets": ["movie_ratings", "recommendations"]},
+    ],
+)
+def test_refresh_invalidates_inherent_confirmation_only_for_inherent_inputs(changes):
+    previous = {"version": "0.2.0", "threats": [threat_record("T-01")]}
+    current_record = threat_record("T-01")
+    current_record.update(changes)
+    current = {"version": "0.2.0", "threats": [current_record]}
+    assessment = _confirmed_refresh_assessment()
+    before_human = copy.deepcopy(assessment["assessments"][0]["treatment"])
+
+    refreshed = risk.refresh_assessment(previous, current, assessment)
+
+    record = refreshed["assessments"][0]
+    assert record["status"] == "STALE"
+    assert record["residual"]["status"] == "CONFIRMED"
+    assert record["treatment"] == before_human
+    assert record["calculated"]["score"] == 16
+    assert "confirmation" not in refreshed
+
+
+def test_related_control_change_invalidates_residual_but_not_inherent_confirmation():
+    previous = {"version": "0.2.0", "threats": [threat_record("T-01")]}
+    current = {
+        "version": "0.2.0",
+        "threats": [threat_record("T-01", related_controls=["AC-3", "AC-4"])],
+    }
+
+    refreshed = risk.refresh_assessment(
+        previous, current, _confirmed_refresh_assessment()
+    )
+
+    record = refreshed["assessments"][0]
+    assert record["status"] == "CONFIRMED"
+    assert record["residual"]["status"] == "STALE"
+    assert "confirmation" not in refreshed
+
+
+@pytest.mark.parametrize("change_kind", ["requirement", "evidence"])
+def test_related_requirement_or_evidence_change_invalidates_only_residual(
+    change_kind,
+):
+    threats = {"version": "0.2.0", "threats": [threat_record("T-01")]}
+    old_requirements = {
+        "requirements": [
+            {
+                "id": "REQ-RATING-AUTHZ-01",
+                "managed": {
+                    "statement": "Authorise movie-rating writes.",
+                    "risk_refs": ["T-01"],
+                },
+            }
+        ]
+    }
+    new_requirements = copy.deepcopy(old_requirements)
+    old_evidence = {
+        "evidence": [
+            {
+                "id": "EVID-RATING-AUTHZ-01",
+                "requirement_id": "REQ-RATING-AUTHZ-01",
+                "artifact": {"digest": "sha256:" + "a" * 64},
+            }
+        ]
+    }
+    new_evidence = copy.deepcopy(old_evidence)
+    if change_kind == "requirement":
+        new_requirements["requirements"][0]["managed"]["statement"] = (
+            "Authorise every movie-rating write."
+        )
+    else:
+        new_evidence["evidence"][0]["artifact"]["digest"] = "sha256:" + "b" * 64
+
+    refreshed = risk.refresh_assessment(
+        threats,
+        copy.deepcopy(threats),
+        _confirmed_refresh_assessment(),
+        previous_requirements=old_requirements,
+        current_requirements=new_requirements,
+        previous_evidence=old_evidence,
+        current_evidence=new_evidence,
+    )
+
+    record = refreshed["assessments"][0]
+    assert record["status"] == "CONFIRMED"
+    assert record["residual"]["status"] == "STALE"
+    assert "confirmation" not in refreshed
+
+
+def test_refresh_reuses_stable_ids_but_never_resurrects_reopened_approval():
+    previous = {
+        "version": "0.2.0",
+        "threats": [threat_record("T-01", status="retired")],
+    }
+    current = {"version": "0.2.0", "threats": [threat_record("T-01")]}
+    assessment = _confirmed_refresh_assessment()
+
+    refreshed = risk.refresh_assessment(previous, current, assessment)
+
+    assert [row["threat_id"] for row in refreshed["assessments"]] == ["T-01"]
+    assert refreshed["assessments"][0]["status"] == "PROPOSED"
+    assert refreshed["assessments"][0]["residual"]["status"] == "STALE"
+    assert refreshed["assessments"][0]["treatment"] == assessment["assessments"][0][
+        "treatment"
+    ]
+    assert "confirmation" not in refreshed
+
+
+def test_refresh_adds_new_proposals_and_retains_retired_or_superseded_history():
+    previous = {
+        "version": "0.2.0",
+        "threats": [
+            threat_record("T-OLD"),
+            threat_record(
+                "T-SUPERSEDED",
+                status="superseded",
+                lifecycle={"status": "superseded", "superseded_by": ["T-OLD"]},
+            ),
+        ],
+    }
+    current = {
+        "version": "0.2.0",
+        "threats": [
+            threat_record("T-OLD", status="retired"),
+            previous["threats"][1],
+            threat_record("T-NEW"),
+        ],
+    }
+    historical = {
+        "threat_id": "T-SUPERSEDED",
+        "status": "CONFIRMED",
+        "calculated": {"rating": "medium", "score": 9},
+    }
+    assessment = {
+        "confirmation": {"status": "confirmed"},
+        "assessments": [
+            {
+                "threat_id": "T-OLD",
+                "status": "CONFIRMED",
+                "calculated": {"rating": "high", "score": 16},
+            },
+            copy.deepcopy(historical),
+        ],
+    }
+
+    refreshed = risk.refresh_assessment(previous, current, assessment)
+
+    by_id = {row["threat_id"]: row for row in refreshed["assessments"]}
+    assert by_id["T-SUPERSEDED"] == historical
+    assert by_id["T-OLD"]["status"] == "CONFIRMED"
+    assert by_id["T-NEW"] == {"threat_id": "T-NEW", "status": "PROPOSED"}
+    assert "confirmation" not in refreshed
+
+
+def test_new_threat_cannot_reuse_an_orphaned_confirmed_assessment():
+    previous = {"version": "0.2.0", "threats": []}
+    current = {"version": "0.2.0", "threats": [threat_record("T-NEW")]}
+    orphaned = _confirmed_refresh_assessment()
+    orphaned["assessments"][0]["threat_id"] = "T-NEW"
+
+    refreshed = risk.refresh_assessment(previous, current, orphaned)
+
+    record = refreshed["assessments"][0]
+    assert record["status"] == "PROPOSED"
+    assert record["residual"]["status"] == "STALE"
+    assert "confirmation" not in refreshed
+
+
+def _seed_legacy_migration_project(project: Path):
+    internal = project / ".security-requirements"
+    public = project / "docs" / "security"
+    internal.mkdir(parents=True)
+    public.mkdir(parents=True)
+    threats = {
+        "version": "0.1.0",
+        "threats": [
+            {
+                "id": "T-LEGACY-01",
+                "scenario": "anonymous callers can alter movie ratings",
+            }
+        ],
+    }
+    requirements = {
+        "requirements": [
+            {
+                "id": "REQ-RATING-AUTHZ-01",
+                "managed": {"statement": "Authorise movie-rating writes."},
+                "human": {},
+            }
+        ]
+    }
+    threats_path = internal / "threats.yaml"
+    requirements_path = internal / "requirements.yaml"
+    threats_path.write_text(
+        yaml.safe_dump(threats, sort_keys=False), encoding="utf-8"
+    )
+    requirements_path.write_text(
+        yaml.safe_dump(requirements, sort_keys=False), encoding="utf-8"
+    )
+    for name, content in {
+        "security-requirements.md": "previous requirements\n",
+        "traceability.md": "previous traceability\n",
+        "risk-summary.md": "previous approved public aggregate\n",
+    }.items():
+        (public / name).write_text(content, encoding="utf-8")
+    return threats_path, requirements_path
+
+
+def _run_migration_cli(project: Path, threats_path: Path, requirements_path: Path):
+    internal = project / ".security-requirements"
+    return subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "risk.py"),
+            "migrate",
+            "--project-root",
+            str(project),
+            "--threats",
+            str(threats_path),
+            "--requirements",
+            str(requirements_path),
+            "--policy",
+            str(internal / "risk-policy.yaml"),
+            "--assessment",
+            str(internal / "risk-assessment.yaml"),
+            "--state",
+            str(internal / "risk-state.yaml"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_migration_cli_scaffolds_internal_proposals_without_publishing(tmp_path):
+    project = tmp_path / "legacy movie app 한글"
+    threats_path, requirements_path = _seed_legacy_migration_project(project)
+    public = project / "docs" / "security"
+    public_before = {path.name: path.read_bytes() for path in public.iterdir()}
+    threats_before = threats_path.read_bytes()
+    requirements_before = requirements_path.read_bytes()
+
+    result = _run_migration_cli(project, threats_path, requirements_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "1 active legacy threat(s)" in result.stdout
+    assert "legacy_unassessed" in result.stdout
+    assert "Prior published documents were not modified." in result.stdout
+    assert threats_path.read_bytes() == threats_before
+    assert requirements_path.read_bytes() == requirements_before
+    assert {path.name: path.read_bytes() for path in public.iterdir()} == public_before
+    assessment = yaml.safe_load(
+        (project / ".security-requirements" / "risk-assessment.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert assessment["assessments"] == [
+        {"threat_id": "T-LEGACY-01", "status": "PROPOSED"}
+    ]
+    assert "confirmation" not in assessment
+    state = yaml.safe_load(
+        (project / ".security-requirements" / "risk-state.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert state["migration"]["source_schema"] == "0.1.0"
+    assert state["snapshots"] == []
+
+
+def test_failed_migration_preserves_public_bytes_and_creates_no_scaffolding(tmp_path):
+    project = tmp_path / "invalid legacy app"
+    threats_path, requirements_path = _seed_legacy_migration_project(project)
+    threats = yaml.safe_load(threats_path.read_text(encoding="utf-8"))
+    threats["threats"].append(copy.deepcopy(threats["threats"][0]))
+    threats_path.write_text(
+        yaml.safe_dump(threats, sort_keys=False), encoding="utf-8"
+    )
+    public = project / "docs" / "security"
+    public_before = {path.name: path.read_bytes() for path in public.iterdir()}
+
+    result = _run_migration_cli(project, threats_path, requirements_path)
+
+    assert result.returncode == 1
+    assert "duplicate legacy threat id" in result.stderr
+    assert {path.name: path.read_bytes() for path in public.iterdir()} == public_before
+    internal = project / ".security-requirements"
+    assert not (internal / "risk-policy.yaml").exists()
+    assert not (internal / "risk-assessment.yaml").exists()
+    assert not (internal / "risk-state.yaml").exists()
+
+
+def test_migration_cli_rejects_public_output_alias_without_modifying_it(tmp_path):
+    project = tmp_path / "legacy alias app"
+    threats_path, requirements_path = _seed_legacy_migration_project(project)
+    public_summary = project / "docs" / "security" / "risk-summary.md"
+    before = public_summary.read_bytes()
+    internal = project / ".security-requirements"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "risk.py"),
+            "migrate",
+            "--project-root",
+            str(project),
+            "--threats",
+            str(threats_path),
+            "--requirements",
+            str(requirements_path),
+            "--policy",
+            str(public_summary),
+            "--assessment",
+            str(internal / "risk-assessment.yaml"),
+            "--state",
+            str(internal / "risk-state.yaml"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "canonical migration path" in result.stderr
+    assert public_summary.read_bytes() == before
+    assert not (internal / "risk-assessment.yaml").exists()
+    assert not (internal / "risk-state.yaml").exists()
+
+
+def test_migration_cli_refuses_to_overwrite_existing_review_scaffolding(tmp_path):
+    project = tmp_path / "legacy existing review"
+    threats_path, requirements_path = _seed_legacy_migration_project(project)
+    internal = project / ".security-requirements"
+    policy_path = internal / "risk-policy.yaml"
+    policy_path.write_text("human-owned review proposal\n", encoding="utf-8")
+    before = policy_path.read_bytes()
+
+    result = _run_migration_cli(project, threats_path, requirements_path)
+
+    assert result.returncode == 1
+    assert "migration output already exists" in result.stderr
+    assert policy_path.read_bytes() == before
+    assert not (internal / "risk-assessment.yaml").exists()
+    assert not (internal / "risk-state.yaml").exists()
+
+
+def test_migration_scaffolding_rolls_back_all_outputs_on_write_failure(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "legacy interrupted migration"
+    threats_path, requirements_path = _seed_legacy_migration_project(project)
+    internal = project / ".security-requirements"
+    real_write = risk.safe_write_text
+    writes = 0
+
+    def fail_second_write(*args, **kwargs):
+        nonlocal writes
+        writes += 1
+        if writes == 2:
+            raise OSError("injected migration write failure")
+        return real_write(*args, **kwargs)
+
+    monkeypatch.setattr(risk, "safe_write_text", fail_second_write)
+    paths = {
+        "project_root": project,
+        "threats": threats_path,
+        "requirements": requirements_path,
+        "policy": internal / "risk-policy.yaml",
+        "assessment": internal / "risk-assessment.yaml",
+        "state": internal / "risk-state.yaml",
+    }
+
+    with pytest.raises(OSError, match="injected migration write failure"):
+        risk.write_migration(paths)
+
+    assert not paths["policy"].exists()
+    assert not paths["assessment"].exists()
+    assert not paths["state"].exists()
+
+
+def test_legacy_schema_advances_only_inside_successful_human_confirmation(
+    risk_fixture,
+):
+    risk_fixture.threats["version"] = "0.1.0"
+    risk_fixture._write_documents()
+    risk.stamp_policy(
+        risk_fixture.paths,
+        "risk-owner",
+        "self_declared",
+        confirmed_at="2026-08-13T00:00:00Z",
+    )
+    assert yaml.safe_load(
+        risk_fixture.paths["threats"].read_text(encoding="utf-8")
+    )["version"] == "0.1.0"
+
+    risk.stamp_assessment(
+        risk_fixture.paths,
+        "risk-owner",
+        "self_declared",
+        confirmed_at="2026-08-13T00:01:00Z",
+    )
+
+    promoted = yaml.safe_load(
+        risk_fixture.paths["threats"].read_text(encoding="utf-8")
+    )
+    assert promoted["version"] == "0.2.0"
+    assert promoted["threats"][0]["id"] == "T-01"
+    assert promoted["threats"][0]["scenario"] == "anonymous mutation"
+    assert risk.check_assessment(risk_fixture.paths) == []
+
+
+def test_failed_legacy_confirmation_does_not_advance_schema(risk_fixture):
+    risk_fixture.threats["version"] = "0.1.0"
+    risk_fixture.assessment["assessments"][0].pop("proposed")
+    risk_fixture._write_documents()
+    risk.stamp_policy(risk_fixture.paths, "risk-owner", "self_declared")
+    before = risk_fixture.paths["threats"].read_bytes()
+
+    with pytest.raises(risk.RiskValidationError, match="assessment proposal is required"):
+        risk.stamp_assessment(
+            risk_fixture.paths, "risk-owner", "self_declared"
+        )
+
+    assert risk_fixture.paths["threats"].read_bytes() == before
+    assert yaml.safe_load(before)["version"] == "0.1.0"
+
+
+def test_legacy_confirmation_rolls_back_schema_and_assessment_on_write_failure(
+    risk_fixture, monkeypatch
+):
+    risk_fixture.threats["version"] = "0.1.0"
+    risk_fixture._write_documents()
+    risk.stamp_policy(risk_fixture.paths, "risk-owner", "self_declared")
+    before_threats = risk_fixture.paths["threats"].read_bytes()
+    before_assessment = risk_fixture.paths["assessment"].read_bytes()
+    real_write = risk.safe_write_text
+    failed = False
+
+    def fail_threat_promotion(path, *args, **kwargs):
+        nonlocal failed
+        if Path(path) == risk_fixture.paths["threats"] and not failed:
+            failed = True
+            raise OSError("injected schema promotion failure")
+        return real_write(path, *args, **kwargs)
+
+    monkeypatch.setattr(risk, "safe_write_text", fail_threat_promotion)
+
+    with pytest.raises(OSError, match="injected schema promotion failure"):
+        risk.stamp_assessment(
+            risk_fixture.paths, "risk-owner", "self_declared"
+        )
+
+    assert risk_fixture.paths["threats"].read_bytes() == before_threats
+    assert risk_fixture.paths["assessment"].read_bytes() == before_assessment
+    assert not risk.confirmation_state_path(
+        risk_fixture.paths["project_root"], "assessment"
+    ).exists()
+
+
+def test_b2b_golden_declares_and_meets_legacy_risk_migration_coverage():
+    golden = REPO_ROOT / "golden" / "b2b-saas-aws"
+    expected = yaml.safe_load(
+        (golden / "expected-coverage.yaml").read_text(encoding="utf-8")
+    )["risk_migration"]
+    threats = yaml.safe_load(
+        (golden / "threats.yaml").read_text(encoding="utf-8")
+    )
+    threats["version"] = "0.1.0"
+
+    migrated = risk.migrate(threats, {"requirements": []})
+
+    assert {
+        "source_schema": migrated["source_schema"],
+        "target_schema": migrated["target_schema"],
+        "status": migrated["status"],
+        "active_threats": migrated["active_legacy_threats"],
+        "confirmed_assessments": sum(
+            row["status"] == "CONFIRMED" for row in migrated["assessments"]
+        ),
+        "published_documents_modified": False,
+    } == expected

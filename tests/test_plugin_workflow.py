@@ -354,6 +354,33 @@ def test_build_and_refresh_gate_publication_on_confirmed_inherent_risk():
         assert "does not block" in text
 
 
+def test_refresh_routes_legacy_threats_through_non_destructive_risk_migration():
+    refresh = (ROOT / "commands" / "sec-req-refresh.md").read_text(
+        encoding="utf-8"
+    )
+    migration = (
+        f'python3 -I "{PLUGIN_ROOT_LITERAL}/scripts/risk.py" migrate \\\n'
+        '    --project-root "$PWD" \\\n'
+        '    --threats .security-requirements/threats.yaml \\\n'
+        '    --requirements .security-requirements/requirements.yaml \\\n'
+        '    --policy .security-requirements/risk-policy.yaml \\\n'
+        '    --assessment .security-requirements/risk-assessment.yaml \\\n'
+        '    --state .security-requirements/risk-state.yaml'
+    )
+
+    assert migration in refresh
+    assert refresh.index("schema `0.1.0`") < refresh.index(migration)
+    assert refresh.index(migration) < refresh.index("batch review table")
+    legacy_block = refresh[
+        refresh.index("schema `0.1.0`") : refresh.index("batch review table")
+    ]
+    assert "active legacy threat" in legacy_block
+    assert "Prior published documents were not modified" in legacy_block
+    assert "Stop this refresh" in legacy_block
+    assert "risk confirmation review" in legacy_block
+    assert "must not edit the threat schema version" in legacy_block
+
+
 def test_build_and_refresh_publish_only_from_an_external_staging_directory():
     for workflow in ("build", "refresh"):
         text = (ROOT / "commands" / f"sec-req-{workflow}.md").read_text(
