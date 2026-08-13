@@ -366,6 +366,48 @@ def test_acceptance_role_is_checked_against_configured_allowlist(default_policy)
     )
 
 
+@pytest.mark.parametrize(
+    "treatment,problem",
+    [
+        ({"strategy": "transfer"}, "T-01 treatment owner is required"),
+        (
+            {
+                "strategy": "accept",
+                "owner": "platform",
+                "approval": {"approver": "alice"},
+            },
+            "T-01 acceptance role is required",
+        ),
+    ],
+)
+def test_assessment_validation_and_stamp_reject_invalid_treatment(
+    risk_fixture, default_policy, treatment, problem
+):
+    """A confirmed record cannot bypass treatment governance through stamping."""
+    risk_fixture.assessment["assessments"][0]["treatment"] = treatment
+    risk_fixture._write_documents()
+    proposed = copy.deepcopy(risk_fixture.assessment)
+    proposed["assessments"][0]["status"] = "CONFIRMED"
+
+    assert problem in risk.validate_assessment(
+        risk_fixture.threats, proposed, default_policy
+    )
+
+    risk.stamp_policy(
+        risk_fixture.paths,
+        "risk-owner",
+        "self_declared",
+        confirmed_at="2026-08-13T00:00:00Z",
+    )
+    with pytest.raises(risk.RiskValidationError, match=problem):
+        risk.stamp_assessment(
+            risk_fixture.paths,
+            "risk-owner",
+            "self_declared",
+            confirmed_at="2026-08-13T00:01:00Z",
+        )
+
+
 def _history_snapshot(assessed_at, assessments):
     return {
         "assessed_at": assessed_at,
@@ -429,6 +471,39 @@ def test_risk_delta_reports_lifecycle_and_distribution_changes():
         "previous": {"critical": 0, "high": 2, "medium": 2, "low": 1},
         "current": {"critical": 1, "high": 0, "medium": 2, "low": 2},
     }
+
+
+def test_risk_delta_reports_only_newly_expired_acceptances():
+    previous = _history_snapshot(
+        "2027-01-01T00:00:00Z",
+        [
+            {
+                "threat_id": "T-already-expired",
+                "status": "CONFIRMED",
+                "calculated": {"rating": "high"},
+                "treatment": {
+                    "strategy": "accept",
+                    "approval": {"expires": "2026-12-31"},
+                },
+            },
+            {
+                "threat_id": "T-newly-expired",
+                "status": "CONFIRMED",
+                "calculated": {"rating": "high"},
+                "treatment": {
+                    "strategy": "accept",
+                    "approval": {"expires": "2027-01-31"},
+                },
+            },
+        ],
+    )
+    current = _history_snapshot(
+        "2027-02-01T00:00:00Z", copy.deepcopy(previous["assessments"])
+    )
+
+    assert risk.risk_delta(previous, current)["expired_acceptance"] == [
+        "T-newly-expired"
+    ]
 
 
 def test_threat_digest_is_stable_for_lifecycle_changes():

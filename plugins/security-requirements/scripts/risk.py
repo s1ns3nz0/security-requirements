@@ -448,6 +448,11 @@ def validate_assessment(threats: dict, assessment: dict, policy: dict) -> list[s
             problems.append(f"{threat_id} assessment status is invalid")
         if status == "CONFIRMED":
             problems.extend(_validated_calculation(threat_id, record, policy))
+            if "treatment" in record:
+                problems.extend(
+                    f"{threat_id} {problem}"
+                    for problem in validate_treatment(record, policy, date.today())
+                )
 
     for threat in active:
         threat_id = threat["id"]
@@ -677,6 +682,7 @@ def risk_delta(previous: dict, current: dict) -> dict:
         raise RiskValidationError("risk snapshots must be mappings")
     old_records = _snapshot_records(previous)
     new_records = _snapshot_records(current)
+    previous_date = _snapshot_assessed_date(previous)
     current_date = _snapshot_assessed_date(current)
     result = {
         "new": [],
@@ -718,7 +724,9 @@ def risk_delta(previous: dict, current: dict) -> dict:
                     result["increased"].append(threat_id)
                 elif RATINGS.index(rating) > RATINGS.index(old_rating):
                     result["decreased"].append(threat_id)
-        if _expired_acceptance(record, current_date):
+        if _expired_acceptance(record, current_date) and not (
+            old_record is not None and _expired_acceptance(old_record, previous_date)
+        ):
             result["expired_acceptance"].append(threat_id)
     return result
 
