@@ -207,11 +207,40 @@ def _unused_directory_path(parent: Path, project_root: Path, prefix: str) -> Pat
     return safe_path(path, project_root=project_root)
 
 
+def _is_redirect_stat(metadata: os.stat_result) -> bool:
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return stat.S_ISLNK(metadata.st_mode) or bool(
+        getattr(metadata, "st_file_attributes", 0) & reparse_flag
+    )
+
+
 def _remove_tree(path: Path, project_root: Path) -> None:
-    if not path.exists():
+    """Remove a contained tree or redirect object without following its target."""
+
+    lexical = _absolute(Path(path))
+    root = _absolute(Path(project_root))
+    try:
+        lexical.relative_to(root)
+    except ValueError as exc:
+        raise UnsafePathError(f"cleanup path escapes project root: {lexical}") from exc
+    safe_path(lexical.parent, project_root=root)
+    try:
+        metadata = os.lstat(lexical)
+    except FileNotFoundError:
         return
-    safe_path(path, project_root=project_root)
-    shutil.rmtree(path)
+    if _is_redirect_stat(metadata):
+        try:
+            os.unlink(lexical)
+        except (IsADirectoryError, PermissionError):
+            # Windows directory junctions/reparse points are removed as the
+            # link object itself with rmdir. This never walks their target.
+            os.rmdir(lexical)
+        return
+    safe_path(lexical, project_root=root)
+    if stat.S_ISDIR(metadata.st_mode):
+        shutil.rmtree(lexical)
+    else:
+        os.unlink(lexical)
 
 
 def _best_effort_remove_tree(path: Path, project_root: Path) -> None:
@@ -463,6 +492,8 @@ def _restore_public_root(
     public_root: Path,
     backup: Path,
     old_recovery: Path | None,
+    displaced_slot: Path,
+    recovery_slots: tuple[Path, Path],
     project_root: Path,
     old_manifest: tuple[tuple[str, str, str], ...] | None,
     new_manifest: tuple[tuple[str, str, str], ...],
@@ -483,9 +514,9 @@ def _restore_public_root(
     outcome: str | None = None
     if state != "absent":
         try:
-            displaced = _unused_directory_path(
-                public_root.parent, project_root, ".security-publish-failed-"
-            )
+            displaced = safe_path(displaced_slot, project_root=project_root)
+            if os.path.lexists(displaced):
+                raise PublicationError("reserved displaced-tree slot is occupied")
         except BaseException:
             if state == "new":
                 return "new"
@@ -604,7 +635,9 @@ def _restore_public_root(
                 return old_recovery
             return None
 
-        def install_from_verified_copy() -> tuple[str, BaseException | None]:
+        def install_from_verified_copy(
+            recovery: Path,
+        ) -> tuple[str, BaseException | None]:
             """Attempt restoration without consuming the authoritative source."""
 
             restore_source = verified_restore_source()
@@ -619,13 +652,11 @@ def _restore_public_root(
                 )
 
             safe_path(restore_source, project_root=project_root)
-            recovery = _unused_directory_path(
-                public_root.parent,
-                project_root,
-                ".security-publish-recovery-",
-            )
             attempt_error: BaseException | None = None
             try:
+                if os.path.lexists(recovery):
+                    _remove_tree(recovery, project_root)
+                safe_path(recovery, project_root=project_root)
                 _copy_tree_no_follow(restore_source, recovery)
                 if not _tree_matches(recovery, old_manifest, project_root):
                     raise PublicationError(
@@ -672,7 +703,7 @@ def _restore_public_root(
                 public_root, project_root, old_manifest, new_manifest
             )
 
-        state, first_restore_error = install_from_verified_copy()
+        state, first_restore_error = install_from_verified_copy(recovery_slots[0])
         if state in {"old", "new"}:
             outcome = state
             return outcome
@@ -688,7 +719,7 @@ def _restore_public_root(
         if state != "absent":
             raise PublicationError("rollback did not clear the invalid public tree")
 
-        state, second_restore_error = install_from_verified_copy()
+        state, second_restore_error = install_from_verified_copy(recovery_slots[1])
         if state in {"old", "new"}:
             outcome = state
             return outcome
@@ -767,6 +798,8 @@ def stage_and_publish(
     candidate = _temporary_directory(project, ".security-publish-candidate-")
     backup: Path | None = None
     old_recovery: Path | None = None
+    displaced_slot: Path | None = None
+    recovery_slots: tuple[Path, Path] | None = None
     activated = False
     committed = False
     try:
@@ -826,6 +859,17 @@ def stage_and_publish(
         backup = _unused_directory_path(
             public_root.parent, project, ".security-publish-backup-"
         )
+        displaced_slot = _unused_directory_path(
+            public_root.parent, project, ".security-publish-failed-"
+        )
+        recovery_slots = (
+            _unused_directory_path(
+                public_root.parent, project, ".security-publish-recovery-a-"
+            ),
+            _unused_directory_path(
+                public_root.parent, project, ".security-publish-recovery-b-"
+            ),
+        )
         if had_public_root:
             assert old_manifest is not None
             old_recovery = _unused_directory_path(
@@ -854,10 +898,14 @@ def stage_and_publish(
                 public_root, backup, old_recovery, project, old_manifest
             )
         if not _tree_matches(candidate, new_manifest, project):
+            assert displaced_slot is not None
+            assert recovery_slots is not None
             state = _restore_public_root(
                 public_root,
                 backup,
                 old_recovery,
+                displaced_slot,
+                recovery_slots,
                 project,
                 old_manifest,
                 new_manifest,
@@ -882,10 +930,14 @@ def stage_and_publish(
                 activated = True
             else:
                 activated = False
+                assert displaced_slot is not None
+                assert recovery_slots is not None
                 state = _restore_public_root(
                     public_root,
                     backup,
                     old_recovery,
+                    displaced_slot,
+                    recovery_slots,
                     project,
                     old_manifest,
                     new_manifest,
@@ -899,10 +951,14 @@ def stage_and_publish(
 
         if not _tree_matches(public_root, new_manifest, project):
             activated = False
+            assert displaced_slot is not None
+            assert recovery_slots is not None
             state = _restore_public_root(
                 public_root,
                 backup,
                 old_recovery,
+                displaced_slot,
+                recovery_slots,
                 project,
                 old_manifest,
                 new_manifest,
@@ -926,10 +982,14 @@ def stage_and_publish(
             )
         except BaseException as state_error:
             activated = False
+            assert displaced_slot is not None
+            assert recovery_slots is not None
             state = _restore_public_root(
                 public_root,
                 backup,
                 old_recovery,
+                displaced_slot,
+                recovery_slots,
                 project,
                 old_manifest,
                 new_manifest,
@@ -950,10 +1010,14 @@ def stage_and_publish(
         # canonical tree immediately before the sole old backup can be removed.
         if not _tree_matches(public_root, new_manifest, project):
             activated = False
+            assert displaced_slot is not None
+            assert recovery_slots is not None
             state = _restore_public_root(
                 public_root,
                 backup,
                 old_recovery,
+                displaced_slot,
+                recovery_slots,
                 project,
                 old_manifest,
                 new_manifest,

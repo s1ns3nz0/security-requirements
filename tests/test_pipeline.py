@@ -16,6 +16,7 @@ import json
 import hashlib
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -3230,7 +3231,7 @@ def test_candidate_mutation_after_state_write_is_checked_before_backup_cleanup(
     assert not state_path.exists()
 
 
-def test_incomplete_committed_tree_is_restored_before_activation_error_is_raised(
+def test_displaced_artifact_setup_failure_occurs_before_activation(
     tmp_path, monkeypatch
 ):
     project = tmp_path / "project"
@@ -3239,11 +3240,14 @@ def test_incomplete_committed_tree_is_restored_before_activation_error_is_raised
     generated = _generated_public_docs(tmp_path / "external staging")
     real_replace = publish.os.replace
     real_unused = publish._unused_directory_path
+    activation_attempted = False
 
     def commit_incomplete_activation_then_report_failure(source, target):
+        nonlocal activation_attempted
         source_path = Path(source)
         target_path = Path(target)
         if "candidate" in source_path.name and target_path.name == "security":
+            activation_attempted = True
             real_replace(source, target)
             (target_path / "responsibility.md").unlink()
             raise OSError("injected incomplete activation failure")
@@ -3259,13 +3263,14 @@ def test_incomplete_committed_tree_is_restored_before_activation_error_is_raised
     )
     monkeypatch.setattr(publish, "_unused_directory_path", fail_recovery_artifact_setup)
 
-    with pytest.raises(OSError, match="injected incomplete activation failure"):
+    with pytest.raises(OSError, match="injected recovery setup failure"):
         publish.stage_and_publish(
             project,
             generated,
             ("requirements.md", "traceability.md", "responsibility.md"),
         )
 
+    assert not activation_attempted
     assert _read_public_docs(project) == before
 
 
@@ -3633,6 +3638,158 @@ def test_restore_source_mutation_before_successful_rename_retries_exact_snapshot
         )
 
     assert mutation_injected
+    assert _read_public_docs(project) == before
+
+
+def test_recovery_copy_swapped_to_symlink_is_unlinked_without_touching_target(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    marker = outside / "marker.txt"
+    marker.write_text("must survive\n", encoding="utf-8")
+    real_write = publish.safe_write_text
+    real_replace = publish.os.replace
+    swapped = False
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure before symlink race")
+        return real_write(path, *args, **kwargs)
+
+    def swap_verified_copy_to_symlink(source, target):
+        nonlocal swapped
+        source_path = Path(source)
+        target_path = Path(target)
+        if (
+            not swapped
+            and "recovery" in source_path.name
+            and target_path == project / "docs" / "security"
+        ):
+            swapped = True
+            shutil.rmtree(source_path)
+            source_path.symlink_to(outside, target_is_directory=True)
+        return real_replace(source, target)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+    monkeypatch.setattr(publish.os, "replace", swap_verified_copy_to_symlink)
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert swapped
+    assert marker.read_text(encoding="utf-8") == "must survive\n"
+    assert _read_public_docs(project) == before
+
+
+def test_reparse_like_canonical_is_removed_as_object_before_exact_restore(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_replace = publish.os.replace
+    real_rmdir = os.rmdir
+    marked_reparse: set[Path] = set()
+    reparse_inodes: set[int] = set()
+    reparse_injected = False
+    real_is_redirect_stat = publish._is_redirect_stat
+    real_tree_matches = publish._tree_matches
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure before reparse race")
+        return real_write(path, *args, **kwargs)
+
+    def mark_installed_copy_as_reparse(source, target):
+        nonlocal reparse_injected
+        result = real_replace(source, target)
+        if (
+            "recovery" in Path(source).name
+            and Path(target) == project / "docs" / "security"
+            and not reparse_injected
+        ):
+            reparse_injected = True
+            marked_reparse.add(Path(target))
+            reparse_inodes.add(os.lstat(target).st_ino)
+        return result
+
+    def classify_portable_reparse(metadata):
+        return (
+            metadata.st_ino in reparse_inodes
+            or real_is_redirect_stat(metadata)
+        )
+
+    def reject_marked_reparse(path, expected, project_root):
+        if Path(path) in marked_reparse:
+            return False
+        return real_tree_matches(path, expected, project_root)
+
+    def remove_reparse_object(path, *args, **kwargs):
+        target = Path(path)
+        if target in marked_reparse:
+            marked_reparse.remove(target)
+            reparse_inodes.discard(os.lstat(target).st_ino)
+            for member in sorted(target.rglob("*"), reverse=True):
+                if member.is_dir():
+                    real_rmdir(member)
+                else:
+                    member.unlink()
+            return real_rmdir(target)
+        return real_rmdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+    monkeypatch.setattr(publish.os, "replace", mark_installed_copy_as_reparse)
+    monkeypatch.setattr(publish, "_is_redirect_stat", classify_portable_reparse)
+    monkeypatch.setattr(publish, "_tree_matches", reject_marked_reparse)
+    monkeypatch.setattr(publish.os, "rmdir", remove_reparse_object)
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert reparse_injected
+    assert not marked_reparse
+    assert _read_public_docs(project) == before
+
+
+def test_restore_artifact_allocation_failure_leaves_old_canonical_live(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_unused = publish._unused_directory_path
+
+    def fail_second_restore_slot(parent, project_root, prefix):
+        if prefix == ".security-publish-recovery-b-":
+            assert _read_public_docs(project) == before
+            raise OSError("injected restore-slot allocation failure")
+        return real_unused(parent, project_root, prefix)
+
+    monkeypatch.setattr(publish, "_unused_directory_path", fail_second_restore_slot)
+
+    with pytest.raises(OSError, match="injected restore-slot allocation failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
     assert _read_public_docs(project) == before
 
 
