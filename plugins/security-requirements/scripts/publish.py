@@ -217,11 +217,90 @@ def _remove_tree(path: Path, project_root: Path) -> None:
 def _best_effort_remove_tree(path: Path, project_root: Path) -> None:
     try:
         _remove_tree(path, project_root)
-    except Exception:
+    except BaseException:
         # The publication is already committed (or the previous tree already
         # restored). A leftover recovery directory is safer than reporting a
         # failure whose visible output has in fact changed.
         pass
+
+
+def _require_no_follow_copy_support() -> tuple[int, int]:
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    directory_only = getattr(os, "O_DIRECTORY", 0)
+    if COPY_PLATFORM != "posix" or not nofollow or not directory_only:
+        # Python does not expose an equivalent atomic no-follow directory-open
+        # contract for Windows junctions/reparse points. Fail before reading
+        # staged bytes or creating a candidate tree.
+        raise PublicationError(
+            f"no-follow tree copying is unsupported on platform {COPY_PLATFORM}"
+        )
+    return nofollow, directory_only
+
+
+def _tree_manifest_no_follow(root: Path) -> tuple[tuple[str, str, str], ...]:
+    """Return an exact, no-follow manifest of regular files and directories."""
+
+    nofollow, directory_only = _require_no_follow_copy_support()
+    directory_flags = os.O_RDONLY | directory_only | nofollow
+    root_fd = os.open(root, directory_flags)
+    entries: list[tuple[str, str, str]] = []
+
+    def inspect_directory(read_fd: int, prefix: PurePosixPath) -> None:
+        for name in sorted(os.listdir(read_fd)):
+            member = prefix / name
+            member_name = member.as_posix()
+            source_stat = os.stat(name, dir_fd=read_fd, follow_symlinks=False)
+            if stat.S_ISLNK(source_stat.st_mode):
+                raise UnsafePathError(
+                    f"source tree contains a symlink: {member_name}"
+                )
+            if stat.S_ISDIR(source_stat.st_mode):
+                entries.append(("directory", member_name, ""))
+                child = os.open(name, directory_flags, dir_fd=read_fd)
+                try:
+                    inspect_directory(child, member)
+                finally:
+                    os.close(child)
+                continue
+            if not stat.S_ISREG(source_stat.st_mode):
+                raise PublicationError(
+                    f"source tree contains a special file: {member_name}"
+                )
+            source = os.open(name, os.O_RDONLY | nofollow, dir_fd=read_fd)
+            try:
+                opened_stat = os.fstat(source)
+                if (
+                    not stat.S_ISREG(opened_stat.st_mode)
+                    or (opened_stat.st_dev, opened_stat.st_ino)
+                    != (source_stat.st_dev, source_stat.st_ino)
+                ):
+                    raise UnsafePathError(
+                        f"source file changed while inspecting: {member_name}"
+                    )
+                digest = hashlib.sha256()
+                while chunk := os.read(source, 1024 * 1024):
+                    digest.update(chunk)
+                entries.append(("file", member_name, digest.hexdigest()))
+            finally:
+                os.close(source)
+
+    try:
+        inspect_directory(root_fd, PurePosixPath())
+    finally:
+        os.close(root_fd)
+    return tuple(entries)
+
+
+def _tree_matches(
+    root: Path,
+    expected: tuple[tuple[str, str, str], ...],
+    project_root: Path,
+) -> bool:
+    try:
+        safe_path(root, project_root=project_root)
+        return root.is_dir() and _tree_manifest_no_follow(root) == expected
+    except (OSError, PublicationError, UnsafePathError):
+        return False
 
 
 def _copy_tree_no_follow(source: Path, destination: Path, **kwargs) -> Path:
@@ -230,16 +309,7 @@ def _copy_tree_no_follow(source: Path, destination: Path, **kwargs) -> Path:
     dirs_exist_ok = kwargs.pop("dirs_exist_ok", False)
     if kwargs:
         raise TypeError(f"unsupported copy options: {', '.join(sorted(kwargs))}")
-    nofollow = getattr(os, "O_NOFOLLOW", 0)
-    directory_only = getattr(os, "O_DIRECTORY", 0)
-    if COPY_PLATFORM != "posix" or not nofollow or not directory_only:
-        # Python does not expose an equivalent atomic no-follow directory-open
-        # contract for Windows junctions/reparse points. Fail before touching
-        # either tree rather than validating only after a redirect was used.
-        raise PublicationError(
-            f"no-follow tree copying is unsupported on platform {COPY_PLATFORM}"
-        )
-
+    nofollow, directory_only = _require_no_follow_copy_support()
     directory_flags = os.O_RDONLY | directory_only | nofollow
 
     if destination.exists():
@@ -306,93 +376,215 @@ def _copy_tree_no_follow(source: Path, destination: Path, **kwargs) -> Path:
     return destination
 
 
+def _public_tree_state(
+    public_root: Path,
+    project_root: Path,
+    old_manifest: tuple[tuple[str, str, str], ...] | None,
+    new_manifest: tuple[tuple[str, str, str], ...],
+) -> str:
+    if old_manifest is not None and _tree_matches(
+        public_root, old_manifest, project_root
+    ):
+        return "old"
+    if _tree_matches(public_root, new_manifest, project_root):
+        return "new"
+    try:
+        safe_path(public_root, project_root=project_root)
+    except (OSError, UnsafePathError):
+        return "unknown"
+    return "absent" if not public_root.exists() else "unknown"
+
+
+def _move_previous_tree_to_backup(
+    public_root: Path,
+    backup: Path,
+    project_root: Path,
+    old_manifest: tuple[tuple[str, str, str], ...],
+) -> None:
+    """Move the old tree aside, resolving replace-then-raise ambiguity."""
+
+    try:
+        os.replace(public_root, backup)
+    except BaseException as move_error:
+        if _tree_matches(backup, old_manifest, project_root):
+            try:
+                safe_path(public_root, project_root=project_root)
+            except (OSError, UnsafePathError):
+                pass
+            else:
+                if not public_root.exists():
+                    return
+        if _tree_matches(public_root, old_manifest, project_root):
+            raise move_error
+        # Never propagate the ambiguous rename error while the canonical path
+        # is absent. A verified old backup means the move did commit and it is
+        # safe to continue to candidate activation.
+        if _tree_matches(backup, old_manifest, project_root):
+            return
+        raise PublicationError(
+            "cannot determine the state of the previous public-tree move"
+        ) from move_error
+
+
 def _restore_public_root(
     public_root: Path,
     backup: Path,
     project_root: Path,
-    had_public_root: bool,
-) -> bool:
-    """Restore the previous tree, or return false with the new tree still live.
+    old_manifest: tuple[tuple[str, str, str], ...] | None,
+    new_manifest: tuple[tuple[str, str, str], ...],
+) -> str:
+    """Return ``old`` after rollback or ``new`` after verified commit-forward.
 
-    A false return is a commit-forward result: rollback could not safely move
-    the activated tree, so callers must not raise a false failure or delete the
-    sole previous-tree backup. Any copied recovery artifact is intentionally
-    retained for manual repair.
+    Only an exact manifest match can select either result. Hidden backups and
+    recovery artifacts are retained whenever the new tree remains committed.
     """
+
+    state = _public_tree_state(
+        public_root, project_root, old_manifest, new_manifest
+    )
+    if state == "old":
+        return "old"
 
     displaced: Path | None = None
-    if public_root.exists():
-        displaced = _unused_directory_path(
-            public_root.parent, project_root, ".security-publish-failed-"
-        )
-        safe_path(public_root, project_root=project_root)
-        safe_path(displaced, project_root=project_root)
+    outcome: str | None = None
+    if state != "absent":
         try:
-            os.replace(public_root, displaced)
+            displaced = _unused_directory_path(
+                public_root.parent, project_root, ".security-publish-failed-"
+            )
         except BaseException:
-            # Directory replacement can fail even though the activated tree is
-            # readable. Preserve a recovery copy, then remove the live new tree
-            # so the previous backup can return to the canonical path.
+            if state == "new":
+                return "new"
+            # An incomplete/unknown tree is not a valid commit-forward result.
+            # It has no publication value, so remove it and recover the old
+            # canonical state without first allocating an artifact path.
             try:
-                _copy_tree_no_follow(public_root, displaced)
-                _walk_is_safe(displaced, project_root)
                 _remove_tree(public_root, project_root)
-            except BaseException:
-                return False
-    try:
-        if had_public_root:
-            if not backup.exists():
-                raise PublicationError("previous public-tree backup is missing")
-            safe_path(backup, project_root=project_root)
+            except BaseException as remove_error:
+                if _public_tree_state(
+                    public_root, project_root, old_manifest, new_manifest
+                ) == "new":
+                    return "new"
+                raise PublicationError(
+                    "cannot remove an incomplete committed public tree"
+                ) from remove_error
+        else:
             safe_path(public_root, project_root=project_root)
+            safe_path(displaced, project_root=project_root)
             try:
-                os.replace(backup, public_root)
+                os.replace(public_root, displaced)
             except BaseException:
-                # Preserve the sole backup. Restore from a no-follow copy so a
-                # failed rename cannot leave the canonical path absent and the
-                # finally block cannot destroy the only previous tree.
-                recovery = _unused_directory_path(
-                    public_root.parent,
-                    project_root,
-                    ".security-publish-recovery-",
+                after_move = _public_tree_state(
+                    public_root, project_root, old_manifest, new_manifest
                 )
+                if after_move == "old":
+                    return "old"
+                if after_move == "absent":
+                    # The rename committed before reporting failure. Inspect
+                    # the displaced tree at its actual location. Inspection
+                    # failure cannot strand the canonical path absent; the
+                    # verified old backup below remains authoritative.
+                    try:
+                        _tree_manifest_no_follow(displaced)
+                    except BaseException:
+                        pass
+                elif after_move == "new":
+                    # The rename did not commit. Preserve the live new tree in
+                    # a recovery copy before removing it for rollback.
+                    try:
+                        _copy_tree_no_follow(public_root, displaced)
+                        if not _tree_matches(displaced, new_manifest, project_root):
+                            raise PublicationError(
+                                "recovery copy does not match the committed tree"
+                            )
+                        _remove_tree(public_root, project_root)
+                    except BaseException:
+                        return "new"
+                else:
+                    try:
+                        _remove_tree(public_root, project_root)
+                    except BaseException as remove_error:
+                        raise PublicationError(
+                            "cannot remove an incomplete committed public tree"
+                        ) from remove_error
+    try:
+        if old_manifest is None:
+            state = _public_tree_state(
+                public_root, project_root, old_manifest, new_manifest
+            )
+            if state == "absent":
+                outcome = "old"
+                return outcome
+            if state == "new":
+                outcome = "new"
+                return outcome
+            raise PublicationError("cannot restore the previously absent public tree")
+
+        if not _tree_matches(backup, old_manifest, project_root):
+            state = _public_tree_state(
+                public_root, project_root, old_manifest, new_manifest
+            )
+            if state in {"old", "new"}:
+                outcome = state
+                return outcome
+            raise PublicationError("verified previous public-tree backup is missing")
+
+        safe_path(backup, project_root=project_root)
+        safe_path(public_root, project_root=project_root)
+        try:
+            os.replace(backup, public_root)
+        except BaseException:
+            state = _public_tree_state(
+                public_root, project_root, old_manifest, new_manifest
+            )
+            if state == "old":
+                outcome = "old"
+                return outcome
+            if state == "new":
+                outcome = "new"
+                return outcome
+
+            # Preserve the sole backup. Restore from a no-follow copy so a
+            # failed direct rename cannot leave the canonical path absent.
+            recovery = _unused_directory_path(
+                public_root.parent,
+                project_root,
+                ".security-publish-recovery-",
+            )
+            try:
+                _copy_tree_no_follow(backup, recovery)
+                if not _tree_matches(recovery, old_manifest, project_root):
+                    raise PublicationError(
+                        "recovery copy does not match the previous public tree"
+                    )
+                safe_path(public_root, project_root=project_root)
                 try:
-                    _copy_tree_no_follow(backup, recovery)
-                    _walk_is_safe(recovery, project_root)
-                    safe_path(public_root, project_root=project_root)
                     os.replace(recovery, public_root)
                 except BaseException as recovery_error:
-                    if recovery.exists():
-                        _best_effort_remove_tree(recovery, project_root)
+                    state = _public_tree_state(
+                        public_root, project_root, old_manifest, new_manifest
+                    )
+                    if state == "old":
+                        outcome = "old"
+                        return outcome
+                    if state == "new":
+                        outcome = "new"
+                        return outcome
                     raise recovery_error
-        return True
-    finally:
-        if displaced is not None:
-            _best_effort_remove_tree(displaced, project_root)
+            finally:
+                if recovery.exists():
+                    _best_effort_remove_tree(recovery, project_root)
 
-
-def _restore_or_commit_forward(
-    public_root: Path,
-    backup: Path,
-    project_root: Path,
-    had_public_root: bool,
-) -> bool:
-    """Return whether rollback restored the old live tree.
-
-    If rollback setup itself fails while a public tree is already live, the
-    directory transaction crossed its observable commit point. Preserve the
-    old-tree backup and let the caller return success rather than raising with
-    new bytes live.
-    """
-
-    try:
-        return _restore_public_root(
-            public_root, backup, project_root, had_public_root
+        state = _public_tree_state(
+            public_root, project_root, old_manifest, new_manifest
         )
-    except BaseException:
-        if public_root.exists():
-            return False
-        raise
+        if state not in {"old", "new"}:
+            raise PublicationError("rollback did not produce a verified public tree")
+        outcome = state
+        return outcome
+    finally:
+        if displaced is not None and outcome == "old":
+            _best_effort_remove_tree(displaced, project_root)
 
 
 def stage_and_publish(
@@ -410,6 +602,7 @@ def stage_and_publish(
     safe_path(project, project_root=project)
     if not project.is_dir():
         raise PublicationError(f"project root is not a directory: {project}")
+    _require_no_follow_copy_support()
 
     staging = _absolute(Path(generated))
     safe_path(staging, project_root=staging)
@@ -437,6 +630,10 @@ def stage_and_publish(
     state_root, state_path = _publication_state_target(project)
     _walk_is_safe(public_root, project)
     previous_managed = _load_state(state_path, state_root)
+    had_public_root = public_root.exists()
+    old_manifest = (
+        _tree_manifest_no_follow(public_root) if had_public_root else None
+    )
 
     final_targets = tuple(
         public_root / Path(*PurePosixPath(name).parts)
@@ -447,7 +644,6 @@ def stage_and_publish(
 
     candidate = _temporary_directory(project, ".security-publish-candidate-")
     backup: Path | None = None
-    had_public_root = public_root.exists()
     activated = False
     try:
         if had_public_root:
@@ -512,29 +708,44 @@ def stage_and_publish(
         # where a redirect can appear after the initial public-tree check.
         _walk_is_safe(public_root, project)
         _walk_is_safe(candidate, project)
+        new_manifest = _tree_manifest_no_follow(candidate)
         for target in final_targets:
             safe_path(target, project_root=project)
         safe_path(candidate, project_root=project)
         safe_path(public_root, project_root=project)
         if had_public_root:
-            os.replace(public_root, backup)
+            assert old_manifest is not None
+            _move_previous_tree_to_backup(
+                public_root, backup, project, old_manifest
+            )
         try:
             safe_path(candidate, project_root=project)
             safe_path(public_root, project_root=project)
             os.replace(candidate, public_root)
             activated = True
         except BaseException as activation_error:
-            activated = False
-            restored = _restore_or_commit_forward(
-                public_root, backup, project, had_public_root
+            state = _public_tree_state(
+                public_root, project, old_manifest, new_manifest
             )
-            if restored:
+            if state == "new":
+                # The replace committed before reporting failure. Continue to
+                # the state write only after verifying the exact new tree.
+                activated = True
+            else:
+                activated = False
+                state = _restore_public_root(
+                    public_root,
+                    backup,
+                    project,
+                    old_manifest,
+                    new_manifest,
+                )
+            if state == "old":
                 raise activation_error
-            # The replacement primitive crossed its observable commit point
-            # before reporting failure, and rollback could not safely move the
-            # live new tree. Return success and retain the sole old-tree backup
-            # as the internal recovery artifact instead of falsely failing.
-            return
+            if state != "new":
+                raise PublicationError(
+                    "activation recovery did not produce a verified public tree"
+                ) from activation_error
 
         try:
             safe_path(state_path, project_root=state_root)
@@ -547,15 +758,23 @@ def stage_and_publish(
             )
         except BaseException as state_error:
             activated = False
-            restored = _restore_or_commit_forward(
-                public_root, backup, project, had_public_root
+            state = _restore_public_root(
+                public_root,
+                backup,
+                project,
+                old_manifest,
+                new_manifest,
             )
-            if restored:
+            if state == "old":
                 raise state_error
-            # The public-tree commit is already visible and rollback cannot
-            # safely displace it. Preserve the previous-tree backup and return
-            # success rather than report failure with new bytes still live.
-            return
+            if state == "new":
+                # Rollback could not begin, but only an exact manifest match
+                # can cross the commit-forward success boundary. Preserve the
+                # sole previous-tree backup as the recovery artifact.
+                return
+            raise PublicationError(
+                "state-write recovery did not produce a verified public tree"
+            ) from state_error
     finally:
         if candidate.exists():
             _best_effort_remove_tree(candidate, project)
