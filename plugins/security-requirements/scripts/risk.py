@@ -66,6 +66,9 @@ EVIDENCE_METHODS = {
 }
 EVIDENCE_SUPPORTS = {"likelihood", "impact", "attack_path_removal"}
 MINIMUM_PYTHON = (3, 12)
+LEGACY_THREAT_SCHEMA_VERSION = "0.1.0"
+CURRENT_THREAT_SCHEMA_VERSION = "0.2.0"
+RISK_SCHEMA_VERSION = "0.2.0"
 
 
 class RiskArgumentError(ValueError):
@@ -613,7 +616,7 @@ def _validate_threats(threats_doc: dict) -> tuple[list[str], list[dict]]:
     problems: list[str] = []
     if not isinstance(threats_doc, Mapping):
         return ["threat document must be a mapping"], []
-    if threats_doc.get("version") != "0.2.0":
+    if threats_doc.get("version") != CURRENT_THREAT_SCHEMA_VERSION:
         problems.append("threat schema version must be 0.2.0")
     threats = threats_doc.get("threats")
     if not isinstance(threats, Sequence) or isinstance(threats, (str, bytes)):
@@ -1480,7 +1483,10 @@ def migrate(threats: dict, requirements: dict) -> dict:
     metadata belong to the later human review and are never inferred here.
     """
 
-    if not isinstance(threats, Mapping) or threats.get("version") != "0.1.0":
+    if (
+        not isinstance(threats, Mapping)
+        or threats.get("version") != LEGACY_THREAT_SCHEMA_VERSION
+    ):
         raise RiskValidationError("legacy threat schema must be 0.1.0")
     records = threats.get("threats")
     if not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
@@ -1521,8 +1527,8 @@ def migrate(threats: dict, requirements: dict) -> dict:
     ]
     migration = {
         "status": "legacy_unassessed",
-        "source_schema": "0.1.0",
-        "target_schema": "0.2.0",
+        "source_schema": LEGACY_THREAT_SCHEMA_VERSION,
+        "target_schema": CURRENT_THREAT_SCHEMA_VERSION,
         "active_legacy_threats": len(active_ids),
     }
     policy = load_policy(
@@ -1540,13 +1546,13 @@ def migrate(threats: dict, requirements: dict) -> dict:
         "threats": copy.deepcopy(dict(threats)),
         "policy": policy,
         "assessment": {
-            "version": "0.2.0",
+            "version": RISK_SCHEMA_VERSION,
             "migration": copy.deepcopy(migration),
             "assessments": copy.deepcopy(assessments),
         },
         "assessments": assessments,
         "state": {
-            "version": "0.2.0",
+            "version": RISK_SCHEMA_VERSION,
             "migration": copy.deepcopy(migration),
             "snapshots": [],
             "refresh_baseline": refresh_baseline,
@@ -1900,9 +1906,9 @@ def _load_risk_state(paths: Mapping | object) -> tuple[Path, Path, dict]:
     state = _load_optional_mapping(
         state_path,
         "risk state",
-        {"version": "0.2.0", "snapshots": []},
+        {"version": RISK_SCHEMA_VERSION, "snapshots": []},
     )
-    if state.get("version") != "0.2.0":
+    if state.get("version") != RISK_SCHEMA_VERSION:
         raise RiskValidationError("risk state version must be 0.2.0")
     if not isinstance(state.get("snapshots"), Sequence) or isinstance(
         state.get("snapshots"), (str, bytes)
@@ -2324,10 +2330,10 @@ def stamp_assessment(
         )
     elif trusted is None:
         _reject_unbound_authoritative_residual(assessment)
-    legacy = threats.get("version") == "0.1.0"
+    legacy = threats.get("version") == LEGACY_THREAT_SCHEMA_VERSION
     confirmed_threats = copy.deepcopy(threats)
     if legacy:
-        confirmed_threats["version"] = "0.2.0"
+        confirmed_threats["version"] = CURRENT_THREAT_SCHEMA_VERSION
     calculated = _calculate_confirmed_assessment(
         confirmed_threats, assessment, policy
     )
@@ -2554,7 +2560,7 @@ def _bound_residual_assessment_problems(
     }
     if unexpected_top_level:
         problems.append("refreshed assessment has unexpected top-level fields")
-    if assessment.get("version") not in (None, "0.2.0"):
+    if assessment.get("version") not in (None, RISK_SCHEMA_VERSION):
         problems.append("assessment version must be 0.2.0")
     problems.extend(validate_assessment(threats, dict(assessment), policy))
     return problems

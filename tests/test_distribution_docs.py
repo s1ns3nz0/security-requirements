@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import shutil
+from types import SimpleNamespace
 import subprocess
 import sys
 import tempfile
@@ -470,18 +471,34 @@ def test_distribution_validator_accepts_trusted_isolated_workflow_scripts(
 ):
     module = _load_validator()
     clone = _distribution_clone(tmp_path)
-    workflow = clone / "plugins" / PLUGIN_NAME / "skills" / "trusted-example.md"
+    workflow = (
+        clone
+        / "plugins"
+        / PLUGIN_NAME
+        / "skills"
+        / "deriving-security-requirements"
+        / "references"
+        / "requirement-style.md"
+    )
     workflow.write_text(f"{invocation}\n", encoding="utf-8")
 
     errors = module.validate(clone)
 
-    assert not any("skills/trusted-example.md" in error for error in errors), errors
+    assert not any("requirement-style.md" in error for error in errors), errors
 
 
 def test_distribution_validator_parses_trusted_command_substitution(tmp_path):
     module = _load_validator()
     clone = _distribution_clone(tmp_path)
-    workflow = clone / "plugins" / PLUGIN_NAME / "skills" / "trusted-example.md"
+    workflow = (
+        clone
+        / "plugins"
+        / PLUGIN_NAME
+        / "skills"
+        / "deriving-security-requirements"
+        / "references"
+        / "requirement-style.md"
+    )
     workflow.write_text(
         'SECURITY_REQUIREMENTS_ROOT="$(python3 -I '
         '"<derived absolute candidate>/scripts/runtime_paths.py" '
@@ -491,7 +508,7 @@ def test_distribution_validator_parses_trusted_command_substitution(tmp_path):
 
     errors = module.validate(clone)
 
-    assert not any("skills/trusted-example.md" in error for error in errors), errors
+    assert not any("requirement-style.md" in error for error in errors), errors
 
 
 def test_distribution_validator_parses_yaml_quoted_python_commands(tmp_path):
@@ -1219,7 +1236,6 @@ def test_distribution_validator_reports_all_fixture_errors(tmp_path):
         "Codex manifest name",
         "Codex marketplace name",
         "missing-skills",
-        "duplicate runtime directory: scripts",
         "symlink",
     ):
         assert expected in result.stderr
@@ -1388,7 +1404,7 @@ def test_distribution_validator_rejects_metadata_symlinks_and_aggregates_parser_
 
 
 @pytest.mark.parametrize("directory", ("scripts", "catalogs", "overlays", "responsibility", "skills"))
-def test_distribution_validator_rejects_runtime_copies_outside_the_payload(tmp_path, directory):
+def test_distribution_validator_rejects_top_level_runtime_copies_only(tmp_path, directory):
     module = _load_validator()
     clone = tmp_path / "clone"
     shutil.copytree(REPO_ROOT, clone, ignore=shutil.ignore_patterns(".git", ".pytest_cache", "__pycache__"))
@@ -1401,7 +1417,7 @@ def test_distribution_validator_rejects_runtime_copies_outside_the_payload(tmp_p
 
     errors = module.validate(clone)
     assert any(f"top-level runtime directory: {directory}" in error for error in errors)
-    assert any(f"duplicate runtime directory: {directory}" in error for error in errors)
+    assert not any("other-payload" in error for error in errors)
 
 
 @pytest.mark.parametrize("relative", RISK_ASSETS)
@@ -1421,9 +1437,9 @@ def test_distribution_validator_requires_each_canonical_risk_asset(tmp_path, rel
 @pytest.mark.parametrize(
     ("relative", "duplicate"),
     (
-        ("risk/default-policy.yaml", "plugins/another/risk/default-policy.yaml"),
-        ("scripts/risk.py", "plugins/another/scripts/risk.py"),
-        ("commands/sec-req-risk.md", "plugins/another/commands/sec-req-risk.md"),
+        ("risk/default-policy.yaml", "risk/duplicate/default-policy.yaml"),
+        ("scripts/risk.py", "scripts/duplicate/risk.py"),
+        ("commands/sec-req-risk.md", "commands/duplicate/sec-req-risk.md"),
     ),
 )
 def test_distribution_validator_rejects_duplicate_risk_assets(
@@ -1431,8 +1447,9 @@ def test_distribution_validator_rejects_duplicate_risk_assets(
 ):
     module = _load_validator()
     clone = _distribution_clone(tmp_path)
-    source = clone / "plugins" / PLUGIN_NAME / relative
-    target = clone / duplicate
+    payload = clone / "plugins" / PLUGIN_NAME
+    source = payload / relative
+    target = payload / duplicate
     target.parent.mkdir(parents=True)
     shutil.copyfile(source, target)
 
@@ -1508,7 +1525,11 @@ def test_distribution_validator_requires_engine_schema_version_agreement(tmp_pat
 
     errors = module.validate(clone)
 
-    assert any("risk engine schema versions must agree with release 0.2.0" in error for error in errors)
+    assert any(
+        "risk engine schema contract mismatch" in error
+        and "CURRENT_THREAT_SCHEMA_VERSION" in error
+        for error in errors
+    )
 
 
 def test_payload_manifests_publish_020_while_marketplace_metadata_is_unchanged():
@@ -1568,7 +1589,7 @@ def test_distribution_validator_rejects_unapproved_payload_components_without_ex
 
     errors = module.validate(clone)
 
-    assert any("unapproved payload component" in error for error in errors), errors
+    assert any("unapproved payload path" in error for error in errors), errors
     assert not marker.exists()
 
 
@@ -1589,14 +1610,14 @@ def test_distribution_validator_rejects_junctions_without_traversing_them(
 
     errors = module.validate(clone)
 
-    assert any("junction is not allowed in plugin distribution" in error for error in errors), errors
+    assert any("junction is not allowed in payload" in error for error in errors), errors
     assert not any(
         "duplicate risk asset" in error and "redirect/default-policy.yaml" in error
         for error in errors
     )
 
 
-def test_distribution_validator_rejects_a_junction_beside_the_payload(
+def test_distribution_validator_ignores_a_junction_beside_the_payload(
     tmp_path, monkeypatch
 ):
     module = _load_validator()
@@ -1612,7 +1633,7 @@ def test_distribution_validator_rejects_a_junction_beside_the_payload(
 
     errors = module.validate(clone)
 
-    assert any("junction is not allowed in plugin distribution" in error for error in errors)
+    assert not any("duplicate-payload" in error for error in errors)
 
 
 @pytest.mark.parametrize("relative", RISK_ASSETS)
@@ -1639,7 +1660,7 @@ def test_distribution_validator_never_reads_a_redirected_canonical_risk_asset(
 
     errors = module.validate(clone)
 
-    assert any("junction is not allowed in plugin distribution" in error for error in errors)
+    assert any("junction is not allowed in payload" in error for error in errors)
     assert reads == []
 
 
@@ -1663,6 +1684,271 @@ def test_distribution_validator_aggregates_risk_distribution_errors(tmp_path):
         "missing required risk asset: scripts/risk.py",
         "invalid bundled default risk policy",
         "exactly the four canonical workflow prompts",
-        "unapproved payload component",
+        "unapproved payload path",
     ):
         assert any(expected in error for error in errors), errors
+
+
+def test_distribution_validator_rejects_a_symlinked_repository_root_without_traversal(
+    tmp_path, monkeypatch
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    linked_root = tmp_path / "linked-root"
+    linked_root.symlink_to(clone, target_is_directory=True)
+    real_scandir = module.os.scandir
+    traversed = []
+
+    def observed_scandir(path):
+        if Path(path) == linked_root:
+            traversed.append(Path(path))
+        return real_scandir(path)
+
+    monkeypatch.setattr(module.os, "scandir", observed_scandir)
+
+    errors = module.validate(linked_root)
+
+    assert any("symlink is not allowed in distribution root" in error for error in errors)
+    assert traversed == []
+
+
+def test_distribution_validator_does_not_follow_top_level_scripts_redirect(
+    tmp_path, monkeypatch
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    scripts = clone / "scripts"
+    shutil.rmtree(scripts)
+    outside = tmp_path / "outside-scripts"
+    outside.mkdir()
+    (outside / "repository_probe.py").write_text("raise SystemExit(99)\n", encoding="utf-8")
+    scripts.symlink_to(outside, target_is_directory=True)
+    real_scandir = module.os.scandir
+    real_iterdir = Path.iterdir
+    traversed = []
+
+    def observed_scandir(path):
+        if Path(path) == scripts:
+            traversed.append(Path(path))
+        return real_scandir(path)
+
+    def observed_iterdir(path):
+        if path == scripts:
+            traversed.append(path)
+        return real_iterdir(path)
+
+    monkeypatch.setattr(module.os, "scandir", observed_scandir)
+    monkeypatch.setattr(Path, "iterdir", observed_iterdir)
+
+    errors = module.validate(clone)
+
+    assert any("symlink is not allowed in top-level scripts" in error for error in errors)
+    assert traversed == []
+
+
+def test_distribution_validator_classifies_generic_windows_reparse_points(
+    tmp_path, monkeypatch
+):
+    module = _load_validator()
+    path = tmp_path / "reparse"
+    path.mkdir()
+    mode = path.lstat().st_mode
+    reparse_flag = 0x400
+    monkeypatch.setattr(
+        Path,
+        "lstat",
+        lambda self: SimpleNamespace(
+            st_mode=mode,
+            st_file_attributes=reparse_flag if self == path else 0,
+        ),
+    )
+    monkeypatch.setattr(Path, "is_symlink", lambda self: False)
+    monkeypatch.setattr(Path, "is_junction", lambda self: False)
+
+    assert module._redirect_kind(path) == "reparse point"
+
+
+@pytest.mark.parametrize(
+    "relative",
+    (
+        "commands/nested/extra.md",
+        "skills/unrelated/SKILL.md",
+        "risk/extra.yaml",
+        "catalogs/extra.txt",
+        "overlays/extra.txt",
+        "responsibility/extra.txt",
+        ".claude-plugin/extra.json",
+        ".codex-plugin/extra.json",
+        "scripts/rogue.txt",
+    ),
+)
+def test_distribution_validator_rejects_every_non_allowlisted_payload_path(
+    tmp_path, relative
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    rogue = clone / "plugins" / PLUGIN_NAME / relative
+    rogue.parent.mkdir(parents=True, exist_ok=True)
+    rogue.write_text("not part of the release\n", encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any(
+        "unapproved payload path" in error and relative in error for error in errors
+    ), errors
+
+
+def test_distribution_validator_requires_every_allowlisted_payload_file(tmp_path):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    missing = "catalogs/asvs-5/V1.jsonl"
+    (clone / "plugins" / PLUGIN_NAME / missing).unlink()
+
+    errors = module.validate(clone)
+
+    assert f"missing required payload file: {missing}" in errors
+
+
+def test_distribution_validator_does_not_scan_unrelated_files_outside_payload(tmp_path):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    unrelated = clone / "unrelated" / "risk" / "default-policy.yaml"
+    unrelated.parent.mkdir(parents=True)
+    shutil.copyfile(
+        clone / "plugins" / PLUGIN_NAME / "risk" / "default-policy.yaml",
+        unrelated,
+    )
+
+    errors = module.validate(clone)
+
+    assert not any("unrelated" in error for error in errors), errors
+
+
+@pytest.mark.parametrize("interface", (None, [], "invalid", 42, True))
+def test_distribution_validator_aggregates_non_mapping_codex_interfaces(
+    tmp_path, interface
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    manifest_path = clone / "plugins" / PLUGIN_NAME / ".codex-plugin" / "plugin.json"
+    manifest = json.loads(_read(manifest_path))
+    manifest["interface"] = interface
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert "Codex manifest.interface must be a mapping" in errors
+    assert "Codex manifest must declare exactly the four canonical workflow prompts" in errors
+
+
+def test_distribution_validator_aggregates_malformed_prompt_and_version_types(tmp_path):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    payload = clone / "plugins" / PLUGIN_NAME
+    claude_path = payload / ".claude-plugin" / "plugin.json"
+    codex_path = payload / ".codex-plugin" / "plugin.json"
+    claude = json.loads(_read(claude_path))
+    codex = json.loads(_read(codex_path))
+    claude["version"] = {"not": "semver"}
+    codex["interface"]["defaultPrompt"] = {"not": "a list"}
+    claude_path.write_text(json.dumps(claude), encoding="utf-8")
+    codex_path.write_text(json.dumps(codex), encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any("payload manifest versions must both equal 0.2.0" in error for error in errors)
+    assert "Codex manifest.interface.defaultPrompt must be a list of strings" in errors
+    assert "Codex manifest must declare exactly the four canonical workflow prompts" in errors
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        lambda text: text.replace("L1-EXCEPTIONAL: {score: 1", "L1-EXCEPTIONAL: {score: true"),
+        lambda text: text.replace("L1-EXCEPTIONAL: {score: 1", "L1-EXCEPTIONAL: {score: 1.0"),
+        lambda text: text.replace("- {min: 1, max: 4", "- {min: true, max: 4"),
+    ),
+)
+def test_distribution_validator_requires_exact_integer_policy_numbers(
+    tmp_path, mutation
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    policy = clone / "plugins" / PLUGIN_NAME / "risk" / "default-policy.yaml"
+    policy.write_text(mutation(_read(policy)), encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any("invalid bundled default risk policy" in error for error in errors), errors
+
+
+def test_distribution_validator_rejects_duplicate_policy_criterion_ids(tmp_path):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    policy = clone / "plugins" / PLUGIN_NAME / "risk" / "default-policy.yaml"
+    line = (
+        '  L1-EXCEPTIONAL: {score: 1, definition: "Requires multiple independent, '
+        'exceptional preconditions."}'
+    )
+    policy.write_text(_read(policy).replace(line, f"{line}\n{line}", 1), encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any(
+        "invalid bundled default risk policy" in error
+        and "duplicate mapping key: L1-EXCEPTIONAL" in error
+        for error in errors
+    ), errors
+
+
+@pytest.mark.parametrize(
+    ("function_name", "literal_old", "literal_new", "constant_old", "constant_new"),
+    (
+        (
+            "_validate_threats",
+            'threats_doc.get("version") != "0.2.0"',
+            'threats_doc.get("version") != "0.1.0"',
+            'threats_doc.get("version") != CURRENT_THREAT_SCHEMA_VERSION',
+            'threats_doc.get("version") != LEGACY_THREAT_SCHEMA_VERSION',
+        ),
+        (
+            "migrate",
+            'threats.get("version") != "0.1.0"',
+            'threats.get("version") != "0.2.0"',
+            'threats.get("version") != LEGACY_THREAT_SCHEMA_VERSION',
+            'threats.get("version") != CURRENT_THREAT_SCHEMA_VERSION',
+        ),
+        (
+            "_load_risk_state",
+            'state.get("version") != "0.2.0"',
+            'state.get("version") != "0.1.0"',
+            'state.get("version") != RISK_SCHEMA_VERSION',
+            'state.get("version") != LEGACY_THREAT_SCHEMA_VERSION',
+        ),
+    ),
+)
+def test_distribution_validator_rejects_semantically_wrong_engine_schema_gates(
+    tmp_path,
+    function_name,
+    literal_old,
+    literal_new,
+    constant_old,
+    constant_new,
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    engine = clone / "plugins" / PLUGIN_NAME / "scripts" / "risk.py"
+    text = _read(engine)
+    if constant_old in text:
+        mutated = text.replace(constant_old, constant_new, 1)
+    else:
+        assert literal_old in text
+        mutated = text.replace(literal_old, literal_new, 1)
+    engine.write_text(mutated, encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any(
+        "risk engine schema contract mismatch" in error and function_name in error
+        for error in errors
+    ), errors
