@@ -870,7 +870,19 @@ def test_apply_risk_exposure_preserves_priority_byte_for_byte():
         ]
     }
 
-    merged = merge.apply_merge(draft, [], {"issued": {}}, assessment=assessment)
+    threats = {
+        "threats": [
+            {"id": "T-01", "lifecycle": {"status": "active"}},
+            {"id": "T-02", "lifecycle": {"status": "active"}},
+        ]
+    }
+    merged = merge.apply_merge(
+        draft,
+        [],
+        {"issued": {}},
+        assessment=assessment,
+        threats=threats,
+    )
     requirement = merged["requirements"][0]
 
     assert requirement["managed"]["risk_refs"] == ["T-01", "T-02"]
@@ -878,6 +890,43 @@ def test_apply_risk_exposure_preserves_priority_byte_for_byte():
     assert json.dumps(
         requirement["managed"]["priority"], sort_keys=True
     ).encode() == before
+
+
+def test_apply_without_assessment_preserves_risk_metadata():
+    requirement_id = "REQ-WRITE-AUTHORIZATION-01"
+    existing = [
+        {
+            "id": requirement_id,
+            "managed": {
+                "statement": "Writes require authorization.",
+                "threat_refs": ["T-01"],
+                "risk_refs": ["T-01"],
+                "priority": "high",
+            },
+            "risk_exposure": "critical",
+            "human": {},
+        }
+    ]
+    draft = [
+        {
+            "slug": "WRITE-AUTHORIZATION",
+            "managed": {
+                "statement": "Every write requires authorization.",
+                "threat_refs": ["T-01"],
+                "priority": "high",
+            },
+        }
+    ]
+
+    merged = merge.apply_merge(
+        draft,
+        existing,
+        {"issued": {"WRITE-AUTHORIZATION": requirement_id}},
+    )
+    requirement = merged["requirements"][0]
+
+    assert requirement["managed"]["risk_refs"] == ["T-01"]
+    assert requirement["risk_exposure"] == "critical"
 
 
 def test_a_declared_capability_discharges_only_what_it_performs():

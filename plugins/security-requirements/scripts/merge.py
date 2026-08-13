@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+from datetime import date
 import json
 import re
 import sys
@@ -95,6 +96,8 @@ def cross(
     responsibility_doc: dict,
     threats_doc: dict,
     assessment: dict | None = None,
+    *,
+    today: date | None = None,
 ) -> dict:
     baseline = set(controls_doc["controls"])
     # None means the derivation did not publish the field -- an older artefact --
@@ -284,7 +287,11 @@ def cross(
 
     if assessment is not None:
         for item in items:
-            item.update(risk_mod.derive_risk_links(item["threat_refs"], assessment))
+            item.update(
+                risk_mod.derive_risk_links(
+                    item["threat_refs"], assessment, threats_doc, today=today
+                )
+            )
 
     counts = {}
     for item in items:
@@ -440,11 +447,20 @@ def retire(record: dict, reason: str) -> None:
     human.setdefault("retired_reason", reason)
 
 
-def _managed_risk_fields(managed: dict, assessment: dict | None) -> tuple[dict, object]:
+def _managed_risk_fields(
+    managed: dict,
+    assessment: dict | None,
+    threats: dict | None,
+    today: date | None,
+) -> tuple[dict, object]:
     result = copy.deepcopy(managed)
     if assessment is None:
         return result, None
-    links = risk_mod.derive_risk_links(result.get("threat_refs", []), assessment)
+    if threats is None:
+        raise ValueError("threats are required when deriving risk links")
+    links = risk_mod.derive_risk_links(
+        result.get("threat_refs", []), assessment, threats, today=today
+    )
     result["risk_refs"] = links["risk_refs"]
     return result, links.get("risk_exposure")
 
@@ -461,6 +477,9 @@ def apply_merge(
     existing: list[dict],
     state: dict,
     assessment: dict | None = None,
+    threats: dict | None = None,
+    *,
+    today: date | None = None,
 ) -> dict:
     by_id = {r["id"]: r for r in existing}
     seen = set()
@@ -478,23 +497,32 @@ def apply_merge(
             )
         if "managed" not in item:
             raise ValueError(f"draft item {slug!r} has no `managed` block")
-        managed, exposure = _managed_risk_fields(item["managed"], assessment)
+        managed, exposure = _managed_risk_fields(
+            item["managed"], assessment, threats, today
+        )
         req_id = issue_id(slug, state)
         seen.add(req_id)
 
         if req_id not in by_id:
             by_id[req_id] = {"id": req_id, "managed": managed, "human": {}}
-            _set_display_exposure(by_id[req_id], exposure)
+            if assessment is not None:
+                _set_display_exposure(by_id[req_id], exposure)
             added.append(req_id)
             continue
 
         current = by_id[req_id]
         if assessment is not None:
             current_managed, current_exposure = _managed_risk_fields(
-                current.get("managed", {}), assessment
+                current.get("managed", {}), assessment, threats, today
             )
             current["managed"] = current_managed
             _set_display_exposure(current, current_exposure)
+        else:
+            current_managed = current.get("managed", {})
+            if isinstance(current_managed, dict):
+                for field in ("risk_refs", "risk_exposure"):
+                    if field not in managed and field in current_managed:
+                        managed[field] = copy.deepcopy(current_managed[field])
 
         # A requirement that was retired and now derives again is back in scope.
         # Leaving it retired would drop live work on the floor, so the return is
@@ -508,7 +536,8 @@ def apply_merge(
             reopened.append(req_id)
 
         if current["managed"] == managed:
-            _set_display_exposure(current, exposure)
+            if assessment is not None:
+                _set_display_exposure(current, exposure)
             unchanged.append(req_id)
             continue
 
@@ -524,7 +553,8 @@ def apply_merge(
             # It is still reported: a silently rewritten requirement counted as
             # "unchanged" is the opposite of what a reviewer needs to see.
             current["managed"] = managed
-            _set_display_exposure(current, exposure)
+            if assessment is not None:
+                _set_display_exposure(current, exposure)
             updated.append(req_id)
 
     retired = []
@@ -645,6 +675,8 @@ def main() -> int:
     for name in ("draft", "existing", "state"):
         if getattr(args, name) is None:
             ap.error(f"--apply requires --{name}")
+    if args.assessment is not None and args.threats is None:
+        ap.error("--assessment requires --threats for canonical lifecycle linking")
 
     try:
         preflight_output_paths([args.existing, args.state])
@@ -657,9 +689,16 @@ def main() -> int:
     existing = load_yaml(args.existing, {"requirements": []}).get("requirements", [])
     state = load_yaml(args.state, {"issued": {}})
     assessment = load_yaml(args.assessment, None) if args.assessment else None
+    threats_doc = load_yaml(args.threats, None) if args.assessment else None
 
     try:
-        result = apply_merge(draft_items, existing, state, assessment=assessment)
+        result = apply_merge(
+            draft_items,
+            existing,
+            state,
+            assessment=assessment,
+            threats=threats_doc,
+        )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

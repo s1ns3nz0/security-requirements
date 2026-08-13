@@ -559,6 +559,76 @@ def test_unresolved_risk_ordering_is_after_critical_before_high():
     assert requirements == original
 
 
+def test_active_lifecycle_risk_links_come_from_canonical_threat_records():
+    threats = {
+        "threats": [
+            threat_record("T-ACTIVE"),
+            threat_record("T-RETIRED", status="retired"),
+        ]
+    }
+    assessment = {
+        "assessments": [
+            {
+                "threat_id": "T-ACTIVE",
+                "status": "CONFIRMED",
+                "calculated": {"rating": "medium"},
+                "lifecycle": {"status": "retired"},
+            },
+            {
+                "threat_id": "T-RETIRED",
+                "status": "CONFIRMED",
+                "calculated": {"rating": "critical"},
+            },
+        ]
+    }
+
+    assert risk.derive_risk_links(
+        ["T-RETIRED", "T-ACTIVE"], assessment, threats
+    ) == {
+        "risk_refs": ["T-ACTIVE"],
+        "risk_exposure": "medium",
+    }
+
+
+def test_expired_acceptance_risk_exposure_is_unresolved_and_sorts_before_high():
+    today = date(2027, 1, 1)
+    threats = {
+        "threats": [threat_record("T-EXPIRED"), threat_record("T-HIGH")]
+    }
+    assessment = {
+        "assessments": [
+            {
+                "threat_id": "T-EXPIRED",
+                "status": "CONFIRMED",
+                "calculated": {"rating": "high"},
+                "treatment": {
+                    "strategy": "accept",
+                    "approval": {"expires": "2026-12-31"},
+                },
+            },
+            {
+                "threat_id": "T-HIGH",
+                "status": "CONFIRMED",
+                "calculated": {"rating": "high"},
+            },
+        ]
+    }
+    expired = risk.derive_risk_links(
+        ["T-EXPIRED"], assessment, threats, today=today
+    )
+    high = risk.derive_risk_links(["T-HIGH"], assessment, threats, today=today)
+    requirements = [
+        {"id": "REQ-HIGH", "managed": {"priority": "high"}, **high},
+        {"id": "REQ-EXPIRED", "managed": {"priority": "low"}, **expired},
+    ]
+
+    assert expired["risk_exposure"] == "STALE"
+    assert [record["id"] for record in risk.order_requirements(requirements)] == [
+        "REQ-EXPIRED",
+        "REQ-HIGH",
+    ]
+
+
 def _risk_report_summary():
     return {
         "inherent": {
@@ -692,6 +762,61 @@ def test_public_risk_summary_is_strictly_opt_in_and_redacted():
         "increased",
     ):
         assert secret not in published
+
+
+@pytest.mark.parametrize(
+    "section",
+    [
+        {},
+        {
+            "overall": "low",
+            "counts": {"critical": 0, "high": 1, "medium": 0, "low": 0},
+            "coverage": "1/1",
+        },
+        {
+            "overall": "UNDETERMINED",
+            "counts": {"critical": 0, "high": 1, "medium": 0, "low": 0},
+            "coverage": "1/2",
+        },
+        {
+            "overall": "high",
+            "counts": {"critical": 0, "high": 0, "medium": 0, "low": 0},
+            "coverage": "0/1",
+        },
+        {
+            "overall": "high",
+            "counts": {"critical": 0, "high": 1, "medium": 0, "low": 0},
+            "coverage": "0/1",
+        },
+        {
+            "overall": "high",
+            "counts": {"critical": 0, "high": 1, "medium": 0, "low": 0},
+            "coverage": "2/1",
+        },
+    ],
+)
+def test_impossible_public_risk_summary_is_rejected(section):
+    with pytest.raises(risk.RiskValidationError, match="public risk summary"):
+        risk.render_public_summary(
+            {"inherent": section}, {"publish_risk_summary": True}
+        )
+
+
+def test_provisional_public_risk_summary_with_consistent_coverage_is_allowed():
+    rendered = risk.render_public_summary(
+        {
+            "inherent": {
+                "overall": "high",
+                "counts": {"critical": 0, "high": 1, "medium": 0, "low": 0},
+                "coverage": "1/2",
+            }
+        },
+        {"publish_risk_summary": True},
+    )
+
+    assert rendered is not None
+    assert "Overall | high" in rendered
+    assert "Coverage | 1/2" in rendered
 
 
 def test_acceptance_never_changes_rating(default_policy):

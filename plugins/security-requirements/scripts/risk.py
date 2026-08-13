@@ -816,7 +816,13 @@ UNRESOLVED_RISK_STATUSES = ("UNDETERMINED", "STALE", "PROPOSED")
 REQUIREMENT_PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 
-def derive_risk_links(threat_refs: object, assessment: dict) -> dict:
+def derive_risk_links(
+    threat_refs: object,
+    assessment: dict,
+    threats: dict,
+    *,
+    today: date | None = None,
+) -> dict:
     """Derive requirement risk links and display exposure from assessments.
 
     ``risk_refs`` are stable citations copied from the requirement's threat
@@ -827,7 +833,14 @@ def derive_risk_links(threat_refs: object, assessment: dict) -> dict:
 
     if not isinstance(threat_refs, Sequence) or isinstance(threat_refs, (str, bytes)):
         raise RiskValidationError("requirement threat_refs must be a list")
-    refs = sorted({reference for reference in threat_refs if _nonempty_text(reference)})
+    active_ids = {threat["id"] for threat in active_threats(threats)}
+    refs = sorted(
+        {
+            reference
+            for reference in threat_refs
+            if _nonempty_text(reference) and reference in active_ids
+        }
+    )
     if not isinstance(assessment, Mapping):
         raise RiskValidationError("assessment document must be a mapping")
     records = assessment.get("assessments")
@@ -848,6 +861,8 @@ def derive_risk_links(threat_refs: object, assessment: dict) -> dict:
     result: dict[str, object] = {"risk_refs": refs}
     if not refs:
         return result
+    if today is None:
+        today = date.today()
 
     confirmed_ratings: list[str] = []
     unresolved: set[str] = set()
@@ -856,11 +871,12 @@ def derive_risk_links(threat_refs: object, assessment: dict) -> dict:
         if record is None:
             unresolved.add("UNDETERMINED")
             continue
-        if _snapshot_lifecycle(record) != "active":
-            continue
         status = record.get("status")
         if status != "CONFIRMED":
             unresolved.add(status if status in UNRESOLVED_RISK_STATUSES else "UNDETERMINED")
+            continue
+        if _expired_acceptance(record, today):
+            unresolved.add("STALE")
             continue
         rating = _snapshot_rating(record)
         if rating is None:
@@ -1047,25 +1063,44 @@ def _public_summary_sections(summary: Mapping) -> list[tuple[str, Mapping]]:
 
 
 def _validated_public_section(section: Mapping) -> tuple[str, dict[str, int], str]:
-    overall = section.get("overall", "UNDETERMINED")
+    missing = [field for field in ("overall", "counts", "coverage") if field not in section]
+    if missing:
+        raise RiskValidationError(
+            "public risk summary is missing " + ", ".join(missing)
+        )
+    overall = section["overall"]
     if overall not in (*RATINGS, "UNDETERMINED"):
         raise RiskValidationError("public risk summary overall rating is invalid")
-    raw_counts = section.get("counts", {})
+    raw_counts = section["counts"]
     if not isinstance(raw_counts, Mapping):
         raise RiskValidationError("public risk summary counts must be a mapping")
+    if any(rating not in RATINGS for rating in raw_counts):
+        raise RiskValidationError("public risk summary contains an unknown rating count")
     counts: dict[str, int] = {}
     for rating in RATINGS:
         value = raw_counts.get(rating, 0)
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise RiskValidationError("public risk summary count is invalid")
         counts[rating] = value
-    coverage = section.get("coverage", "0/0")
+    coverage = section["coverage"]
     if (
         not isinstance(coverage, str)
         or len(coverage.split("/")) != 2
         or any(not part.isdigit() for part in coverage.split("/"))
     ):
         raise RiskValidationError("public risk summary coverage is invalid")
+    confirmed, total = (int(part) for part in coverage.split("/"))
+    if confirmed > total:
+        raise RiskValidationError("public risk summary coverage exceeds active risks")
+    if sum(counts.values()) != confirmed:
+        raise RiskValidationError("public risk summary counts do not match coverage")
+    expected_overall = next(
+        (rating for rating in RATINGS if counts[rating]), "UNDETERMINED"
+    )
+    if overall != expected_overall:
+        raise RiskValidationError(
+            "public risk summary overall does not match its rating counts"
+        )
     return overall, counts, coverage
 
 
