@@ -7237,6 +7237,23 @@ def test_risk_refs_are_unknown_when_the_assessment_set_is_empty(tmp_path):
     assert any(finding.rule == "risk-ref-unknown" for finding in findings)
 
 
+def test_threat_id_does_not_satisfy_risk_ref_without_an_assessment(tmp_path):
+    requirements = yaml.safe_load(
+        _requirements_file(
+            tmp_path / "requirements.yaml", risk_refs=["T-01"]
+        ).read_text(encoding="utf-8")
+    )
+
+    findings = lint_mod.lint(
+        requirements,
+        "en",
+        {"threats": [{"id": "T-01", "related_controls": []}]},
+        assessment=None,
+    )
+
+    assert any(finding.rule == "risk-ref-unknown" for finding in findings)
+
+
 def test_residual_evidence_refs_must_exist_and_be_current(tmp_path):
     requirements_path = _requirements_file(
         tmp_path / "requirements.yaml", risk_refs=["T-01"]

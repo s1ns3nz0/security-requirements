@@ -242,14 +242,14 @@ def _requirement_index(requirements: object) -> tuple[dict[str, Mapping], list[s
     return result, problems
 
 
-def _parse_observed_at(value: object) -> bool:
+def _parse_observed_at(value: object) -> datetime | None:
     if not _nonempty_text(value):
-        return False
+        return None
     try:
         observed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
-        return False
-    return observed.tzinfo is not None
+        return None
+    return observed if observed.tzinfo is not None else None
 
 
 def _parse_expiry(value: object) -> date | None:
@@ -289,8 +289,11 @@ def _evidence_record_problems(
         problems.append(f"{label} method is not supported")
     if record.get("result") != "pass":
         problems.append(f"{label} result must be pass")
-    if not _parse_observed_at(record.get("observed_at")):
+    observed_at = _parse_observed_at(record.get("observed_at"))
+    if observed_at is None:
         problems.append(f"{label} observed_at must be a timezone-aware ISO timestamp")
+    elif observed_at.date() > today:
+        problems.append(f"{label} observed_at is in the future")
     if not _nonempty_text(record.get("observed_by")):
         problems.append(f"{label} observed_by is required")
 
@@ -386,12 +389,20 @@ def _evidence_index(evidence: object) -> dict[str, Mapping]:
     }
 
 
-def _current_passing_evidence(evidence: object, today: date) -> dict[str, Mapping]:
-    return {
-        evidence_id: record
-        for evidence_id, record in _evidence_index(evidence).items()
-        if not _evidence_record_problems(record, today=today)
-    }
+def _current_passing_evidence(
+    evidence: object, requirements: object, today: date
+) -> dict[str, Mapping]:
+    requirement_by_id, requirement_problems = _requirement_index(requirements)
+    if requirement_problems:
+        return {}
+    current: dict[str, Mapping] = {}
+    for evidence_id, record in _evidence_index(evidence).items():
+        requirement = requirement_by_id.get(record.get("requirement_id"))
+        if requirement is not None and not _evidence_record_problems(
+            record, today=today, requirement=requirement
+        ):
+            current[evidence_id] = record
+    return current
 
 
 def _reduction_evidence(
@@ -439,12 +450,13 @@ def calculate_residual(
     policy: dict,
     proposed: dict | None = None,
     *,
+    requirements: dict | None = None,
     today: date | None = None,
 ) -> dict:
     """Calculate a fresh residual proposal, allowing only evidenced reductions."""
 
     evaluation_date = today or date.today()
-    current = _current_passing_evidence(evidence, evaluation_date)
+    current = _current_passing_evidence(evidence, requirements, evaluation_date)
     if proposed is None:
         reason = (
             "residual proposal is required"
@@ -1383,6 +1395,7 @@ def _validated_evidence_documents(
 def _residual_results(
     threats: dict,
     assessment: dict,
+    requirements: dict,
     evidence: dict,
     policy: dict,
     evaluation_date: date,
@@ -1413,6 +1426,7 @@ def _residual_results(
                 evidence,
                 policy,
                 proposed,
+                requirements=requirements,
                 today=evaluation_date,
             )
         except RiskValidationError as exc:
@@ -1473,7 +1487,7 @@ def main(argv: list[str] | None = None) -> int:
             for problem in check_assessment(paths):
                 if problem not in problems:
                     problems.append(problem)
-            _requirements, evidence, evidence_problems = _validated_evidence_documents(
+            requirements, evidence, evidence_problems = _validated_evidence_documents(
                 paths, date.today()
             )
             problems.extend(
@@ -1486,7 +1500,12 @@ def main(argv: list[str] | None = None) -> int:
             threats = _load_mapping(threats_path, "threat document")
             assessment = _load_mapping(assessment_path, "assessment document")
             results, residual_problems = _residual_results(
-                threats, assessment, evidence, policy, date.today()
+                threats,
+                assessment,
+                requirements,
+                evidence,
+                policy,
+                date.today(),
             )
             problems.extend(
                 problem for problem in residual_problems if problem not in problems
@@ -1496,6 +1515,12 @@ def main(argv: list[str] | None = None) -> int:
             if problems:
                 return 1
             for threat_id, result in results:
+                if result.get("status") == "UNDETERMINED":
+                    print(
+                        f"{threat_id} residual risk: UNDETERMINED "
+                        f"({result['reason']})"
+                    )
+                    continue
                 print(
                     f"{threat_id} residual risk: {result['rating']} "
                     f"(score {result['score']})"

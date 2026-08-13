@@ -560,7 +560,7 @@ def check_statement(req_id: str, statement: str, locale: str) -> list[Finding]:
     return findings
 
 
-def _assessment_risk_ids(assessment: object, threats: object) -> set[str]:
+def _assessment_risk_ids(assessment: object) -> set[str]:
     if isinstance(assessment, dict):
         records = assessment.get("assessments", [])
         if isinstance(records, list):
@@ -568,14 +568,6 @@ def _assessment_risk_ids(assessment: object, threats: object) -> set[str]:
                 record.get("threat_id")
                 for record in records
                 if isinstance(record, dict) and record.get("threat_id")
-            }
-    if isinstance(threats, dict):
-        records = threats.get("threats", [])
-        if isinstance(records, list):
-            return {
-                record.get("id")
-                for record in records
-                if isinstance(record, dict) and record.get("id")
             }
     return set()
 
@@ -611,34 +603,32 @@ def _residual_evidence_refs(assessment: object) -> list[tuple[str, object]]:
 
 def _check_risk_and_evidence_refs(
     doc: dict,
-    threats: dict | None,
     assessment: dict | None,
     evidence: dict | None,
     evaluation_date: date,
 ) -> list[Finding]:
     findings: list[Finding] = []
-    known_risks = _assessment_risk_ids(assessment, threats)
-    if assessment is not None or threats is not None:
-        for requirement in doc.get("requirements", []) or []:
-            if not isinstance(requirement, dict):
-                continue
-            requirement_id = requirement.get("id", "<no id>")
-            managed = requirement.get("managed") or {}
-            refs = managed.get("risk_refs")
-            if refs is None:
-                continue
-            if not isinstance(refs, list):
+    known_risks = _assessment_risk_ids(assessment)
+    for requirement in doc.get("requirements", []) or []:
+        if not isinstance(requirement, dict):
+            continue
+        requirement_id = requirement.get("id", "<no id>")
+        managed = requirement.get("managed") or {}
+        refs = managed.get("risk_refs")
+        if refs is None:
+            continue
+        if not isinstance(refs, list):
+            findings.append(Finding(
+                "ERROR", requirement_id, "risk-ref-format",
+                "risk_refs must be a list",
+            ))
+            continue
+        for reference in refs:
+            if reference not in known_risks:
                 findings.append(Finding(
-                    "ERROR", requirement_id, "risk-ref-format",
-                    "risk_refs must be a list",
+                    "ERROR", requirement_id, "risk-ref-unknown",
+                    f"{reference!r} is not a risk assessment",
                 ))
-                continue
-            for reference in refs:
-                if reference not in known_risks:
-                    findings.append(Finding(
-                        "ERROR", requirement_id, "risk-ref-unknown",
-                        f"{reference!r} is not a risk assessment",
-                    ))
 
     evidence_records: dict[str, dict] = {}
     current_evidence: set[str] = set()
@@ -873,7 +863,7 @@ def lint(
                                       threat.get("related_controls", []) or [], catalog, bundled, known)
 
     findings += _check_risk_and_evidence_refs(
-        doc, threats, assessment, evidence, today or date.today()
+        doc, assessment, evidence, today or date.today()
     )
 
     return findings

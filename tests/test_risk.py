@@ -323,6 +323,50 @@ def test_evidence_is_bound_to_the_current_managed_requirement(default_policy):
     ]
 
 
+def test_requirement_stale_evidence_cannot_reduce_residual_risk(default_policy):
+    requirements = _requirement_document()
+    record = _evidence_record(requirements)
+    evidence = {"evidence": [record]}
+    requirements["requirements"][0]["managed"]["statement"] = (
+        "Every write requires explicit authorization."
+    )
+    inherent = risk.calculate_inherent(
+        default_policy, proposal("L4-PUBLIC-LOW-COMPLEXITY", "I4-CROSS-SYSTEM")
+    )
+    reduced = _residual_proposal(
+        "L3-AUTHENTICATED",
+        "I4-CROSS-SYSTEM",
+        likelihood_refs=[record["id"]],
+    )
+
+    with pytest.raises(
+        risk.RiskValidationError, match="residual reduction requires current passing evidence"
+    ):
+        risk.calculate_residual(
+            inherent,
+            evidence,
+            default_policy,
+            reduced,
+            requirements=requirements,
+            today=date(2026, 8, 13),
+        )
+
+
+def test_future_observation_is_not_current_evidence():
+    requirements = _requirement_document()
+    evidence = {
+        "evidence": [
+            _evidence_record(
+                requirements, observed_at="2026-08-14T00:00:00+09:00"
+            )
+        ]
+    }
+
+    assert risk.validate_evidence(evidence, requirements, date(2026, 8, 13)) == [
+        "EVID-AUTHZ-INTEGRATION-01 observed_at is in the future"
+    ]
+
+
 @pytest.mark.parametrize(
     "changes",
     [
@@ -349,7 +393,12 @@ def test_residual_reduction_requires_current_passing_evidence(
         risk.RiskValidationError, match="residual reduction requires current passing evidence"
     ):
         risk.calculate_residual(
-            inherent, evidence, default_policy, reduced, today=date(2026, 8, 13)
+            inherent,
+            evidence,
+            default_policy,
+            reduced,
+            requirements=requirements,
+            today=date(2026, 8, 13),
         )
 
 
@@ -367,7 +416,12 @@ def test_likelihood_only_evidence_cannot_reduce_impact(default_policy):
 
     with pytest.raises(risk.RiskValidationError, match="does not support impact"):
         risk.calculate_residual(
-            inherent, evidence, default_policy, reduced, today=date(2026, 8, 13)
+            inherent,
+            evidence,
+            default_policy,
+            reduced,
+            requirements=requirements,
+            today=date(2026, 8, 13),
         )
 
 
@@ -387,12 +441,22 @@ def test_score_one_requires_attack_path_removal_evidence(default_policy):
 
     with pytest.raises(risk.RiskValidationError, match="score 1 requires attack-path-removal"):
         risk.calculate_residual(
-            inherent, evidence, default_policy, reduced, today=date(2026, 8, 13)
+            inherent,
+            evidence,
+            default_policy,
+            reduced,
+            requirements=requirements,
+            today=date(2026, 8, 13),
         )
 
     record["supports"].append("attack_path_removal")
     result = risk.calculate_residual(
-        inherent, evidence, default_policy, reduced, today=date(2026, 8, 13)
+        inherent,
+        evidence,
+        default_policy,
+        reduced,
+        requirements=requirements,
+        today=date(2026, 8, 13),
     )
     assert result["score"] == 1
     assert result["rating"] == "low"
@@ -412,7 +476,12 @@ def test_two_level_reduction_warns_and_residual_may_increase(default_policy):
     )
 
     result = risk.calculate_residual(
-        inherent, evidence, default_policy, reduced, today=date(2026, 8, 13)
+        inherent,
+        evidence,
+        default_policy,
+        reduced,
+        requirements=requirements,
+        today=date(2026, 8, 13),
     )
     assert result["score"] == 8
     assert result["warnings"] == [
@@ -982,6 +1051,51 @@ def test_evidence_and_residual_cli_validate_project_documents(
     assert "T-01 residual risk: high (score 12)" in residual_result.stdout
     assert "internal-ci-artifact" not in evidence_result.stdout + evidence_result.stderr
     assert "internal-ci-artifact" not in residual_result.stdout + residual_result.stderr
+
+
+def test_residual_cli_renders_undetermined_without_a_traceback(risk_fixture):
+    requirements = _requirement_document()
+    evidence = {"evidence": [_evidence_record(requirements)]}
+    root = risk_fixture.paths["project_root"] / ".security-requirements"
+    requirements_path = root / "requirements.yaml"
+    evidence_path = root / "risk-evidence.yaml"
+    requirements_path.write_text(
+        yaml.safe_dump(requirements, sort_keys=False), encoding="utf-8"
+    )
+    evidence_path.write_text(
+        yaml.safe_dump(evidence, sort_keys=False), encoding="utf-8"
+    )
+    risk_fixture.assessment["assessments"][0]["residual"] = {}
+    risk_fixture._write_documents()
+    risk_fixture.confirm_all()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "risk.py"),
+            "residual",
+            "--project-root",
+            str(risk_fixture.paths["project_root"]),
+            "--policy",
+            str(risk_fixture.paths["policy"]),
+            "--threats",
+            str(risk_fixture.paths["threats"]),
+            "--assessment",
+            str(risk_fixture.paths["assessment"]),
+            "--requirements",
+            str(requirements_path),
+            "--evidence",
+            str(evidence_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "T-01 residual risk: UNDETERMINED (residual proposal is required)" in result.stdout
+    assert "Traceback" not in result.stderr
 
 
 def test_cli_rejects_unknown_state_argument_without_writing(risk_fixture):
