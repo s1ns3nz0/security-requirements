@@ -115,3 +115,50 @@ not skipped.
   contract.
 - The validator only reads metadata and payload source as data; it never imports
   or executes repository code. Marketplace manifests remain unchanged.
+
+## Review fix round 2
+
+Three further Important findings were reproduced independently before their
+fixes. The two redirected-payload-root cases each observed seven downstream
+reads, a bundled `__pycache__` plus `.pyc` produced no validation error, a real
+`git archive HEAD` extraction was rejected for the three unstorable empty
+`agents/` directories, and an unreachable `if False` schema gate satisfied the
+generic AST search.
+
+The resulting contract now:
+
+- includes the payload boundary itself in every lexical redirect check and
+  stops all payload readers/scanners after a redirected payload root is found;
+- treats every `__pycache__` directory and `.pyc` file as an unapproved archive
+  path, with no cache exception;
+- derives required directories only from enumerated files, so local untracked
+  empty directories are not distribution requirements;
+- validates the actual extracted `git archive HEAD` shape; and
+- accepts an engine version gate only when it is a reachable top-level `if`
+  whose condition contains the named comparison and whose body appends a
+  validation problem or raises.
+
+Round 2 verification after the final test/code changes:
+
+```text
+python -m pytest tests/test_distribution_docs.py -q
+197 passed, 1 skipped in 58.39s
+
+python -m pytest --collect-only -q
+1251 tests collected
+
+python -m pytest tests/ -q \
+  --junitxml=/tmp/security-requirements-task10-fix-round2-final.xml
+1249 passed, 2 skipped, 1 pre-existing SyntaxWarning in 86.99s
+JUnit: tests=1251, failures=0, errors=0, skipped=2
+
+python /Users/s1ns3nz0/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py \
+  plugins/security-requirements
+Plugin validation passed
+
+claude plugin validate --strict plugins/security-requirements
+Validation passed
+
+claude plugin validate --strict .
+Validation passed
+```

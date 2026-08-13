@@ -4,6 +4,7 @@ import shutil
 from types import SimpleNamespace
 import subprocess
 import sys
+import tarfile
 import tempfile
 from pathlib import Path, PureWindowsPath
 
@@ -286,26 +287,27 @@ def test_gitignore_exposes_only_the_codex_marketplace_under_agent_tooling():
 def test_distribution_validator_accepts_the_repository_and_is_read_only(tmp_path):
     assert VALIDATOR.is_file(), "distribution validator must exist"
     module = _load_validator()
+    clone = _distribution_clone(tmp_path)
     marketplace = json.loads(
-        (REPO_ROOT / ".agents" / "plugins" / "marketplace.json").read_text(encoding="utf-8")
+        (clone / ".agents" / "plugins" / "marketplace.json").read_text(encoding="utf-8")
     )
     assert marketplace["name"] == PLUGIN_NAME
 
     before = {
-        path.relative_to(REPO_ROOT): path.stat().st_mtime_ns
+        path.relative_to(clone): path.stat().st_mtime_ns
         for path in (
-            REPO_ROOT / ".claude-plugin" / "marketplace.json",
-            REPO_ROOT / ".agents" / "plugins" / "marketplace.json",
-            REPO_ROOT / "plugins" / PLUGIN_NAME / ".claude-plugin" / "plugin.json",
-            REPO_ROOT / "plugins" / PLUGIN_NAME / ".codex-plugin" / "plugin.json",
+            clone / ".claude-plugin" / "marketplace.json",
+            clone / ".agents" / "plugins" / "marketplace.json",
+            clone / "plugins" / PLUGIN_NAME / ".claude-plugin" / "plugin.json",
+            clone / "plugins" / PLUGIN_NAME / ".codex-plugin" / "plugin.json",
         )
     }
-    assert module.validate(REPO_ROOT) == []
-    after = {path: (REPO_ROOT / path).stat().st_mtime_ns for path in before}
+    assert module.validate(clone) == []
+    after = {path: (clone / path).stat().st_mtime_ns for path in before}
     assert after == before
 
     result = subprocess.run(
-        [sys.executable, str(VALIDATOR), str(REPO_ROOT)],
+        [sys.executable, str(VALIDATOR), str(clone)],
         capture_output=True,
         text=True,
         check=False,
@@ -1664,6 +1666,93 @@ def test_distribution_validator_never_reads_a_redirected_canonical_risk_asset(
     assert reads == []
 
 
+@pytest.mark.parametrize("redirect_kind", ("symlink", "junction"))
+def test_distribution_validator_never_reads_or_scans_a_redirected_payload_root(
+    tmp_path, monkeypatch, redirect_kind
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    payload = clone / "plugins" / PLUGIN_NAME
+    real_read_text = Path.read_text
+    real_scandir = module.os.scandir
+    reads = []
+    scans = []
+
+    if redirect_kind == "symlink":
+        outside = tmp_path / "outside-payload"
+        shutil.copytree(payload, outside)
+        shutil.rmtree(payload)
+        payload.symlink_to(outside, target_is_directory=True)
+    else:
+        real_is_junction = Path.is_junction
+
+        def simulated_junction(path):
+            return path == payload or real_is_junction(path)
+
+        monkeypatch.setattr(Path, "is_junction", simulated_junction)
+
+    def observed_read(path, *args, **kwargs):
+        if path == payload or payload in path.parents:
+            reads.append(path)
+        return real_read_text(path, *args, **kwargs)
+
+    def observed_scandir(path):
+        candidate = Path(path)
+        if candidate == payload or payload in candidate.parents:
+            scans.append(candidate)
+        return real_scandir(path)
+
+    monkeypatch.setattr(Path, "read_text", observed_read)
+    monkeypatch.setattr(module.os, "scandir", observed_scandir)
+
+    errors = module.validate(clone)
+
+    assert any(f"{redirect_kind} is not allowed in payload" in error for error in errors)
+    assert reads == []
+    assert scans == []
+
+
+def test_distribution_validator_rejects_python_cache_artifacts_in_payload(tmp_path):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    payload = clone / "plugins" / PLUGIN_NAME
+    cache = payload / "scripts" / "__pycache__"
+    cache.mkdir()
+    bytecode = cache / "risk.cpython-312.pyc"
+    bytecode.write_bytes(b"not distributed bytecode")
+
+    errors = module.validate(clone)
+
+    assert any(
+        "unapproved payload path" in error and "scripts/__pycache__" in error
+        for error in errors
+    ), errors
+    assert any(
+        "unapproved payload path" in error
+        and "scripts/__pycache__/risk.cpython-312.pyc" in error
+        for error in errors
+    ), errors
+
+
+def test_distribution_validator_accepts_the_exact_git_archive_payload(tmp_path):
+    module = _load_validator()
+    archive = tmp_path / "repository.tar"
+    with archive.open("wb") as output:
+        result = subprocess.run(
+            ["git", "archive", "--format=tar", "HEAD"],
+            cwd=REPO_ROOT,
+            stdout=output,
+            check=False,
+        )
+    assert result.returncode == 0
+    extracted = tmp_path / "archive"
+    extracted.mkdir()
+    with tarfile.open(archive) as bundle:
+        bundle.extractall(extracted, filter="data")
+
+    assert module.validate(extracted) == []
+
+
 def test_distribution_validator_aggregates_risk_distribution_errors(tmp_path):
     module = _load_validator()
     clone = _distribution_clone(tmp_path)
@@ -1950,5 +2039,32 @@ def test_distribution_validator_rejects_semantically_wrong_engine_schema_gates(
 
     assert any(
         "risk engine schema contract mismatch" in error and function_name in error
+        for error in errors
+    ), errors
+
+
+def test_distribution_validator_rejects_an_unreachable_current_schema_gate(tmp_path):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    engine = clone / "plugins" / PLUGIN_NAME / "scripts" / "risk.py"
+    source = _read(engine)
+    live_gate = (
+        '    if threats_doc.get("version") != CURRENT_THREAT_SCHEMA_VERSION:\n'
+        '        problems.append("threat schema version must be 0.2.0")\n'
+    )
+    decoy = (
+        "    if False:\n"
+        '        if threats_doc.get("version") != CURRENT_THREAT_SCHEMA_VERSION:\n'
+        '            problems.append("threat schema version must be 0.2.0")\n'
+    )
+    mutated = source.replace(live_gate, decoy, 1)
+    assert mutated != source
+    engine.write_text(mutated, encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any(
+        "risk engine schema contract mismatch" in error
+        and "_validate_threats" in error
         for error in errors
     ), errors

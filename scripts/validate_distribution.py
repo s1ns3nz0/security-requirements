@@ -160,17 +160,10 @@ skills/security-requirements-risk/SKILL.md
     if value
 )
 APPROVED_PAYLOAD_DIRECTORIES = frozenset(
-    {
-        parent
-        for file_path in APPROVED_PAYLOAD_FILES
-        for parent in file_path.parents
-        if parent != Path(".")
-    }
-    | {
-        Path("skills/security-requirements-build/agents"),
-        Path("skills/security-requirements-init/agents"),
-        Path("skills/security-requirements-refresh/agents"),
-    }
+    parent
+    for file_path in APPROVED_PAYLOAD_FILES
+    for parent in file_path.parents
+    if parent != Path(".")
 )
 FORBIDDEN_CODEX_COMPONENTS = ("mcpServers", "apps", "hooks")
 METADATA_FILES = (
@@ -308,6 +301,9 @@ def _redirect_in_path(path: Path, boundary: Path) -> tuple[Path, str] | None:
     except ValueError:
         return path, "outside-boundary"
     current = boundary
+    boundary_kind = _redirect_kind(current)
+    if boundary_kind is not None:
+        return current, boundary_kind
     for part in relative.parts:
         current = current / part
         kind = _redirect_kind(current)
@@ -912,6 +908,46 @@ def _assigned_string_constants(syntax: ast.AST) -> dict[str, str]:
     return values
 
 
+def _matches_version_comparison(
+    comparison: ast.Compare,
+    receiver: str,
+    operator: type[ast.cmpop],
+    version_constant: str,
+) -> bool:
+    call = comparison.left
+    return (
+        len(comparison.ops) == 1
+        and isinstance(comparison.ops[0], operator)
+        and isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == "get"
+        and isinstance(call.func.value, ast.Name)
+        and call.func.value.id == receiver
+        and len(call.args) == 1
+        and isinstance(call.args[0], ast.Constant)
+        and call.args[0].value == "version"
+        and len(comparison.comparators) == 1
+        and isinstance(comparison.comparators[0], ast.Name)
+        and comparison.comparators[0].id == version_constant
+    )
+
+
+def _gate_rejects(body: list[ast.stmt]) -> bool:
+    for node in body:
+        if isinstance(node, ast.Raise):
+            return True
+        if (
+            isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Attribute)
+            and node.value.func.attr == "append"
+            and isinstance(node.value.func.value, ast.Name)
+            and node.value.func.value.id == "problems"
+        ):
+            return True
+    return False
+
+
 def _function_uses_version_gate(
     syntax: ast.AST,
     function_name: str,
@@ -930,27 +966,32 @@ def _function_uses_version_gate(
     )
     if function is None:
         return False
-    for comparison in (
-        node for node in ast.walk(function) if isinstance(node, ast.Compare)
-    ):
-        if len(comparison.ops) != 1 or not isinstance(comparison.ops[0], operator):
+    for statement in function.body:
+        if isinstance(statement, (ast.Return, ast.Raise)):
+            break
+        if not isinstance(statement, ast.If) or not _gate_rejects(statement.body):
             continue
-        call = comparison.left
-        if not (
-            isinstance(call, ast.Call)
-            and isinstance(call.func, ast.Attribute)
-            and call.func.attr == "get"
-            and isinstance(call.func.value, ast.Name)
-            and call.func.value.id == receiver
-            and len(call.args) == 1
-            and isinstance(call.args[0], ast.Constant)
-            and call.args[0].value == "version"
-            and len(comparison.comparators) == 1
-            and isinstance(comparison.comparators[0], ast.Name)
-            and comparison.comparators[0].id == version_constant
+        comparisons = (
+            [statement.test]
+            if function_name == "_validate_threats"
+            and isinstance(statement.test, ast.Compare)
+            else (
+                []
+                if function_name == "_validate_threats"
+                else [
+                    node
+                    for node in ast.walk(statement.test)
+                    if isinstance(node, ast.Compare)
+                ]
+            )
+        )
+        if any(
+            _matches_version_comparison(
+                comparison, receiver, operator, version_constant
+            )
+            for comparison in comparisons
         ):
-            continue
-        return True
+            return True
     return False
 
 
@@ -1059,19 +1100,11 @@ def _entrypoint_contract(payload: Path, errors: list[str], payload_entries: list
                 errors.append(f"unexpected Codex entry point: {path.relative_to(payload)}")
 
 
-def _ephemeral_cache_path(relative: Path) -> bool:
-    return "__pycache__" in relative.parts and (
-        relative.name == "__pycache__" or relative.suffix == ".pyc"
-    )
-
-
 def _approved_payload_contract(
     payload: Path, errors: list[str], payload_entries: list[Path]
 ) -> None:
     for path in payload_entries:
         relative = path.relative_to(payload)
-        if _ephemeral_cache_path(relative):
-            continue
         path_type = _lexical_type(path)
         approved = (
             path_type == "file" and relative in APPROVED_PAYLOAD_FILES
@@ -1102,6 +1135,7 @@ def validate(root: Path) -> list[str]:
     if root_redirect is not None:
         return [f"{root_redirect} is not allowed in distribution root: {root}"]
     payload = root / PAYLOAD
+    payload_redirect = _redirect_kind(payload)
     payload_entries = _walk_no_redirect(payload, errors, label="payload")
     claude_marketplace_path = root / ".claude-plugin" / "marketplace.json"
     codex_marketplace_path = root / ".agents" / "plugins" / "marketplace.json"
@@ -1128,6 +1162,9 @@ def validate(root: Path) -> list[str]:
     for host, entry in (("Claude", claude_entry), ("Codex", codex_entry)):
         if entry.get("name") not in (None, payload.name):
             errors.append(f"{host} marketplace name must equal payload folder: {payload.name}")
+
+    if payload_redirect is not None:
+        return errors
 
     manifests = {
         "Claude": _read_json(payload / ".claude-plugin" / "plugin.json", errors, root),
