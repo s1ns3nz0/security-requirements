@@ -144,7 +144,64 @@ They do not by themselves prove adapter execution.
 
 No fix-round host run is accepted as end-to-end evidence.
 
-### Final bounded attempt against `a0f65bc`
+### Execution-interception attempt against `1b036a2`
+
+The final remediation replaced shell-command parsing with direct execution
+interception. A compiled `python3` shim was designed to execute only the pinned
+Python 3.12.11 binary, wait for it, and append a lossless length-prefixed record
+containing PID, wall-clock start/end time, argv, and exit result. It never
+records environment variables or process output. Separate per-host logs were
+created outside the hostile project with mode `0600` and the macOS `uappnd`
+append-only flag. The verifier accepted invocation facts only from those binary
+records; structured Codex/Claude events were restricted to adapter
+selection/discovery and the explicit confirmation stop.
+
+Before any live run, 22 offline tests passed:
+
+```text
+compiled shim behavior: 6 passed
+event/log/harness behavior: 16 passed
+zsh syntax and git diff checks: pass
+```
+
+They covered space-and-Unicode argv, exact pinned executor and shim identity,
+PID/time/exit capture, environment-secret omission, nonzero and signaled child
+propagation, copied-shim rejection, archive byte mismatch, assistant-event
+spoofing boundaries, exact-once required invocations, missing `-I`, foreign and
+side-effecting scripts, truncated binary logs, signal cleanup, and fail-fast
+marker suppression. An independent pre-live review found three issues: Claude
+discovery had been conflated with selection, allowed calls could repeat, and
+the cleanup trap was installed too late. Those were fixed, retested, and the
+same reviewer returned a clean verdict. Non-login `sh`, `zsh`, and `bash`
+preflights also resolved `python3` to the intended per-host shim.
+
+Exactly one live attempt was then made from commit
+`1b036a2edf112ff1619ab0d3bddcb71d5169ef0d`. It failed closed during isolated
+PATH inventory, before archive creation, plugin installation, or either model
+phase:
+
+```text
+isolated host PATH contains an alternate Python command
+FALLBACK_TEMP_ROOT_ABSENT=pass
+```
+
+The check counted the non-interpreter helper `python-config`, which the PATH
+builder had retained, as an alternate Python executable. The ignored harness
+was corrected offline to omit every `python*`/`pypy*` helper, but it was not
+rerun. Consequently this attempt generated no immutable-archive digest, no
+installed-payload comparison, no host event, no shim invocation record, and no
+hostile-project before/after model-phase hashes. It also emitted no
+`TASK11_HOST_E2E=pass` marker. Fallback cleanup removed the isolated temporary
+root. Because failure occurred before any Codex or Claude CLI invocation in the
+installation/model phase, the attempt did not touch real host registration or
+plugin state; however, it also did not emit a same-run before/after hash pair,
+so no new real-state immutability claim is derived from it.
+
+Per the one-live-run bound, no retry followed. This execution-interception
+attempt therefore leaves verification items 14, the live-host portion of 15,
+and 17 unproven and does not change the INCOMPLETE verdict.
+
+### Earlier bounded attempt against `a0f65bc`
 
 After this report was corrected to INCOMPLETE, the ignored verifier and host
 harness were rebuilt around streamed JSON event objects rather than a single
