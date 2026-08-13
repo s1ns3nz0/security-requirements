@@ -18,8 +18,10 @@ Review found that the earlier movie witness did not execute the public
 confirmation boundary, installed payloads came from a mutable worktree, event
 checks were aggregate string searches, and project/config hash scopes were
 incomplete. This fix round corrected the deterministic witness and README. It
-also built a stricter host harness, but the harness did not complete an
-accepted run.
+also built a stricter host harness. The final current-commit run reached an
+immutable installation and the Codex model phase, but did not produce accepted
+Python execution records or reach the Claude model phase, so the dual-host
+witness remains incomplete.
 
 ## Environment
 
@@ -143,6 +145,71 @@ They do not by themselves prove adapter execution.
 ## Installed-host evidence gap
 
 No fix-round host run is accepted as end-to-end evidence.
+
+### Final compiled-shim attempt against `6360308`
+
+The reviewed ignored compiled-shim harness was first rerun offline. All 22
+tests passed: six compiled-shim behavior tests and sixteen event, binary-log,
+signal, and fail-fast tests. An exact-name PATH regression additionally proved
+that non-interpreter `python-config` helpers remain usable while alternate
+commands named exactly `python` or `python3` are rejected. Zsh syntax and
+`git diff --check` passed. A saved-baseline diff contained only that PATH
+filter correction, the current immutable-commit pin, and its truthful scope
+description before the live run.
+
+Exactly one material live attempt then used
+`git archive 63603082c289dddf09fa81d6907bc26586c1d918`, SHA-256
+`89e835392adf5560b34eaf8edc8f51db877f7a4d9ec9feab1f57ed855a8f5195`.
+The extracted distribution validator passed. Both isolated version `0.2.0`
+installs matched the immutable archive byte-for-byte before model execution:
+
+| Installed immutable file | SHA-256 |
+|---|---:|
+| `scripts/runtime_paths.py` | `0cb933c604659f98a60757225ced7ebf79c4ac223624d531df6912b006d39a3d` |
+| `scripts/safe_paths.py` | `9f09f687ad4a35e819476f0ef0faf8ccd906622666b5f114d9d3418de30319ee` |
+| `scripts/risk.py` | `a4ad8c1c14ff0ef5058c78dcf793d7bf8580b43fc955bf2abb02bc13c9e9162c` |
+| Codex `skills/security-requirements-risk/SKILL.md` | `891050c2ef848fe2e76eaf3c11592b872cf35a09e0080fbb830250ab6de3c5ee` |
+| Claude `commands/sec-req-risk.md` | `b84489e95ff08389d66d1205e177d16b1db79709b007deea594f83b703f84993` |
+
+The Codex phase selected the exact installed adapter and reported the explicit
+missing-policy-confirmation stop. Its hostile-project hash matched immediately
+before and after the phase:
+
+```text
+f2ed592a61d4db9b49633f2722291fe2f29fcec715c7566a80f22e2f7c4ece99
+```
+
+The run nevertheless failed closed when the compiled-shim verifier found no
+valid positive-size execution-interception log:
+
+```text
+execution-interception log size is invalid
+FALLBACK_TEMP_ROOT_ABSENT=pass
+```
+
+Assistant-authored selection and stop markers do not prove that the required
+installed Python commands actually executed. Consequently no exact Codex
+Python argv evidence is accepted. The Claude model phase was not reached, the
+run emitted no `TASK11_HOST_E2E=pass`, and the one-run rule prohibited a retry.
+
+Fallback cleanup removed the exact temporary root
+`security requirements risk E2E 테스트-6360308.792FAr`. Immediate independent
+post-failure hashes matched all pre-run declared nonvolatile scopes and the
+pinned trusted interpreter:
+
+| Measured scope | SHA-256 before and after |
+|---|---|
+| Codex config/control | `cf20e23f3c9e27b8c2365d655334c67910f4f997878d6c231986486776d0fb1a` |
+| Claude config/control | `b25625b873007cb6f4f6e787c362a03bbbbd043b74a4decd19637363e4fe28d5` |
+| Claude plugin control | `f52da02d688ae7468f6308616cbc4ab3320004c99368803e61ad1200551459ab` |
+| security-requirements persistent risk data | `27fb3bc2458de6aeb70fa84e77d3693d81d5c8ed27a72bf7116816f0db066176` |
+| trusted Python 3.12.11 executable | `f99b6dedada5ef94e58e6479f0015a2e112f6f34b3e7e7e925611ce96ca0d3de` |
+
+The exclusions remain the volatile caches and runtime state enumerated below;
+no claim is made about them. This final attempt proves immutable installation,
+Codex adapter selection/confirmation-stop behavior, immediate Codex project
+immutability, cleanup, and scoped real-state immutability. It does not prove
+exact Python execution or a completed equivalent Claude-and-Codex workflow.
 
 ### Execution-interception attempt against `1b036a2`
 
@@ -326,8 +393,10 @@ this report does not use that fact to override the incomplete release verdict.
 - No movie control is asserted as implemented; all residual risk remains
   `UNDETERMINED`.
 - Real Windows-junction and case-sensitive-volume executions were unavailable.
-- No fix-round run proves complete dual-host execution, whole hostile-project
-  immutability, or absence of writes/publication across that complete run.
+- No fix-round run proves complete dual-host execution or exact installed
+  Python invocation evidence across both hosts. The final run proves the
+  complete Codex project tree unchanged for its model phase, but did not reach
+  the Claude phase.
 - Side-effecting live confirmations/publication were intentionally not run in
   the host adapters. The golden CLI witness safely covers confirmations in
   isolated temporary roots.
