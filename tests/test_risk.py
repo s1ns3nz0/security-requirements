@@ -1,4 +1,5 @@
 import copy
+from datetime import date
 import os
 from pathlib import Path
 import subprocess
@@ -263,6 +264,171 @@ def test_overall_is_highest_active_rating_not_average(default_policy):
     assert result["overall"] == "critical"
     assert result["counts"] == {"critical": 1, "high": 0, "medium": 0, "low": 1}
     assert result["coverage"] == "2/2"
+
+
+def test_acceptance_never_changes_rating(default_policy):
+    """Changing acceptance handling must not remove accepted inherent risk."""
+    threats_doc = {"version": "0.2.0", "threats": [threat_record("T-1")]}
+    assessed = {
+        "assessments": [
+            {
+                "threat_id": "T-1",
+                "status": "CONFIRMED",
+                "calculated": {"score": 16, "rating": "high"},
+                "treatment": {
+                    "strategy": "accept",
+                    "owner": "platform",
+                    "approval": {
+                        "approver": "alice",
+                        "role": "head-of-engineering",
+                        "rationale": "migration window",
+                        "expires": "2026-12-31",
+                        "authority": "self_declared",
+                    },
+                },
+            }
+        ]
+    }
+
+    assert risk.validate_treatment(
+        assessed["assessments"][0], default_policy, date(2026, 8, 13)
+    ) == []
+    assert risk.aggregate_risk(threats_doc, assessed)["overall"] == "high"
+
+
+def test_expired_acceptance_is_unresolved(default_policy):
+    record = {
+        "treatment": {
+            "strategy": "accept",
+            "owner": "platform",
+            "approval": {
+                "approver": "alice",
+                "role": "head-of-engineering",
+                "rationale": "migration window",
+                "expires": "2026-12-31",
+                "authority": "self_declared",
+            },
+        }
+    }
+
+    assert "acceptance expired" in risk.validate_treatment(
+        record, default_policy, date(2027, 1, 1)
+    )
+
+
+def test_expired_acceptance_makes_aggregate_provisional_without_lowering_rating():
+    threats_doc = {"version": "0.2.0", "threats": [threat_record("T-1")]}
+    assessed = {
+        "assessments": [
+            {
+                "threat_id": "T-1",
+                "status": "CONFIRMED",
+                "calculated": {"rating": "high"},
+                "treatment": {
+                    "strategy": "accept",
+                    "approval": {"expires": "2026-12-31"},
+                },
+            }
+        ]
+    }
+
+    summary = risk.aggregate_risk(threats_doc, assessed, today=date(2027, 1, 1))
+
+    assert summary["overall"] == "high"
+    assert summary["status"] == "provisional"
+
+
+def test_treatment_requires_known_strategy_and_owner(default_policy):
+    assert risk.validate_treatment(
+        {"treatment": {"strategy": "defer"}}, default_policy, date(2026, 8, 13)
+    ) == ["treatment strategy is invalid", "treatment owner is required"]
+
+
+def test_acceptance_role_is_checked_against_configured_allowlist(default_policy):
+    policy = copy.deepcopy(default_policy)
+    policy["approval_roles"] = ["ciso"]
+    record = {
+        "treatment": {
+            "strategy": "accept",
+            "owner": "platform",
+            "approval": {
+                "approver": "alice",
+                "role": "head-of-engineering",
+                "rationale": "migration window",
+                "expires": "2026-12-31",
+                "authority": "self_declared",
+            },
+        }
+    }
+
+    assert "acceptance role is not permitted by policy" in risk.validate_treatment(
+        record, policy, date(2026, 8, 13)
+    )
+
+
+def _history_snapshot(assessed_at, assessments):
+    return {
+        "assessed_at": assessed_at,
+        "policy_digest": "sha256:policy",
+        "threat_digest": "sha256:threats",
+        "assessment_digest": "sha256:assessment",
+        "inherent": {"overall": "high"},
+        "residual": {"overall": "UNDETERMINED"},
+        "treatment": {"strategy": "mitigate", "owner": "platform"},
+        "evidence_refs": [],
+        "assessments": assessments,
+    }
+
+
+def test_append_snapshot_is_append_only_and_copies_the_record():
+    snapshot = _history_snapshot("2026-08-13T00:00:00Z", [])
+    state = {"snapshots": []}
+
+    updated = risk.append_snapshot(state, snapshot)
+    snapshot["inherent"]["overall"] = "critical"
+
+    assert state == {"snapshots": []}
+    assert updated["snapshots"] == [_history_snapshot("2026-08-13T00:00:00Z", [])]
+
+
+def test_risk_delta_reports_lifecycle_and_distribution_changes():
+    previous = _history_snapshot(
+        "2026-12-31T00:00:00Z",
+        [
+            {"threat_id": "T-up", "status": "CONFIRMED", "calculated": {"rating": "high"}},
+            {"threat_id": "T-down", "status": "CONFIRMED", "calculated": {"rating": "high"}},
+            {"threat_id": "T-stale", "status": "CONFIRMED", "calculated": {"rating": "medium"}},
+            {"threat_id": "T-retired", "status": "CONFIRMED", "calculated": {"rating": "low"}, "lifecycle": {"status": "active"}},
+            {"threat_id": "T-reopened", "status": "CONFIRMED", "calculated": {"rating": "low"}, "lifecycle": {"status": "retired"}},
+            {"threat_id": "T-accepted", "status": "CONFIRMED", "calculated": {"rating": "medium"}},
+        ],
+    )
+    current = _history_snapshot(
+        "2027-01-01T00:00:00Z",
+        [
+            {"threat_id": "T-up", "status": "CONFIRMED", "calculated": {"rating": "critical"}},
+            {"threat_id": "T-down", "status": "CONFIRMED", "calculated": {"rating": "low"}},
+            {"threat_id": "T-stale", "status": "STALE", "calculated": {"rating": "medium"}},
+            {"threat_id": "T-retired", "status": "CONFIRMED", "calculated": {"rating": "low"}, "lifecycle": {"status": "retired"}},
+            {"threat_id": "T-reopened", "status": "CONFIRMED", "calculated": {"rating": "low"}, "lifecycle": {"status": "active"}},
+            {"threat_id": "T-accepted", "status": "CONFIRMED", "calculated": {"rating": "medium"}, "treatment": {"strategy": "accept", "approval": {"expires": "2026-12-31"}}},
+            {"threat_id": "T-new", "status": "CONFIRMED", "calculated": {"rating": "medium"}},
+        ],
+    )
+
+    delta = risk.risk_delta(previous, current)
+
+    assert delta["new"] == ["T-new"]
+    assert delta["increased"] == ["T-up"]
+    assert delta["decreased"] == ["T-down"]
+    assert delta["stale"] == ["T-stale"]
+    assert delta["retired"] == ["T-retired"]
+    assert delta["reopened"] == ["T-reopened"]
+    assert delta["expired_acceptance"] == ["T-accepted"]
+    assert delta["rating_distribution"] == {
+        "previous": {"critical": 0, "high": 2, "medium": 2, "low": 1},
+        "current": {"critical": 1, "high": 0, "medium": 2, "low": 2},
+    }
 
 
 def test_threat_digest_is_stable_for_lifecycle_changes():

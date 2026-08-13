@@ -31,6 +31,7 @@ import classify_resp  # noqa: E402
 import lint as lint_mod  # noqa: E402
 import merge  # noqa: E402
 import profile_schema  # noqa: E402
+import risk  # noqa: E402
 import runtime_paths  # noqa: E402
 import select_baseline as sb  # noqa: E402
 
@@ -966,6 +967,53 @@ def test_human_edits_are_never_overwritten(draft):
     assert updated["human"]["exception"]["approver"] == "CISO"
     assert "A completely rewritten" not in updated["managed"]["statement"]
     assert updated["pending_review"]["managed"]["statement"].startswith("A completely rewritten")
+
+
+@pytest.mark.parametrize("status", ["accepted_risk", "exception"])
+def test_requirement_exception_migration_is_pending_review_only(status):
+    """Legacy exceptions stay in their requirement while threat migration awaits review."""
+    requirements = {
+        "requirements": [
+            {
+                "id": "REQ-AUTHZ-01",
+                "threat_refs": ["T-02", "T-01"],
+                "human": {
+                    "status": status,
+                    "owner": "platform",
+                    "exception": {
+                        "approver": "CISO",
+                        "expires": "2026-12-31",
+                        "reason": "vendor migration window",
+                    },
+                },
+            },
+            {
+                "id": "REQ-NO-THREAT-01",
+                "human": {"status": status, "exception": {"approver": "CISO"}},
+            },
+        ]
+    }
+    original = copy.deepcopy(requirements)
+
+    migrated = risk.propose_exception_migration(requirements)
+
+    assert requirements == original
+    proposal = migrated["requirements"][0]["pending_review"]["risk_treatment"]
+    assert proposal == {
+        "migration": "requirement_exception_to_threat_treatment",
+        "threat_refs": ["T-01", "T-02"],
+        "treatment": {
+            "strategy": "accept",
+            "owner": "platform",
+            "approval": {
+                "approver": "CISO",
+                "rationale": "vendor migration window",
+                "expires": "2026-12-31",
+            },
+        },
+    }
+    assert "pending_review" not in migrated["requirements"][1]
+    assert migrated["requirements"][0]["human"] == original["requirements"][0]["human"]
 
 
 def test_retirement_preserves_an_accepted_risk(draft):

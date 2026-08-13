@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 import copy
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
@@ -36,6 +36,17 @@ THREAT_DIGEST_FIELDS = (
     "related_controls",
 )
 RATINGS = ("critical", "high", "medium", "low")
+TREATMENT_STRATEGIES = {"mitigate", "avoid", "transfer", "accept"}
+SNAPSHOT_FIELDS = (
+    "assessed_at",
+    "policy_digest",
+    "threat_digest",
+    "assessment_digest",
+    "inherent",
+    "residual",
+    "treatment",
+    "evidence_refs",
+)
 ASSESSMENT_STATUSES = {"CONFIRMED", "UNDETERMINED", "PROPOSED", "STALE"}
 LIFELIHOOD_EVIDENCE_FIELDS = (
     "exposure",
@@ -448,10 +459,14 @@ def validate_assessment(threats: dict, assessment: dict, policy: dict) -> list[s
     return problems
 
 
-def aggregate_risk(threats: dict, assessment: dict) -> dict:
+def aggregate_risk(
+    threats: dict, assessment: dict, *, today: date | None = None
+) -> dict:
     """Summarise active inherent-risk ratings without averaging independent risks."""
 
     active = active_threats(threats)
+    if today is None:
+        today = date.today()
     if not isinstance(assessment, Mapping):
         raise RiskValidationError("assessment document must be a mapping")
     records = assessment.get("assessments")
@@ -483,6 +498,8 @@ def aggregate_risk(threats: dict, assessment: dict) -> dict:
             raise RiskValidationError(f"{threat['id']} confirmed rating is invalid")
         counts[rating] += 1
         confirmed += 1
+        if _expired_acceptance(record, today):
+            unresolved = True
 
     overall = next((rating for rating in RATINGS if counts[rating]), "UNDETERMINED")
     return {
@@ -491,6 +508,276 @@ def aggregate_risk(threats: dict, assessment: dict) -> dict:
         "counts": counts,
         "coverage": f"{confirmed}/{len(active)}",
     }
+
+
+def _nonempty_text(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _approval_role_allowlist(policy: Mapping) -> object:
+    for name in ("approval_roles", "approved_roles", "permitted_approval_roles"):
+        if name in policy:
+            return policy[name]
+    return None
+
+
+def validate_treatment(record: dict, policy: dict, today: date) -> list[str]:
+    """Return deterministic problems with a threat's treatment decision.
+
+    An authority records how an approval was asserted; it is deliberately not
+    treated as authenticated identity by this local validator.
+    """
+
+    if not isinstance(record, Mapping):
+        return ["treatment record must be a mapping"]
+    if not isinstance(policy, Mapping):
+        return ["risk policy must be a mapping"]
+    if not isinstance(today, date):
+        return ["treatment validation date is invalid"]
+
+    treatment = record.get("treatment")
+    if not isinstance(treatment, Mapping):
+        return ["treatment is required"]
+    problems: list[str] = []
+    strategy = treatment.get("strategy")
+    if strategy not in TREATMENT_STRATEGIES:
+        problems.append("treatment strategy is invalid")
+    if not _nonempty_text(treatment.get("owner")):
+        problems.append("treatment owner is required")
+    if strategy != "accept":
+        return problems
+
+    approval = treatment.get("approval", treatment.get("acceptance"))
+    if not isinstance(approval, Mapping):
+        return problems + ["acceptance approval is required"]
+    for field in ("approver", "role", "rationale", "expires", "authority"):
+        if not _nonempty_text(approval.get(field)):
+            problems.append(f"acceptance {field} is required")
+
+    authority = approval.get("authority")
+    if _nonempty_text(authority) and authority not in AUTHORITIES:
+        problems.append("acceptance authority is invalid")
+
+    allowed_roles = _approval_role_allowlist(policy)
+    if allowed_roles is not None:
+        if (
+            not isinstance(allowed_roles, Sequence)
+            or isinstance(allowed_roles, (str, bytes))
+            or any(not _nonempty_text(role) for role in allowed_roles)
+        ):
+            problems.append("policy approval role allowlist is invalid")
+        elif approval.get("role") not in allowed_roles:
+            problems.append("acceptance role is not permitted by policy")
+
+    expiry = approval.get("expires")
+    if _nonempty_text(expiry):
+        try:
+            expiry_date = date.fromisoformat(expiry)
+        except ValueError:
+            problems.append("acceptance expiry is invalid")
+        else:
+            if expiry_date < today:
+                problems.append("acceptance expired")
+    return problems
+
+
+def append_snapshot(state: dict, snapshot: dict) -> dict:
+    """Return a copied state with one immutable historical snapshot appended."""
+
+    if not isinstance(state, Mapping):
+        raise RiskValidationError("risk state must be a mapping")
+    if not isinstance(snapshot, Mapping):
+        raise RiskValidationError("risk snapshot must be a mapping")
+    missing = [field for field in SNAPSHOT_FIELDS if field not in snapshot]
+    if missing:
+        raise RiskValidationError("risk snapshot is incomplete: " + ", ".join(missing))
+    snapshots = state.get("snapshots", [])
+    if not isinstance(snapshots, Sequence) or isinstance(snapshots, (str, bytes)):
+        raise RiskValidationError("risk state snapshots must be a list")
+    result = copy.deepcopy(dict(state))
+    result["snapshots"] = copy.deepcopy(list(snapshots)) + [copy.deepcopy(dict(snapshot))]
+    return result
+
+
+def _snapshot_records(snapshot: Mapping) -> dict[str, Mapping]:
+    records = snapshot.get("assessments", snapshot.get("risks", []))
+    if not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
+        raise RiskValidationError("risk snapshot assessments must be a list")
+    result: dict[str, Mapping] = {}
+    for record in records:
+        if not isinstance(record, Mapping):
+            raise RiskValidationError("risk snapshot assessment must be a mapping")
+        threat_id = record.get("threat_id", record.get("id"))
+        if not _nonempty_text(threat_id):
+            raise RiskValidationError("risk snapshot assessment threat_id is required")
+        if threat_id in result:
+            raise RiskValidationError(f"duplicate snapshot assessment for threat: {threat_id}")
+        result[threat_id] = record
+    return result
+
+
+def _snapshot_lifecycle(record: Mapping) -> str:
+    lifecycle = record.get("lifecycle", {})
+    if isinstance(lifecycle, Mapping):
+        status = lifecycle.get("status", "active")
+    else:
+        status = lifecycle
+    return status.lower() if isinstance(status, str) else "active"
+
+
+def _snapshot_rating(record: Mapping) -> str | None:
+    calculated = record.get("calculated", record.get("inherent", {}))
+    rating = calculated.get("rating") if isinstance(calculated, Mapping) else None
+    return rating if rating in RATINGS else None
+
+
+def _snapshot_assessed_date(snapshot: Mapping) -> date | None:
+    assessed_at = snapshot.get("assessed_at")
+    if not _nonempty_text(assessed_at):
+        return None
+    try:
+        return datetime.fromisoformat(assessed_at.replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
+
+
+def _expired_acceptance(record: Mapping, today: date | None) -> bool:
+    treatment = record.get("treatment")
+    if not isinstance(treatment, Mapping) or treatment.get("strategy") != "accept":
+        return False
+    approval = treatment.get("approval", treatment.get("acceptance"))
+    if not isinstance(approval, Mapping) or today is None:
+        return False
+    expiry = approval.get("expires")
+    if not _nonempty_text(expiry):
+        return False
+    try:
+        return date.fromisoformat(expiry) < today
+    except ValueError:
+        return False
+
+
+def _rating_distribution(records: Mapping[str, Mapping]) -> dict[str, int]:
+    counts = {rating: 0 for rating in RATINGS}
+    for record in records.values():
+        if record.get("status", "CONFIRMED") != "CONFIRMED":
+            continue
+        if _snapshot_lifecycle(record) != "active":
+            continue
+        rating = _snapshot_rating(record)
+        if rating is not None:
+            counts[rating] += 1
+    return counts
+
+
+def risk_delta(previous: dict, current: dict) -> dict:
+    """Compare immutable snapshots without inventing totals or average risk."""
+
+    if not isinstance(previous, Mapping) or not isinstance(current, Mapping):
+        raise RiskValidationError("risk snapshots must be mappings")
+    old_records = _snapshot_records(previous)
+    new_records = _snapshot_records(current)
+    current_date = _snapshot_assessed_date(current)
+    result = {
+        "new": [],
+        "increased": [],
+        "decreased": [],
+        "stale": [],
+        "retired": [],
+        "reopened": [],
+        "expired_acceptance": [],
+        "rating_distribution": {
+            "previous": _rating_distribution(old_records),
+            "current": _rating_distribution(new_records),
+        },
+    }
+    for threat_id in sorted(new_records):
+        record = new_records[threat_id]
+        old_record = old_records.get(threat_id)
+        if old_record is None:
+            result["new"].append(threat_id)
+        else:
+            old_lifecycle = _snapshot_lifecycle(old_record)
+            lifecycle = _snapshot_lifecycle(record)
+            if old_lifecycle == "active" and lifecycle != "active":
+                result["retired"].append(threat_id)
+            elif old_lifecycle != "active" and lifecycle == "active":
+                result["reopened"].append(threat_id)
+            if record.get("status") == "STALE" and old_record.get("status") != "STALE":
+                result["stale"].append(threat_id)
+            old_rating = _snapshot_rating(old_record)
+            rating = _snapshot_rating(record)
+            if (
+                old_lifecycle == lifecycle == "active"
+                and old_record.get("status", "CONFIRMED") == "CONFIRMED"
+                and record.get("status", "CONFIRMED") == "CONFIRMED"
+                and old_rating is not None
+                and rating is not None
+            ):
+                if RATINGS.index(rating) < RATINGS.index(old_rating):
+                    result["increased"].append(threat_id)
+                elif RATINGS.index(rating) > RATINGS.index(old_rating):
+                    result["decreased"].append(threat_id)
+        if _expired_acceptance(record, current_date):
+            result["expired_acceptance"].append(threat_id)
+    return result
+
+
+def propose_exception_migration(requirements: dict) -> dict:
+    """Propose, without activating, threat treatment for legacy exceptions."""
+
+    if not isinstance(requirements, Mapping):
+        raise RiskValidationError("requirements document must be a mapping")
+    records = requirements.get("requirements")
+    if not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
+        raise RiskValidationError("requirements must be a list")
+
+    result = copy.deepcopy(dict(requirements))
+    for record in result["requirements"]:
+        if not isinstance(record, dict):
+            continue
+        human = record.get("human")
+        threat_refs = record.get("threat_refs")
+        if (
+            not isinstance(human, Mapping)
+            or human.get("status") not in {"accepted_risk", "exception"}
+            or not isinstance(threat_refs, Sequence)
+            or isinstance(threat_refs, (str, bytes))
+        ):
+            continue
+        refs = sorted({reference for reference in threat_refs if _nonempty_text(reference)})
+        if not refs:
+            continue
+        pending = record.get("pending_review", {})
+        if not isinstance(pending, Mapping) or "risk_treatment" in pending:
+            continue
+
+        exception = human.get("exception")
+        approval: dict[str, object] = {}
+        if isinstance(exception, Mapping):
+            for field in ("approver", "role", "authority", "expires"):
+                if field in exception:
+                    approval[field] = copy.deepcopy(exception[field])
+            rationale = exception.get("rationale", exception.get("reason"))
+            if rationale is not None:
+                approval["rationale"] = copy.deepcopy(rationale)
+        treatment: dict[str, object] = {"strategy": "accept"}
+        owner = human.get("owner")
+        if owner is None and isinstance(exception, Mapping):
+            owner = exception.get("owner")
+        if owner is not None:
+            treatment["owner"] = copy.deepcopy(owner)
+        if approval:
+            treatment["approval"] = approval
+
+        updated_pending = copy.deepcopy(dict(pending))
+        updated_pending["risk_treatment"] = {
+            "migration": "requirement_exception_to_threat_treatment",
+            "threat_refs": refs,
+            "treatment": treatment,
+        }
+        record["pending_review"] = updated_pending
+    return result
 
 
 def aggregate_threat_digest(threats: dict) -> str:
