@@ -21,8 +21,11 @@ incomplete. This fix round corrected the deterministic witness and README. It
 also built a stricter host harness. The latest current-commit run proved an
 isolated login-shell interpreter binding, immutable installation, a complete
 canonical read-only fixture, and an unchanged hostile project across the Codex
-model phase. The Codex session used an unapproved `set` shell builtin,
-however, so the audit-only verifier failed closed before accepting its
+model phase. Its natural-audit prompt explicitly prohibited shell-state and
+command-resolution mutation. Codex then emitted the installed adapter's exact
+documented root-resolution block, but the unchanged audit-only verifier did
+not normalize its double-quoted space-containing paths as equivalent to the
+single-quoted form in its allowlist. It failed closed before accepting the
 semantic sequence or framed execution log and before starting Claude. The
 dual-host witness therefore remains incomplete.
 
@@ -148,6 +151,103 @@ They do not by themselves prove adapter execution.
 ## Installed-host evidence gap
 
 No fix-round host run is accepted as end-to-end evidence.
+
+### Final quoted-adapter attempt against `b222a6e`
+
+The ignored harness retained its fail-closed verifier unchanged and added only
+host-evidence controls. Both natural-audit prompts explicitly prohibited
+`set`, `export`, `unset`, `typeset`, `read`, `hash`, `alias`, shell-option
+changes, and changes to `PATH`, `path`, or `FPATH`. They required only the
+installed adapter's exact root-resolution, broad preflight, inherent-check,
+and residual-view command forms. Failure cleanup now removes installations,
+hostile projects, and the disposable root while retaining raw host JSONL and
+length-framed shim logs in a separate ignored mode-`0700` directory. A bounded
+scanner compares evidence against credential sources and secret-like forms,
+redacts any match before retention, and records SHA-256 hashes.
+
+Fresh pre-run checks passed:
+
+```text
+event/log/harness behavior: 39 passed
+compiled shim behavior: 6 passed
+zsh and Python syntax: pass
+immutable HEAD pin and tracked-worktree cleanliness: pass
+git diff --check: pass
+```
+
+Those 45 offline tests include the prior 43 adversarial and shim gates plus
+explicit prompt-contract and failed-run evidence-retention tests. Exactly one
+material run used only
+`git archive b222a6eb79bc6a53b361ad1a0eac0f50e845c54b`, SHA-256
+`6b696d1b14ef4082bfed97aa9d2510588c52689f6fba05bc604a00d516748412`.
+The extracted distribution validated. Both isolated installs matched the
+archive byte-for-byte before model execution:
+
+| Installed immutable file | SHA-256 |
+|---|---:|
+| `scripts/runtime_paths.py` | `0cb933c604659f98a60757225ced7ebf79c4ac223624d531df6912b006d39a3d` |
+| `scripts/safe_paths.py` | `9f09f687ad4a35e819476f0ef0faf8ccd906622666b5f114d9d3418de30319ee` |
+| `scripts/risk.py` | `a4ad8c1c14ff0ef5058c78dcf793d7bf8580b43fc955bf2abb02bc13c9e9162c` |
+| Codex `skills/security-requirements-risk/SKILL.md` | `891050c2ef848fe2e76eaf3c11592b872cf35a09e0080fbb830250ab6de3c5ee` |
+| Claude `commands/sec-req-risk.md` | `b84489e95ff08389d66d1205e177d16b1db79709b007deea594f83b703f84993` |
+
+The complete Codex hostile project matched immediately before and after its
+model phase:
+
+```text
+1e2c0b4468849312ff5b6ce11c7c61dbc00621760f580b3811ee6c14eacf7bb0
+```
+
+Codex first read the installed risk skill. Its second completed shell event
+was the adapter's documented root-resolution block: an inline
+`SECURITY_REQUIREMENTS_ROOT="$(python3 -I .../runtime_paths.py --skill
+.../SKILL.md)"` assignment followed by the exact root equality test. Both
+space-containing installed paths used double quotes, as shown in the installed
+adapter. The unchanged verifier rejected that event:
+
+```text
+codex structured shell command 2 uses a prohibited assignment:
+SECURITY_REQUIREMENTS_ROOT
+FALLBACK_TEMP_ROOT_ABSENT=pass
+```
+
+This is a verifier canonicalization gap, not a product-adapter or prompt
+violation: the offline allowlist constructed the semantically equivalent
+space-containing paths with `shlex.join`, which used single quotes, while the
+live adapter used double quotes. The verifier compares the reconstructed
+assignment value to that one quote spelling. Per the bounded-run rule it was
+not relaxed and the host workflow was not retried. No Codex semantic sequence
+or model-phase shim log is accepted, Claude was not started, and no
+`TASK11_HOST_E2E=pass` marker exists.
+
+Failure cleanup removed the exact disposable root. Immediate independent
+post-failure hashes matched every declared pre-run nonvolatile scope and the
+pinned interpreter:
+
+| Measured scope | SHA-256 before and after |
+|---|---:|
+| Codex config/control | `cf20e23f3c9e27b8c2365d655334c67910f4f997878d6c231986486776d0fb1a` |
+| Claude config/control | `5f263acaed3c6d7b8ce15ad5030fdb57ffe5beaf99eea223f746af5529a79cd6` |
+| Claude plugin control | `f52da02d688ae7468f6308616cbc4ab3320004c99368803e61ad1200551459ab` |
+| security-requirements persistent risk data | `27fb3bc2458de6aeb70fa84e77d3693d81d5c8ed27a72bf7116816f0db066176` |
+| trusted Python 3.12.11 executable | `f99b6dedada5ef94e58e6479f0015a2e112f6f34b3e7e7e925611ce96ca0d3de` |
+
+The failed-run evidence remains under the ignored
+`.superpowers/sdd/2026-08-13-threat-risk-rating/retained-host-evidence/`
+directory for diagnosis. Its exact run directory is mode `0700`; all files are
+mode `0600`. The secret scan passed. It conservatively redacted one false
+positive: the `sk-assessment.md` substring inside the loaded prose path
+`risk-assessment.md`; the exact rejected command was unaffected and the JSONL
+remains valid. Retained file hashes after that redaction are:
+
+| Retained evidence | SHA-256 |
+|---|---:|
+| Claude framed argv log | `569830c708bb5da3c18cd2313ef0737b5392896f56d4b0eaa4e5b4a90cc587d1` |
+| Claude raw events | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| Codex framed argv log | `1cd6803701ce673fb9966259fab721e7bba6575a7e3a7df9e7bde7e49018f92f` |
+| Codex raw events | `89ec4d3629a8e352050d4a1caab46cd582264192e0a405561420b2ccb35b6658` |
+
+Items 14, the complete live portion of 15, and 17 remain unproven.
 
 ### Semantic read-only attempt against `c7e2147`
 
