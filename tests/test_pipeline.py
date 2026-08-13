@@ -3590,6 +3590,52 @@ def test_state_failure_restores_verified_snapshot_when_backup_is_altered(
     assert _read_public_docs(project) == before
 
 
+def test_restore_source_mutation_before_successful_rename_retries_exact_snapshot(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_replace = publish.os.replace
+    mutation_injected = False
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure before rollback")
+        return real_write(path, *args, **kwargs)
+
+    def mutate_restore_source_then_commit(source, target):
+        nonlocal mutation_injected
+        source_path = Path(source)
+        target_path = Path(target)
+        if (
+            not mutation_injected
+            and target_path == project / "docs" / "security"
+            and any(token in source_path.name for token in ("backup", "recovery"))
+        ):
+            mutation_injected = True
+            (source_path / "requirements.md").write_text(
+                "restore source changed after validation\n", encoding="utf-8"
+            )
+            return real_replace(source, target)
+        return real_replace(source, target)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+    monkeypatch.setattr(publish.os, "replace", mutate_restore_source_then_commit)
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert mutation_injected
+    assert _read_public_docs(project) == before
+
+
 def test_recovery_exists_base_exception_stays_inside_best_effort_boundary(
     tmp_path, monkeypatch
 ):

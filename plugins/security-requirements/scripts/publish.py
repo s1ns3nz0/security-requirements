@@ -595,58 +595,36 @@ def _restore_public_root(
                 return outcome
             raise PublicationError("cannot restore the previously absent public tree")
 
-        restore_source: Path | None = None
-        if _tree_matches(backup, old_manifest, project_root):
-            restore_source = backup
-        elif old_recovery is not None and _tree_matches(
-            old_recovery, old_manifest, project_root
-        ):
-            restore_source = old_recovery
-        else:
-            state = _public_tree_state(
-                public_root, project_root, old_manifest, new_manifest
-            )
-            if state in {"old", "new"}:
-                outcome = state
-                return outcome
-            raise PublicationError("verified previous public-tree backup is missing")
-
-        safe_path(restore_source, project_root=project_root)
-        safe_path(public_root, project_root=project_root)
-        try:
-            os.replace(restore_source, public_root)
-        except BaseException:
-            state = _public_tree_state(
-                public_root, project_root, old_manifest, new_manifest
-            )
-            if state == "old":
-                outcome = "old"
-                return outcome
-            if state == "new":
-                outcome = "new"
-                return outcome
-
-            # Re-select a still verified source. A failed direct backup rename
-            # may coincide with external backup mutation; the independent
-            # snapshot remains authoritative in that case.
+        def verified_restore_source() -> Path | None:
             if _tree_matches(backup, old_manifest, project_root):
-                restore_source = backup
-            elif old_recovery is not None and _tree_matches(
+                return backup
+            if old_recovery is not None and _tree_matches(
                 old_recovery, old_manifest, project_root
             ):
-                restore_source = old_recovery
-            else:
-                raise PublicationError(
-                    "verified previous public-tree recovery is missing"
+                return old_recovery
+            return None
+
+        def install_from_verified_copy() -> tuple[str, BaseException | None]:
+            """Attempt restoration without consuming the authoritative source."""
+
+            restore_source = verified_restore_source()
+            if restore_source is None:
+                return (
+                    _public_tree_state(
+                        public_root, project_root, old_manifest, new_manifest
+                    ),
+                    PublicationError(
+                        "verified previous public-tree recovery is missing"
+                    ),
                 )
 
-            # Preserve the verified source. Restore from a no-follow copy so a
-            # failed direct rename cannot leave the canonical path absent.
+            safe_path(restore_source, project_root=project_root)
             recovery = _unused_directory_path(
                 public_root.parent,
                 project_root,
                 ".security-publish-recovery-",
             )
+            attempt_error: BaseException | None = None
             try:
                 _copy_tree_no_follow(restore_source, recovery)
                 if not _tree_matches(recovery, old_manifest, project_root):
@@ -655,28 +633,74 @@ def _restore_public_root(
                     )
                 safe_path(public_root, project_root=project_root)
                 try:
+                    # Move only the disposable verified copy. The backup and
+                    # independent snapshot remain available across a
+                    # check-to-rename mutation race.
                     os.replace(recovery, public_root)
                 except BaseException as recovery_error:
-                    state = _public_tree_state(
-                        public_root, project_root, old_manifest, new_manifest
-                    )
-                    if state == "old":
-                        outcome = "old"
-                        return outcome
-                    if state == "new":
-                        outcome = "new"
-                        return outcome
-                    raise recovery_error
+                    attempt_error = recovery_error
+            except BaseException as recovery_error:
+                attempt_error = recovery_error
             finally:
                 _best_effort_remove_tree(recovery, project_root)
 
-        state = _public_tree_state(
-            public_root, project_root, old_manifest, new_manifest
-        )
-        if state not in {"old", "new"}:
-            raise PublicationError("rollback did not produce a verified public tree")
-        outcome = state
-        return outcome
+            return (
+                _public_tree_state(
+                    public_root, project_root, old_manifest, new_manifest
+                ),
+                attempt_error,
+            )
+
+        def clear_invalid_canonical() -> str:
+            current = _public_tree_state(
+                public_root, project_root, old_manifest, new_manifest
+            )
+            if current in {"old", "new", "absent"}:
+                return current
+            try:
+                _remove_tree(public_root, project_root)
+            except BaseException as remove_error:
+                current = _public_tree_state(
+                    public_root, project_root, old_manifest, new_manifest
+                )
+                if current in {"old", "new", "absent"}:
+                    return current
+                raise PublicationError(
+                    "cannot clear a mutated rollback tree"
+                ) from remove_error
+            return _public_tree_state(
+                public_root, project_root, old_manifest, new_manifest
+            )
+
+        state, first_restore_error = install_from_verified_copy()
+        if state in {"old", "new"}:
+            outcome = state
+            return outcome
+
+        # A successful rename is not a commit boundary: its source may have
+        # changed after validation. Remove only the invalid canonical copy,
+        # then reselect a currently exact source and retry once. Both original
+        # sources were preserved because only disposable copies are renamed.
+        state = clear_invalid_canonical()
+        if state in {"old", "new"}:
+            outcome = state
+            return outcome
+        if state != "absent":
+            raise PublicationError("rollback did not clear the invalid public tree")
+
+        state, second_restore_error = install_from_verified_copy()
+        if state in {"old", "new"}:
+            outcome = state
+            return outcome
+
+        state = clear_invalid_canonical()
+        if state in {"old", "new"}:
+            outcome = state
+            return outcome
+        restore_error = second_restore_error or first_restore_error
+        raise PublicationError(
+            "rollback did not produce a verified public tree"
+        ) from restore_error
     finally:
         if displaced is not None and outcome == "old":
             _best_effort_remove_tree(displaced, project_root)
