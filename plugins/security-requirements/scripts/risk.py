@@ -113,6 +113,8 @@ def calculate_inherent(policy: dict, proposed: dict) -> dict:
         consequence_id = item.get("id")
         if not isinstance(consequence_id, str) or not consequence_id:
             raise RiskValidationError("consequence id is required")
+        if consequence_id in consequence_ids:
+            raise RiskValidationError(f"duplicate consequence id: {consequence_id}")
         consequence_ids.add(consequence_id)
         _require_rationale(item.get("rationale"), "consequence")
         try:
@@ -192,6 +194,13 @@ def active_threats(threats_doc: dict) -> list[dict]:
     if not isinstance(threats, Sequence) or isinstance(threats, (str, bytes)):
         raise RiskValidationError("threats must be a list")
 
+    stable_threat_ids = {
+        threat.get("id")
+        for threat in threats
+        if isinstance(threat, Mapping)
+        and isinstance(threat.get("id"), str)
+        and threat["id"]
+    }
     result = []
     for threat in threats:
         if not isinstance(threat, Mapping):
@@ -214,6 +223,12 @@ def active_threats(threats_doc: dict) -> list[dict]:
                 raise RiskValidationError(
                     f"{threat_id} is superseded without replacement IDs"
                 )
+            for replacement_id in replacements:
+                if replacement_id not in stable_threat_ids:
+                    raise RiskValidationError(
+                        f"{threat_id} superseded_by references unknown threat ID: "
+                        f"{replacement_id}"
+                    )
     return result
 
 

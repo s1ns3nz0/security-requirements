@@ -138,6 +138,13 @@ def test_incorrect_selected_consequence_is_rejected(default_policy):
         risk.calculate_inherent(default_policy, proposed)
 
 
+def test_duplicate_consequence_ids_are_rejected(default_policy):
+    proposed = proposal("L3-AUTHENTICATED", "I3-CORE-SERVICE")
+    proposed["consequences"].append(consequence("C-01", "I3-CORE-SERVICE"))
+    with pytest.raises(risk.RiskValidationError, match="duplicate consequence id"):
+        risk.calculate_inherent(default_policy, proposed)
+
+
 def test_canonical_digest_is_stable_under_mapping_reordering():
     left = {"z": [1, {"b": 2, "a": 3}], "a": "value"}
     right = {"a": "value", "z": [1, {"a": 3, "b": 2}]}
@@ -185,6 +192,24 @@ def test_superseded_threat_requires_replacement_ids():
     threats_doc = {"threats": [threat_record("T-1", status="superseded")]}
     with pytest.raises(risk.RiskValidationError, match="superseded without replacement IDs"):
         risk.active_threats(threats_doc)
+
+
+def test_superseded_threat_replacement_must_reference_a_stable_threat_id(
+    default_policy,
+):
+    threats_doc = {
+        "version": "0.2.0",
+        "threats": [
+            threat_record(
+                "T-1",
+                status="superseded",
+                lifecycle={"status": "superseded", "superseded_by": ["T-missing"]},
+            )
+        ],
+    }
+    assert risk.validate_assessment(threats_doc, {"assessments": []}, default_policy) == [
+        "T-1 superseded_by references unknown threat ID: T-missing"
+    ]
 
 
 def test_assessment_validation_requires_confirmed_active_coverage(default_policy):
