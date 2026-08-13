@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -150,6 +151,20 @@ def plugin_data_root(
         if path_is_within_project(lexical, project_root):
             raise ValueError(f"{source} must be outside the inspected project")
     return resolved
+
+
+def confirmation_state_path(project_root: Path, kind: str) -> Path:
+    """Return one project-bound external risk-confirmation state path."""
+    kind_path = Path(kind)
+    if kind_path.name != kind or kind in {"", ".", ".."}:
+        raise ValueError("confirmation kind must be one path component")
+    project = project_root.resolve()
+    key = hashlib.sha256(str(project).encode()).hexdigest()
+    root = plugin_data_root(project_root=project_root)
+    target = root / "risk" / kind / f"{key}.yaml"
+    if path_is_within_project(target, project_root):
+        raise ValueError(f"{kind} confirmation state must remain outside the project")
+    return target
 
 
 def main(argv: list[str] | None = None) -> int:

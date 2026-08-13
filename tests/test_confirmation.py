@@ -657,3 +657,53 @@ def test_confirmation_preflights_profile_and_state_before_writing(
     assert confirmation.main(["--stamp", str(path), "--by", "user"]) == 1
     assert victim.read_bytes() == before
     assert list(outside.iterdir()) == ([victim] if symlink_kind == "profile" else [])
+
+
+def test_risk_confirmation_state_path_is_project_bound_and_unicode_safe(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project with spaces 한글"
+    project.mkdir()
+    state_root = tmp_path / "trusted state"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(state_root))
+    key = hashlib.sha256(str(project.resolve()).encode()).hexdigest()
+
+    assert runtime_paths.confirmation_state_path(project, "assessment") == (
+        state_root / "risk" / "assessment" / f"{key}.yaml"
+    )
+
+
+def test_risk_confirmation_rejects_final_state_artifact_inside_project(
+    tmp_path, monkeypatch
+):
+    state_root = tmp_path / "state"
+    project = state_root / "risk" / "assessment"
+    project.mkdir(parents=True)
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(state_root))
+
+    with pytest.raises(
+        ValueError, match="assessment confirmation state must remain outside the project"
+    ):
+        runtime_paths.confirmation_state_path(project, "assessment")
+
+
+def test_risk_confirmation_kind_cannot_select_an_external_path(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "state"))
+
+    with pytest.raises(ValueError, match="one path component"):
+        runtime_paths.confirmation_state_path(project, "../attacker")
+
+
+def test_macos_tmp_alias_has_one_risk_confirmation_identity(tmp_path, monkeypatch):
+    if sys.platform != "darwin":
+        pytest.skip("requires the macOS /tmp path alias")
+    alias = Path("/tmp") / f"risk confirmation {tmp_path.name}"
+    project = alias.resolve()
+    state_root = tmp_path / "state"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(state_root))
+
+    assert runtime_paths.confirmation_state_path(alias, "policy") == (
+        runtime_paths.confirmation_state_path(project, "policy")
+    )
