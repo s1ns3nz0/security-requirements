@@ -19,11 +19,12 @@ confirmation boundary, installed payloads came from a mutable worktree, event
 checks were aggregate string searches, and project/config hash scopes were
 incomplete. This fix round corrected the deterministic witness and README. It
 also built a stricter host harness. The latest current-commit run proved an
-isolated login-shell interpreter binding, immutable installation, and an
-unchanged hostile project across the Codex model phase. Codex did not emit the
-adapter-prescribed command sequence, however, so the run was rejected before
-its execution log or confirmation stop could be accepted and before the Claude
-model phase. The dual-host witness therefore remains incomplete.
+isolated login-shell interpreter binding, immutable installation, a complete
+canonical read-only fixture, and an unchanged hostile project across the Codex
+model phase. The Codex session used an unapproved `set` shell builtin,
+however, so the audit-only verifier failed closed before accepting its
+semantic sequence or framed execution log and before starting Claude. The
+dual-host witness therefore remains incomplete.
 
 ## Environment
 
@@ -147,6 +148,95 @@ They do not by themselves prove adapter execution.
 ## Installed-host evidence gap
 
 No fix-round host run is accepted as end-to-end evidence.
+
+### Semantic read-only attempt against `c7e2147`
+
+The final ignored harness created independent Codex and Claude hostile
+projects, each with a complete canonical fixture: profile, policy, threats,
+assessment, risk state, empty valid requirements, and empty valid risk
+evidence. The plugin-owned external authority root was intentionally empty.
+Direct fixture smoke tests proved that both `check` and `residual` report only
+the missing policy and assessment confirmations and make zero authority
+writes.
+
+Raw host JSONL and length-framed shim records lived in a separate mode `0700`
+evidence root outside the disposable host root and hostile projects. The
+harness retained them through verification and hashing, with cleanup scheduled
+only afterward. Each host used its own compiled `python3` shim and an exact
+four-tool PATH allowlist: `/usr/bin/env`, pinned Node 24.14.0, `/bin/cat`, and
+`/usr/bin/sed`. Real Codex and Claude `--version` and `--help` probes succeeded
+under that minimal PATH.
+
+Fresh pre-run gates passed:
+
+```text
+host event/log/harness tests: 37 passed
+compiled shim tests: 6 passed
+per-host nested ZDOTDIR/login probe: pass
+faithful Codex and Claude compound adapter forms: pass
+full Python suite: 1265 passed, 2 skipped
+distribution and official host validators: pass
+zsh syntax and git diff checks: pass
+```
+
+The bounded adversarial tests covered missing/duplicate operations, Codex
+fresh-resolver adjacency, extra legitimate resource resolvers, absolute and
+alternate interpreters, Python frontends, command-resolution aliases, output
+redirects, in-place edits, foreign or side-effecting Python, truncated framed
+logs, and signal/fail-fast cleanup. This is evidence for the actual harness,
+not a claim that its parser models every possible shell program.
+
+Exactly one material run used
+`git archive c7e21479b35b6cea67c31e020ccd9f7c344dee0b`, SHA-256
+`ee6b11fdcdc581debc129119b9f436f94ff7e7ae0b652af672575e3305725ff1`.
+The extracted distribution validated, and both isolated installations matched
+the archive byte-for-byte:
+
+| Installed immutable file | SHA-256 |
+|---|---:|
+| `scripts/runtime_paths.py` | `0cb933c604659f98a60757225ced7ebf79c4ac223624d531df6912b006d39a3d` |
+| `scripts/safe_paths.py` | `9f09f687ad4a35e819476f0ef0faf8ccd906622666b5f114d9d3418de30319ee` |
+| `scripts/risk.py` | `a4ad8c1c14ff0ef5058c78dcf793d7bf8580b43fc955bf2abb02bc13c9e9162c` |
+| Codex `skills/security-requirements-risk/SKILL.md` | `891050c2ef848fe2e76eaf3c11592b872cf35a09e0080fbb830250ab6de3c5ee` |
+| Claude `commands/sec-req-risk.md` | `b84489e95ff08389d66d1205e177d16b1db79709b007deea594f83b703f84993` |
+
+The complete Codex hostile project had the same hash immediately before and
+after its model phase:
+
+```text
+cad3482f8eedcac582eef689206a4b39bc8eec83b09730f8bcccec6769eb43b1
+```
+
+The run then failed closed during structured event verification:
+
+```text
+codex structured shell command 2 uses prohibited top-level executable: set
+FALLBACK_TEMP_ROOT_ABSENT=pass
+FALLBACK_EVIDENCE_ROOT_ABSENT=pass
+```
+
+`set` was excluded because shell-state mutation can alter later command
+resolution. Therefore neither the Codex semantic sequence nor its framed
+model-phase execution records are accepted. Claude was not reached, no
+`TASK11_HOST_E2E=pass` marker was emitted, and the one-material-run bound
+prohibited a retry. Fallback cleanup removed both exact temporary roots,
+including raw event and framed-log evidence after failed verification.
+
+Independent immediate post-failure hashing matched every declared pre-run
+nonvolatile scope and the pinned interpreter:
+
+| Measured scope | SHA-256 before and after |
+|---|---|
+| Codex config/control | `cf20e23f3c9e27b8c2365d655334c67910f4f997878d6c231986486776d0fb1a` |
+| Claude config/control | `5f263acaed3c6d7b8ce15ad5030fdb57ffe5beaf99eea223f746af5529a79cd6` |
+| Claude plugin control | `f52da02d688ae7468f6308616cbc4ab3320004c99368803e61ad1200551459ab` |
+| security-requirements persistent risk data | `27fb3bc2458de6aeb70fa84e77d3693d81d5c8ed27a72bf7116816f0db066176` |
+| trusted Python 3.12.11 executable | `f99b6dedada5ef94e58e6479f0015a2e112f6f34b3e7e7e925611ce96ca0d3de` |
+
+This attempt strengthens complete-fixture, current-HEAD archive, minimal-PATH,
+installed-byte, Codex-project immutability, cleanup, and real-state evidence.
+It does not prove an accepted Codex sequence or any Claude model execution.
+Items 14, the complete live portion of 15, and 17 remain unproven.
 
 ### Isolated `ZDOTDIR` attempt against `3129efa`
 
