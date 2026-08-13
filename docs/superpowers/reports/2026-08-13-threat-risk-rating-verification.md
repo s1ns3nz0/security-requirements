@@ -144,6 +144,61 @@ They do not by themselves prove adapter execution.
 
 No fix-round host run is accepted as end-to-end evidence.
 
+### Final bounded attempt against `a0f65bc`
+
+After this report was corrected to INCOMPLETE, the ignored verifier and host
+harness were rebuilt around streamed JSON event objects rather than a single
+concatenated string. Eleven offline self-tests passed. They covered exact
+per-invocation paths and arguments, mandatory `python3 -I`, adapter-digest
+binding, non-command-field and completion-marker spoofing, event size limits,
+irrelevant-command avoidance, `INT` exit status 130, fail-fast behavior,
+cleanup, and suppression of false pass markers.
+
+Exactly one subsequent host run was permitted. It used the exact bytes of
+`git archive a0f65bce9f23ce12849b4044e9d20a2949b6fc57`, SHA-256
+`76fa470b4045a81a7bb2388725955d320e2a062abdc2b888fbbfdb2c09f644d6`.
+The archive was written once, hashed, extracted, and used as the only
+marketplace source from the hostile space-and-Unicode cwd. Distribution
+validation passed. Both isolated installations byte-matched that extracted
+archive with these SHA-256 values:
+
+| Installed immutable file | Codex | Claude |
+|---|---:|---:|
+| `scripts/runtime_paths.py` | `0cb933c604659f98a60757225ced7ebf79c4ac223624d531df6912b006d39a3d` | same |
+| `scripts/safe_paths.py` | `9f09f687ad4a35e819476f0ef0faf8ccd906622666b5f114d9d3418de30319ee` | same |
+| `scripts/risk.py` | `a4ad8c1c14ff0ef5058c78dcf793d7bf8580b43fc955bf2abb02bc13c9e9162c` | same |
+| Codex `skills/security-requirements-risk/SKILL.md` | `891050c2ef848fe2e76eaf3c11592b872cf35a09e0080fbb830250ab6de3c5ee` | n/a |
+| Claude `commands/sec-req-risk.md` | n/a | `b84489e95ff08389d66d1205e177d16b1db79709b007deea594f83b703f84993` |
+
+The run was rejected during Codex structured-event verification with
+`unclosed command substitution in structured shell event`. The live event
+contained a shell form outside the offline verifier corpus. Therefore no
+Codex execution evidence from that run is accepted, the Claude risk-adapter
+phase was never started, and the hostile-project post-execution hash was not
+reached. Per the one-run rule, the host workflow was not rerun. The log
+contains no `TASK11_HOST_E2E=pass`, project-unchanged pass, or temp-absence
+pass marker.
+
+Fallback cleanup removed the exact isolated root
+`security requirements risk E2E 테스트-a0f65bc.NzUneL`; an independent
+post-failure existence check confirmed it absent. Immediate read-only hashes
+of every declared nonvolatile scope matched the pre-run values exactly:
+
+| Measured real scope | SHA-256 before and after |
+|---|---|
+| Codex config/control: `config.toml`, `auth.json`, `AGENTS.md`, `hooks.json`, `rules`, `agents`, `skills` | `b6469319245bf10d0ba240a7d597b55c811759c58be2ae7ddd2d0280eaccfc2b` |
+| Claude config/control: `~/.claude.json`, `~/.claude.json.backup`, `settings.json`, `settings.json.bak`, `remote-settings.json`, `commands`, `agents`, `skills` | `8991e831c0e1340e9ed01d5f3667a091c708977f7d08fc1b130e7c160890a1de` |
+| Claude plugin control: blocklist, installed/known registries, marketplaces, security-requirements persistent plugin data | `75064fa14693ec50e63d8e2555a3f01e243c004ca1c186d7a2c0d14b0e097420` |
+| security-requirements persistent risk data | `27fb3bc2458de6aeb70fa84e77d3693d81d5c8ed27a72bf7116816f0db066176` |
+
+The declared exclusions were volatile Codex sessions, history, logs, SQLite,
+IPC, locks, shell snapshots, model/application caches, and plugin
+cache/staging/appserver data; and volatile Claude history, debug, sessions,
+file history, backups, cache, last-use sweep, plugin cache, and catalog cache.
+No claim is made about those excluded paths. These cleanup and real-state
+results constrain the rejected attempt; they do not turn it into accepted
+adapter or hostile-project evidence.
+
 One run did produce independently validated Codex events for installed
 `runtime_paths.py --skill`, `runtime_paths.py --project-root`, `safe_paths.py`,
 `risk.py check`, and `risk.py residual`. Every matched invocation had its own
@@ -163,8 +218,10 @@ claims from the interrupted run, are explicitly invalid.
 
 The ignored harness has since been corrected offline so HUP/INT/TERM exit with
 nonzero status after cleanup and command events/substitution counts are bounded.
-Signal cleanup and fail-fast limits passed self-checks. There was no subsequent
-host rerun, so those harness corrections are not host evidence.
+Signal cleanup and fail-fast limits passed self-checks. No host rerun followed
+that correction until the single final bounded attempt documented above; that
+attempt exposed another parser gap and was rejected, so the offline corrections
+remain non-host evidence.
 
 The exact temporary roots were absent after rejected/interrupted attempts. The
 following explicitly scoped real-state hashes matched before and after the
