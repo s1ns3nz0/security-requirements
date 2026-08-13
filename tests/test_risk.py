@@ -9,7 +9,7 @@ PLUGIN_ROOT = REPO_ROOT / "plugins" / "security-requirements"
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
 import risk  # noqa: E402
-from risk_helpers import consequence, proposal  # noqa: E402
+from risk_helpers import assessment_record, consequence, proposal, threat_record  # noqa: E402
 
 
 DEFAULT_POLICY_PATH = PLUGIN_ROOT / "risk" / "default-policy.yaml"
@@ -142,3 +142,108 @@ def test_canonical_digest_is_stable_under_mapping_reordering():
     left = {"z": [1, {"b": 2, "a": 3}], "a": "value"}
     right = {"a": "value", "z": [1, {"a": 3, "b": 2}]}
     assert risk.canonical_digest(left) == risk.canonical_digest(right)
+
+
+def test_impact_uses_highest_consequence(default_policy):
+    proposed = proposal("L3-AUTHENTICATED", "I2-LIMITED-SCOPE")
+    proposed["consequences"].append(consequence("C-02", "I4-CROSS-SYSTEM"))
+    proposed["impact"]["selected_from"] = "C-02"
+    assert risk.calculate_inherent(default_policy, proposed)["impact"] == 4
+
+
+def test_overall_is_highest_active_rating_not_average(default_policy):
+    threats_doc = {
+        "version": "0.2.0",
+        "threats": [
+            threat_record("T-1"),
+            threat_record("T-2"),
+            threat_record("T-3", status="retired"),
+        ],
+    }
+    assessment = {
+        "assessments": [
+            assessment_record("T-1", "CONFIRMED", "critical"),
+            assessment_record("T-2", "CONFIRMED", "low"),
+            assessment_record("T-3", "CONFIRMED", "critical"),
+        ]
+    }
+    result = risk.aggregate_risk(threats_doc, assessment)
+    assert result["overall"] == "critical"
+    assert result["counts"] == {"critical": 1, "high": 0, "medium": 0, "low": 1}
+    assert result["coverage"] == "2/2"
+
+
+def test_threat_digest_is_stable_for_lifecycle_changes():
+    original = threat_record("T-1")
+    changed_lifecycle = threat_record(
+        "T-1", lifecycle={"status": "superseded", "superseded_by": ["T-2"]}
+    )
+    assert risk.threat_digest(original) == risk.threat_digest(changed_lifecycle)
+
+
+def test_superseded_threat_requires_replacement_ids():
+    threats_doc = {"threats": [threat_record("T-1", status="superseded")]}
+    with pytest.raises(risk.RiskValidationError, match="superseded without replacement IDs"):
+        risk.active_threats(threats_doc)
+
+
+def test_assessment_validation_requires_confirmed_active_coverage(default_policy):
+    threats_doc = {"version": "0.2.0", "threats": [threat_record("T-1")]}
+    assessment = {"assessments": [assessment_record("T-1", "PROPOSED")]}
+    assert risk.validate_assessment(threats_doc, assessment, default_policy) == [
+        "T-1 assessment is not confirmed"
+    ]
+
+
+def test_assessment_validation_requires_structured_likelihood_evidence(default_policy):
+    proposed = proposal("L3-AUTHENTICATED", "I3-CORE-SERVICE")
+    proposed["likelihood"]["evidence"].pop("exploit_complexity")
+    assessment = {
+        "assessments": [
+            assessment_record("T-1", "CONFIRMED", proposed=proposed),
+        ]
+    }
+    problems = risk.validate_assessment(
+        {"version": "0.2.0", "threats": [threat_record("T-1")]},
+        assessment,
+        default_policy,
+    )
+    assert "T-1 likelihood evidence exploit_complexity is required" in problems
+
+
+def test_assessment_validation_requires_scope_expansion_evidence(default_policy):
+    proposed = proposal("L3-AUTHENTICATED", "I4-CROSS-SYSTEM")
+    proposed["consequences"][0]["scope_expansion"] = {"evidence": []}
+    assessment = {
+        "assessments": [
+            assessment_record("T-1", "CONFIRMED", proposed=proposed),
+        ]
+    }
+    problems = risk.validate_assessment(
+        {"version": "0.2.0", "threats": [threat_record("T-1")]},
+        assessment,
+        default_policy,
+    )
+    assert "T-1 consequence C-01 scope_expansion evidence is required" in problems
+
+
+def test_incomplete_active_assessments_make_aggregate_provisional():
+    threats_doc = {"threats": [threat_record("T-1"), threat_record("T-2")]}
+    assessment = {
+        "assessments": [
+            assessment_record("T-1", "CONFIRMED", "high"),
+            assessment_record("T-2", "STALE"),
+        ]
+    }
+    result = risk.aggregate_risk(threats_doc, assessment)
+    assert result["overall"] == "high"
+    assert result["status"] == "provisional"
+    assert result["coverage"] == "1/2"
+
+
+def test_assessment_validation_returns_problem_for_nonmapping_threat_document(
+    default_policy,
+):
+    assert risk.validate_assessment("not a threat document", {"assessments": []}, default_policy) == [
+        "threat document must be a mapping"
+    ]

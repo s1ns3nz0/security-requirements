@@ -8,7 +8,7 @@
 # Note the threats with an empty related_controls list. Those are the ones the
 # AC/AU/SC baseline does not reach, and they are what the tool exists to find.
 
-version: "0.1.0"
+version: "0.2.0"
 profile: b2b-saas-aws
 
 boundaries:
@@ -38,10 +38,13 @@ boundaries:
 threats:
 
   - id: T-01
+    risk_family: RF-TENANT-ISOLATION
     boundary: TB-3
     category: STRIDE:E
     novelty: service_specific
     persona: authenticated_tenant
+    attack_path: sequential_order_id_lookup
+    lifecycle: {status: active, superseded_by: []}
     scenario: >-
       A user of tenant A requests an order by sequential order_id and receives
       tenant B's record. Authorisation verifies that the caller is
@@ -50,10 +53,13 @@ threats:
     related_controls: [AC-3, AC-4]
 
   - id: T-02
+    risk_family: RF-EXPORT-ACCESS
     boundary: TB-4
     category: STRIDE:I
     novelty: service_specific
     persona: authenticated_tenant
+    attack_path: forwarded_presigned_export_url
+    lifecycle: {status: active, superseded_by: []}
     scenario: >-
       An export presigned URL is issued with a multi-day expiry and forwarded
       outside the tenant. The object stays reachable without authentication for
@@ -62,10 +68,13 @@ threats:
     related_controls: [AC-21]
 
   - id: T-03
+    risk_family: RF-ERROR-REPORTING-EXPOSURE
     boundary: TB-5
     category: STRIDE:I
     novelty: service_specific
     persona: anonymous_external
+    attack_path: exception_context_to_sentry
+    lifecycle: {status: active, superseded_by: []}
     scenario: >-
       An unhandled exception serialises the request context into the error
       report. Member email and address leave the boundary to a third-party
@@ -74,10 +83,13 @@ threats:
     related_controls: []
 
   - id: T-04
+    risk_family: RF-WEBHOOK-INTEGRITY
     boundary: TB-7
     category: STRIDE:T
     novelty: service_specific
     persona: authenticated_tenant
+    attack_path: caller_keyed_refund_webhook_replay
+    lifecycle: {status: active, superseded_by: []}
     scenario: >-
       A refund webhook is replayed. Idempotency is keyed on a value the caller
       supplies, so the refund is applied twice and settlement records diverge
@@ -86,10 +98,13 @@ threats:
     related_controls: []
 
   - id: T-05
+    risk_family: RF-ANALYTICS-PRIVACY
     boundary: TB-6
     category: LINDDUN:Linkability
     novelty: service_specific
     persona: insider_staff
+    attack_path: device_id_session_join
+    lifecycle: {status: active, superseded_by: []}
     scenario: >-
       device_id in the analytics event stream persists across sessions and
       joins to the account table on session id, re-identifying users in data
@@ -98,10 +113,13 @@ threats:
     related_controls: []
 
   - id: T-06
+    risk_family: RF-AUDIT-INTEGRITY
     boundary: TB-6
     category: STRIDE:R
     novelty: service_specific
     persona: insider_staff
+    attack_path: application_role_audit_deletion
+    lifecycle: {status: active, superseded_by: []}
     scenario: >-
       The audit log destination is writable by the same role the application
       runs under, so an actor with application-level code execution can remove
@@ -110,10 +128,13 @@ threats:
     related_controls: [AU-9, AU-9(4)]
 
   - id: T-07
+    risk_family: RF-DATABASE-TRANSPORT
     boundary: TB-3
     category: STRIDE:T
     novelty: generic
     persona: anonymous_external
+    attack_path: internal_database_tls_interception
+    lifecycle: {status: active, superseded_by: []}
     scenario: >-
       Database traffic is intercepted on the internal network because the
       client does not require TLS and the driver does not verify the server
@@ -122,10 +143,13 @@ threats:
     related_controls: [SC-8, SC-8(1)]
 
   - id: T-08
+    risk_family: RF-AUTHENTICATION-ABUSE
     boundary: TB-1
     category: STRIDE:S
     novelty: generic
     persona: anonymous_external
+    attack_path: breached_credential_signin_attempts
+    lifecycle: {status: active, superseded_by: []}
     scenario: >-
       Credential stuffing against the sign-in endpoint using passwords breached
       elsewhere.

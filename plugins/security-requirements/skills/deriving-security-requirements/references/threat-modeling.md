@@ -139,10 +139,15 @@ boundaries:
 
 threats:
   - id: T-07
+    risk_family: RF-TENANT-ISOLATION
     boundary: TB-4
     category: STRIDE:E
     novelty: service_specific        # or: generic
     persona: authenticated_tenant
+    attack_path: sequential_order_id_lookup
+    lifecycle:
+      status: active                 # active | retired | superseded
+      superseded_by: []
     scenario: >-
       A tenant administrator enumerates sequential order_id values and reads
       another tenant's orders. Authorisation checks that the caller is
@@ -151,20 +156,33 @@ threats:
     related_controls: [AC-3, AC-4]   # verified against the bundled catalog
 
   - id: T-11
+    risk_family: RF-ANALYTICS-PRIVACY
     boundary: TB-6
     category: LINDDUN:Linkability
     novelty: service_specific
     persona: insider_staff
+    attack_path: persistent_device_id_join
+    lifecycle:
+      status: active
+      superseded_by: []
     scenario: >-
       device_id in the analytics stream persists across sessions and joins to
       the account table, re-identifying users in data held as anonymous.
     affected_assets: [analytics_pseudonymous]
 ```
 
-Required fields: `boundary`, `category`, `novelty`, `persona`, `scenario`,
-`affected_assets`, `related_controls`. A scenario that does not name a concrete
-mechanism is not finished — "authorisation may be insufficient" is a category,
-not a threat.
+Threat models that will be assessed use schema version `0.2.0`. Required
+fields are `boundary`, `category`, `novelty`, `persona`, `attack_path`,
+`lifecycle`, `scenario`, `affected_assets`, and `related_controls`.
+`risk_family` is optional: use it to associate related records, but do not
+average or combine their risk. `attack_path` identifies the concrete route
+through which this persona reaches the scenario. A threat remains `active`
+after mitigation; use `retired` only when the feature, flow, or boundary is
+removed with evidence. A `superseded` threat must name one or more replacement
+IDs in `superseded_by`; never delete historical records.
+
+A scenario that does not name a concrete mechanism is not finished —
+"authorisation may be insufficient" is a category, not a threat.
 
 `related_controls` is where judgement stops and arithmetic begins. Deciding
 which controls address a threat needs understanding; crossing that against the
