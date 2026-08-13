@@ -14,10 +14,17 @@ PLUGIN_ROOT = REPO_ROOT / "plugins" / "security-requirements"
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
 import risk  # noqa: E402
-from risk_helpers import assessment_record, consequence, proposal, threat_record  # noqa: E402
+from risk_helpers import (  # noqa: E402
+    assessment_record,
+    consequence,
+    proposal,
+    run_risk_golden,
+    threat_record,
+)
 
 
 DEFAULT_POLICY_PATH = PLUGIN_ROOT / "risk" / "default-policy.yaml"
+MOVIE_RATING_GOLDEN = REPO_ROOT / "golden" / "movie-rating-aws"
 
 
 class _RiskFixture:
@@ -122,6 +129,38 @@ def default_policy():
     if not DEFAULT_POLICY_PATH.exists():
         pytest.fail(f"bundled policy is missing: {DEFAULT_POLICY_PATH}")
     return risk.load_policy(DEFAULT_POLICY_PATH)
+
+
+def test_movie_rating_risk_witness():
+    result = run_risk_golden(MOVIE_RATING_GOLDEN)
+    expected = yaml.safe_load(
+        (MOVIE_RATING_GOLDEN / "expected-risk.yaml").read_text(encoding="utf-8")
+    )
+
+    assert result["inherent"] == expected["inherent"]
+    assert result["residual"] == expected["residual"]
+    assert result["coverage"] == "8/8"
+    assert result["assessments"] == expected["assessments"]
+
+
+def test_movie_rating_reports_keep_detail_internal_and_require_explicit_opt_in():
+    result = run_risk_golden(MOVIE_RATING_GOLDEN)
+
+    assert result["default_public_summary"] is None
+    public = result["opt_in_public_summary"]
+    assert public is not None
+    assert "Overall | high" in public
+    assert "Coverage | 8/8" in public
+    assert "high | 5" in public
+    assert "medium | 3" in public
+    for secret in (
+        "deployment_archive_static_credentials",
+        "movie-service-team",
+        "L5-DIRECT-AUTOMATABLE",
+        "linked requirements have no valid implementation evidence",
+    ):
+        assert secret in result["internal_register"]
+        assert secret not in public
 
 
 def _requirement_document():

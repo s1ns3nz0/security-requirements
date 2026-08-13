@@ -5727,10 +5727,16 @@ def test_a_hint_list_that_can_never_match_is_reported():
     assert any("character by character" in p for p in scalar)
 
 
-@pytest.mark.parametrize("case", sorted(p.name for p in GOLDEN_ROOT.iterdir() if p.is_dir()))
+@pytest.mark.parametrize(
+    "case",
+    sorted(
+        p.name
+        for p in GOLDEN_ROOT.iterdir()
+        if p.is_dir() and (p / "expected-coverage.yaml").is_file()
+    ),
+)
 def test_every_golden_expectation_is_scoreable(case):
-    """The four shipped files are complete. Nothing checked that, so the fifth
-    would not have been."""
+    """Every requirements-coverage expectation is capable of failing."""
     expected = yaml.safe_load((GOLDEN_ROOT / case / "expected-coverage.yaml").read_text(encoding="utf-8"))
     assert not eval_mod.check_expectation(expected)
 
@@ -10097,8 +10103,20 @@ def test_no_profile_field_is_declared_and_never_read():
 
     # Read by the model steps rather than the scripts, and named here so the
     # exemption is a decision rather than an omission.
-    for_the_model = {"repo.root", "generated_at",
-                     "inferred.external_integrations[].purpose"}
+    for_the_model = {
+        "repo.root",
+        "repo.revision",
+        "generated_at",
+        "inferred.external_integrations[].purpose",
+        "operating_assumptions",
+        "operating_assumptions.service",
+        "operating_assumptions.anonymous_reads",
+        "operating_assumptions.anonymous_writes",
+        "operating_assumptions.data",
+        "operating_assumptions.recovery",
+        "operating_assumptions.additional_obligations",
+        "operating_assumptions.storage_region",
+    }
     # `generated_at` and `repo.root` are the model's; `purpose` is prose for a
     # human. Everything else a profile states has to reach a script, or the
     # interview is asking a question whose answer changes nothing and the author
@@ -10409,7 +10427,7 @@ def test_the_golden_cases_still_span_the_scale():
         levels[case] = sb.run(profile)["baseline"].replace("nist-800-53b-", "")
 
     assert sorted(levels.values()) == ["high", "high", "high", "low", "moderate",
-                                       "moderate", "moderate"], levels
+                                       "moderate", "moderate", "moderate"], levels
     assert levels["internal-admin"] == "low"
     assert levels["commerce-payments"] == "high"
 
@@ -10551,3 +10569,62 @@ def test_the_test_count_on_the_front_page_is_the_test_count():
     assert claimed, "the README states a test count"
     assert int(claimed.group(1).replace(",", "")) == int(match.group(1)), \
         f"README says {claimed.group(1)}, the suite collects {match.group(1)}"
+
+
+def test_movie_rating_golden_records_the_approved_operating_context_and_threats():
+    case = GOLDEN_ROOT / "movie-rating-aws"
+    profile = yaml.safe_load((case / "profile.yaml").read_text(encoding="utf-8"))
+    threats = yaml.safe_load((case / "threats.yaml").read_text(encoding="utf-8"))
+
+    assert profile["repo"] == {
+        "visibility": "public",
+        "root": ".",
+        "source": "aws-samples/aws-serverless-crud-sample",
+        "revision": "e974c2cce7b5c4774e0fbd18a9ba3c0208c3a37f",
+    }
+    assert profile["operating_assumptions"] == {
+        "service": "Public API for browsing, adding, deleting, and rating movies",
+        "anonymous_reads": True,
+        "anonymous_writes": False,
+        "data": "Public movie titles, release years, descriptions, and ratings",
+        "recovery": "RTO one day or longer; RPO several hours",
+        "additional_obligations": "none declared",
+        "storage_region": "undetermined",
+    }
+    derived = sb.run(profile)
+    assert {
+        axis: derived["impact"][axis]["level"]
+        for axis in ("confidentiality", "integrity", "availability")
+    } == {"confidentiality": "low", "integrity": "moderate", "availability": "low"}
+    assert derived["impact"]["system"] == "moderate"
+    assert derived["baseline"] == "nist-800-53b-moderate"
+    assert any(
+        "intended for publication" in reason
+        for reason in derived["impact"]["confidentiality"]["because"]
+    )
+    assert any(
+        "public content" in reason and reason.endswith("moderate")
+        for reason in derived["impact"]["integrity"]["because"]
+    )
+    assert len(threats["threats"]) == 8
+    assert {row["id"] for row in threats["threats"]} == {
+        "T-01",
+        "T-02",
+        "T-03",
+        "T-04",
+        "T-05",
+        "T-06",
+        "T-07",
+        "T-08",
+    }
+    assert all(row["novelty"] == "service_specific" for row in threats["threats"])
+    assert all(row["lifecycle"] == {"status": "active", "superseded_by": []}
+               for row in threats["threats"])
+
+    golden_text = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(case.glob("*.yaml"))
+    )
+    assert not re.search(r"\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}", golden_text)
+    assert "/Users/" not in golden_text
+    assert "/tmp/" not in golden_text
+    assert "C:\\" not in golden_text

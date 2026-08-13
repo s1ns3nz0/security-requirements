@@ -1,0 +1,25 @@
+# Literal, hand-reviewed output expected from the bundled 5x5 policy.
+
+inherent:
+  overall: high
+  status: confirmed
+  counts: {critical: 0, high: 5, medium: 3, low: 0}
+  coverage: 8/8
+
+residual:
+  overall: UNDETERMINED
+  status: provisional
+  counts: {critical: 0, high: 0, medium: 0, low: 0}
+  coverage: 0/8
+  confirmed: 0
+  undetermined: 8
+
+assessments:
+  - {threat_id: T-01, likelihood: 2, impact: 4, score: 8, rating: medium, residual: UNDETERMINED}
+  - {threat_id: T-02, likelihood: 3, impact: 4, score: 12, rating: high, residual: UNDETERMINED}
+  - {threat_id: T-03, likelihood: 5, impact: 3, score: 15, rating: high, residual: UNDETERMINED}
+  - {threat_id: T-04, likelihood: 5, impact: 3, score: 15, rating: high, residual: UNDETERMINED}
+  - {threat_id: T-05, likelihood: 4, impact: 2, score: 8, rating: medium, residual: UNDETERMINED}
+  - {threat_id: T-06, likelihood: 4, impact: 2, score: 8, rating: medium, residual: UNDETERMINED}
+  - {threat_id: T-07, likelihood: 5, impact: 2, score: 10, rating: high, residual: UNDETERMINED}
+  - {threat_id: T-08, likelihood: 4, impact: 3, score: 12, rating: high, residual: UNDETERMINED}

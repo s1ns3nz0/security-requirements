@@ -1,0 +1,144 @@
+# Eight service-specific threats produced by the approved movie-rating model.
+# Risk is assessed per threat, persona, and concrete attack path.
+
+version: "0.2.0"
+profile: movie-rating-aws
+
+boundaries:
+  - id: TB-1
+    from: anonymous internet user
+    to: Amazon API Gateway
+  - id: TB-2
+    from: Amazon API Gateway
+    to: movies-dynamodb Lambda
+  - id: TB-3
+    from: movies-dynamodb Lambda
+    to: Movies DynamoDB table
+  - id: TB-4
+    from: app_config.json
+    to: AWS SDK credential provider
+  - id: TB-5
+    from: movies-dynamodb Lambda
+    to: CloudWatch Logs
+
+threats:
+  - id: T-01
+    risk_family: RF-STATIC-AWS-CREDENTIALS
+    boundary: TB-4
+    category: STRIDE:I
+    novelty: service_specific
+    persona: compromised_dependency
+    attack_path: deployment_archive_static_credentials
+    lifecycle: {status: active, superseded_by: []}
+    scenario: >-
+      A compromised build dependency or a reader of a deployment archive
+      extracts long-lived AWS access keys after the operator replaces the
+      app_config.json placeholders with deployable credentials.
+    affected_assets: [aws_credentials, aws_account_resources]
+    related_controls: [IA-5, IA-5(1), SC-28]
+
+  - id: T-02
+    risk_family: RF-OVERPRIVILEGED-LAMBDA
+    boundary: TB-3
+    category: STRIDE:E
+    novelty: service_specific
+    persona: compromised_dependency
+    attack_path: lambda_fullaccess_execution_role
+    lifecycle: {status: active, superseded_by: []}
+    scenario: >-
+      Code execution inside the Lambda uses AWSLambdaFullAccess and
+      AmazonDynamoDBFullAccess to enumerate or modify Lambda functions and
+      DynamoDB tables outside the Movies service.
+    affected_assets: [lambda_execution_role, aws_account_resources]
+    related_controls: [AC-6, AC-6(10)]
+
+  - id: T-03
+    risk_family: RF-ANONYMOUS-MOVIE-MUTATION
+    boundary: TB-2
+    category: STRIDE:T
+    novelty: service_specific
+    persona: anonymous_external
+    attack_path: public_movie_write_routes
+    lifecycle: {status: active, superseded_by: []}
+    scenario: >-
+      An anonymous internet caller invokes create, delete, or rating branches
+      without an authentication or authorisation decision and changes the
+      Movies table at scale.
+    affected_assets: [movie_records, movie_ratings]
+    related_controls: [AC-3, AC-6]
+
+  - id: T-04
+    risk_family: RF-UNBOUNDED-MOVIE-INPUT
+    boundary: TB-2
+    category: STRIDE:D
+    novelty: service_specific
+    persona: anonymous_external
+    attack_path: unvalidated_body_to_dynamodb
+    lifecycle: {status: active, superseded_by: []}
+    scenario: >-
+      An anonymous caller repeatedly submits oversized strings, nested
+      objects, invalid years, or unknown operations that reach Lambda and
+      DynamoDB without an enforced request schema, consuming execution and
+      storage capacity.
+    affected_assets: [lambda_capacity, dynamodb_capacity, movie_records]
+    related_controls: [SI-10, SC-5]
+
+  - id: T-05
+    risk_family: RF-CLIENT-ERROR-DISCLOSURE
+    boundary: TB-2
+    category: STRIDE:I
+    novelty: service_specific
+    persona: anonymous_external
+    attack_path: aws_sdk_error_in_http_response
+    lifecycle: {status: active, superseded_by: []}
+    scenario: >-
+      A caller forces a DynamoDB error and receives the serialized AWS SDK
+      error object, exposing internal resource names and diagnostic details
+      through the public HTTP response.
+    affected_assets: [operational_metadata]
+    related_controls: [SI-11]
+
+  - id: T-06
+    risk_family: RF-CLOUDWATCH-DATA-LEAK
+    boundary: TB-5
+    category: STRIDE:I
+    novelty: service_specific
+    persona: anonymous_external
+    attack_path: attacker_input_in_cloudwatch_logs
+    lifecycle: {status: active, superseded_by: []}
+    scenario: >-
+      A caller places sensitive sentinel values in request fields that the
+      Lambda copies into response or error logging, making attacker-controlled
+      request content available to CloudWatch log readers.
+    affected_assets: [app_logs, operational_metadata]
+    related_controls: [AU-3, AU-9]
+
+  - id: T-07
+    risk_family: RF-MUTATION-REPUDIATION
+    boundary: TB-3
+    category: STRIDE:R
+    novelty: service_specific
+    persona: anonymous_external
+    attack_path: unaudited_movie_mutation
+    lifecycle: {status: active, superseded_by: []}
+    scenario: >-
+      A caller creates, deletes, or rates a movie without a security audit
+      event that binds the action, target record, result, and correlation ID
+      to a caller identity, preventing reliable attribution.
+    affected_assets: [audit_records, movie_records]
+    related_controls: [AU-2, AU-3, AU-12]
+
+  - id: T-08
+    risk_family: RF-ROUTE-OPERATION-CONFUSION
+    boundary: TB-2
+    category: STRIDE:E
+    novelty: service_specific
+    persona: anonymous_external
+    attack_path: final_path_segment_operation_dispatch
+    lifecycle: {status: active, superseded_by: []}
+    scenario: >-
+      A caller reaches a privileged Lambda branch through an undeclared
+      prefixed route because API Gateway authorises the complete resource path
+      while the handler selects only its final path segment.
+    affected_assets: [api_authorization_policy, movie_records]
+    related_controls: []
