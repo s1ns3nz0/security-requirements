@@ -1745,9 +1745,17 @@ def test_distribution_validator_rejects_python_cache_artifacts_in_payload(tmp_pa
 def test_distribution_validator_accepts_the_exact_git_archive_payload(tmp_path):
     module = _load_validator()
     archive = tmp_path / "repository.tar"
+    candidate = subprocess.run(
+        ["git", "stash", "create", "distribution-test-candidate"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    revision = candidate or "HEAD"
     with archive.open("wb") as output:
         result = subprocess.run(
-            ["git", "archive", "--format=tar", "HEAD"],
+            ["git", "archive", "--format=tar", revision],
             cwd=REPO_ROOT,
             stdout=output,
             check=False,
@@ -2088,8 +2096,10 @@ def test_distribution_validator_rejects_an_unreachable_current_schema_gate(tmp_p
         ),
         (
             "_load_risk_state",
-            'if state.get("version") != RISK_SCHEMA_VERSION:',
-            'if False and state.get("version") != RISK_SCHEMA_VERSION:',
+            "if not isinstance(state, Mapping) or "
+            'state.get("version") != RISK_SCHEMA_VERSION:',
+            "if not isinstance(state, Mapping) or False and "
+            'state.get("version") != RISK_SCHEMA_VERSION:',
         ),
     ),
 )
@@ -2171,5 +2181,104 @@ def test_distribution_validator_requires_the_canonical_schema_gate_prefix(
 
     assert any(
         "risk engine schema contract mismatch" in error and function_name in error
+        for error in errors
+    ), errors
+
+
+@pytest.mark.parametrize(
+    ("function_name", "live_body", "mutated_body"),
+    (
+        (
+            "_validate_threats",
+            '        problems.append("threat schema version must be 0.2.0")',
+            "        return [], []\n"
+            '        problems.append("threat schema version must be 0.2.0")',
+        ),
+        (
+            "migrate",
+            '        raise RiskValidationError("legacy threat schema must be 0.1.0")',
+            "        return {}\n"
+            '        raise RiskValidationError("legacy threat schema must be 0.1.0")',
+        ),
+        (
+            "_load_risk_state",
+            '        raise RiskValidationError("risk state version must be 0.2.0")',
+            "        return\n"
+            '        raise RiskValidationError("risk state version must be 0.2.0")',
+        ),
+    ),
+)
+def test_distribution_validator_rejects_a_gate_body_prefix_before_rejection(
+    tmp_path, function_name, live_body, mutated_body
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    engine = clone / "plugins" / PLUGIN_NAME / "scripts" / "risk.py"
+    source = _read(engine)
+    mutated = source.replace(live_body, mutated_body, 1)
+    assert mutated != source
+    engine.write_text(mutated, encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any(
+        "risk engine schema contract mismatch" in error and function_name in error
+        for error in errors
+    ), errors
+
+
+@pytest.mark.parametrize(
+    ("function_name", "live_expression", "mutated_expression"),
+    (
+        (
+            "_validate_threats",
+            "problems: list[str] = []",
+            "problems: list[str] = 1 / 0",
+        ),
+        (
+            "_load_risk_state",
+            '_project_document_path(paths, "state")',
+            '_project_document_path(1 / 0, paths, "state")',
+        ),
+    ),
+)
+def test_distribution_validator_rejects_noncanonical_schema_setup_expressions(
+    tmp_path, function_name, live_expression, mutated_expression
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    engine = clone / "plugins" / PLUGIN_NAME / "scripts" / "risk.py"
+    source = _read(engine)
+    mutated = source.replace(live_expression, mutated_expression, 1)
+    assert mutated != source
+    engine.write_text(mutated, encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any(
+        "risk engine schema contract mismatch" in error and function_name in error
+        for error in errors
+    ), errors
+
+
+def test_distribution_validator_rejects_extra_isinstance_keywords_in_schema_guard(
+    tmp_path,
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    engine = clone / "plugins" / PLUGIN_NAME / "scripts" / "risk.py"
+    source = _read(engine)
+    mutated = source.replace(
+        "not isinstance(threats, Mapping)",
+        "not isinstance(threats, Mapping, extra=True)",
+        1,
+    )
+    assert mutated != source
+    engine.write_text(mutated, encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any(
+        "risk engine schema contract mismatch" in error and "migrate" in error
         for error in errors
     ), errors

@@ -256,3 +256,62 @@ Validation passed
 claude plugin validate --strict .
 Validation passed
 ```
+
+## Review fix round 5 (final)
+
+The last two AST findings were reproduced with six concrete mutants before the
+runtime/validator simplification. Each of the three version-gate bodies accepted
+an unconditional `return` before its eventual append/raise. The validator also
+accepted `problems = 1 / 0`, `_project_document_path(1 / 0, paths, "state")`,
+and an extra keyword on the migration `isinstance` call.
+
+The runtime now exposes three small, explicit schema contract helpers:
+
+- `_current_threat_schema_problems` owns current threat type/version problems;
+- `_require_legacy_threat_schema` owns the exact legacy Mapping/version guard;
+- `_load_validated_risk_state` owns the exact state load, Mapping/version guard,
+  snapshot validation, and return.
+
+The three existing callers begin with the corresponding exact helper call (or
+return it directly). The distribution validator compares the normalized AST of
+each complete helper definition against its canonical AST and separately
+compares each caller's first executable statement. It no longer performs
+partial condition or reachability inference. Consequently, setup expressions,
+arguments, keywords, statement ordering, early returns, and rejection bodies
+all fail closed when they depart from the reviewed contract.
+
+During a dirty development tree, the archive regression uses the anonymous
+candidate commit produced by `git stash create`; in a clean tree it uses
+`HEAD`. The final post-commit verification below additionally archives literal
+`HEAD`.
+
+Round 5 verification after the final code/test changes:
+
+```text
+python -m pytest tests/test_risk.py -q
+145 passed in 7.01s
+
+python -m pytest tests/test_distribution_docs.py -q
+209 passed, 1 skipped in 60.05s
+
+python -m pytest --collect-only -q
+1263 tests collected
+
+python -m pytest tests/ -q \
+  --junitxml=/tmp/security-requirements-task10-fix-round5.xml
+1261 passed, 2 skipped in 94.44s
+JUnit: tests=1263, failures=0, errors=0, skipped=2
+
+python scripts/validate_distribution.py .
+exit 0
+
+python /Users/s1ns3nz0/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py \
+  plugins/security-requirements
+Plugin validation passed
+
+claude plugin validate --strict plugins/security-requirements
+Validation passed
+
+claude plugin validate --strict .
+Validation passed
+```

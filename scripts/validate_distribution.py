@@ -910,77 +910,69 @@ def _assigned_string_constants(syntax: ast.AST) -> dict[str, str]:
     return values
 
 
-def _matches_version_comparison(
-    comparison: ast.Compare,
-    receiver: str,
-    operator: type[ast.cmpop],
-    version_constant: str,
-) -> bool:
-    call = comparison.left
-    return (
-        len(comparison.ops) == 1
-        and isinstance(comparison.ops[0], operator)
-        and isinstance(call, ast.Call)
-        and isinstance(call.func, ast.Attribute)
-        and call.func.attr == "get"
-        and isinstance(call.func.value, ast.Name)
-        and call.func.value.id == receiver
-        and len(call.args) == 1
-        and isinstance(call.args[0], ast.Constant)
-        and call.args[0].value == "version"
-        and len(comparison.comparators) == 1
-        and isinstance(comparison.comparators[0], ast.Name)
-        and comparison.comparators[0].id == version_constant
+RISK_ENGINE_HELPER_CONTRACTS = {
+    "_current_threat_schema_problems": '''
+def _current_threat_schema_problems(threats_doc: dict) -> list[str]:
+    problems: list[str] = []
+    if not isinstance(threats_doc, Mapping):
+        problems.append("threat document must be a mapping")
+        return problems
+    if threats_doc.get("version") != CURRENT_THREAT_SCHEMA_VERSION:
+        problems.append("threat schema version must be 0.2.0")
+    return problems
+''',
+    "_require_legacy_threat_schema": '''
+def _require_legacy_threat_schema(threats: dict) -> None:
+    if (
+        not isinstance(threats, Mapping)
+        or threats.get("version") != LEGACY_THREAT_SCHEMA_VERSION
+    ):
+        raise RiskValidationError("legacy threat schema must be 0.1.0")
+''',
+    "_load_validated_risk_state": '''
+def _load_validated_risk_state(paths: Mapping | object) -> tuple[Path, Path, dict]:
+    project_root, state_path = _project_document_path(paths, "state")
+    state = _load_optional_mapping(
+        state_path,
+        "risk state",
+        {"version": RISK_SCHEMA_VERSION, "snapshots": []},
     )
-
-
-def _gate_rejects(body: list[ast.stmt]) -> bool:
-    for node in body:
-        if isinstance(node, ast.Raise):
-            return True
-        if (
-            isinstance(node, ast.Expr)
-            and isinstance(node.value, ast.Call)
-            and isinstance(node.value.func, ast.Attribute)
-            and node.value.func.attr == "append"
-            and isinstance(node.value.func.value, ast.Name)
-            and node.value.func.value.id == "problems"
-        ):
-            return True
-    return False
-
-
-def _direct_gate_comparisons(
-    function_name: str, test: ast.expr
-) -> list[ast.Compare]:
-    if function_name != "migrate":
-        return [test] if isinstance(test, ast.Compare) else []
-    if not (
-        isinstance(test, ast.BoolOp)
-        and isinstance(test.op, ast.Or)
-        and len(test.values) == 2
+    if not isinstance(state, Mapping) or state.get("version") != RISK_SCHEMA_VERSION:
+        raise RiskValidationError("risk state version must be 0.2.0")
+    if not isinstance(state.get("snapshots"), Sequence) or isinstance(
+        state.get("snapshots"), (str, bytes)
     ):
-        return []
-    type_guard, version_guard = test.values
-    if not (
-        isinstance(type_guard, ast.UnaryOp)
-        and isinstance(type_guard.op, ast.Not)
-        and isinstance(type_guard.operand, ast.Call)
-        and isinstance(type_guard.operand.func, ast.Name)
-        and type_guard.operand.func.id == "isinstance"
-        and type_guard.operand.args
-        and isinstance(type_guard.operand.args[0], ast.Name)
-        and type_guard.operand.args[0].id == "threats"
-        and len(type_guard.operand.args) == 2
-        and isinstance(type_guard.operand.args[1], ast.Name)
-        and type_guard.operand.args[1].id == "Mapping"
-        and isinstance(version_guard, ast.Compare)
-    ):
-        return []
-    return [version_guard]
+        raise RiskValidationError("risk state snapshots must be a list")
+    return project_root, state_path, state
+''',
+}
+RISK_ENGINE_CALLER_PREFIXES = {
+    "_validate_threats": "problems = _current_threat_schema_problems(threats_doc)",
+    "migrate": "_require_legacy_threat_schema(threats)",
+    "_load_risk_state": "return _load_validated_risk_state(paths)",
+}
+RISK_ENGINE_HELPER_CALLERS = {
+    "_current_threat_schema_problems": "_validate_threats",
+    "_require_legacy_threat_schema": "migrate",
+    "_load_validated_risk_state": "_load_risk_state",
+}
 
 
-def _executable_body(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.stmt]:
+def _normalized_ast(node: ast.AST) -> str:
+    return ast.dump(node, include_attributes=False)
+
+
+def _function_nodes(syntax: ast.AST) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
+    return {
+        node.name: node
+        for node in getattr(syntax, "body", [])
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+
+def _first_executable_statement(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> ast.stmt | None:
     body = function.body
     if (
         body
@@ -988,103 +980,8 @@ def _executable_body(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[a
         and isinstance(body[0].value, ast.Constant)
         and isinstance(body[0].value.value, str)
     ):
-        return body[1:]
-    return body
-
-
-def _exact_setup_call(
-    statement: ast.stmt, targets: tuple[str, ...], function: str
-) -> bool:
-    if not (
-        isinstance(statement, ast.Assign)
-        and len(statement.targets) == 1
-        and isinstance(statement.value, ast.Call)
-        and isinstance(statement.value.func, ast.Name)
-        and statement.value.func.id == function
-    ):
-        return False
-    assigned = statement.targets[0]
-    if len(targets) == 1:
-        return isinstance(assigned, ast.Name) and assigned.id == targets[0]
-    return (
-        isinstance(assigned, ast.Tuple)
-        and len(assigned.elts) == len(targets)
-        and all(isinstance(item, ast.Name) for item in assigned.elts)
-        and tuple(item.id for item in assigned.elts) == targets
-    )
-
-
-def _canonical_gate_statement(
-    function: ast.FunctionDef | ast.AsyncFunctionDef,
-) -> ast.If | None:
-    body = _executable_body(function)
-    if function.name == "migrate":
-        return body[0] if body and isinstance(body[0], ast.If) else None
-    if function.name == "_validate_threats":
-        if not (
-            len(body) >= 3
-            and isinstance(body[0], ast.AnnAssign)
-            and isinstance(body[0].target, ast.Name)
-            and body[0].target.id == "problems"
-            and isinstance(body[1], ast.If)
-            and isinstance(body[1].test, ast.UnaryOp)
-            and isinstance(body[1].test.op, ast.Not)
-            and isinstance(body[1].test.operand, ast.Call)
-            and isinstance(body[1].test.operand.func, ast.Name)
-            and body[1].test.operand.func.id == "isinstance"
-            and len(body[1].test.operand.args) == 2
-            and isinstance(body[1].test.operand.args[0], ast.Name)
-            and body[1].test.operand.args[0].id == "threats_doc"
-            and isinstance(body[1].test.operand.args[1], ast.Name)
-            and body[1].test.operand.args[1].id == "Mapping"
-            and len(body[1].body) == 1
-            and isinstance(body[1].body[0], ast.Return)
-            and isinstance(body[2], ast.If)
-        ):
-            return None
-        return body[2]
-    if function.name == "_load_risk_state":
-        if not (
-            len(body) >= 3
-            and _exact_setup_call(
-                body[0], ("project_root", "state_path"), "_project_document_path"
-            )
-            and _exact_setup_call(body[1], ("state",), "_load_optional_mapping")
-            and isinstance(body[2], ast.If)
-        ):
-            return None
-        return body[2]
-    return None
-
-
-def _function_uses_version_gate(
-    syntax: ast.AST,
-    function_name: str,
-    receiver: str,
-    operator: type[ast.cmpop],
-    version_constant: str,
-) -> bool:
-    function = next(
-        (
-            node
-            for node in getattr(syntax, "body", [])
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == function_name
-        ),
-        None,
-    )
-    if function is None:
-        return False
-    statement = _canonical_gate_statement(function)
-    if statement is None or not _gate_rejects(statement.body):
-        return False
-    comparisons = _direct_gate_comparisons(function_name, statement.test)
-    return any(
-        _matches_version_comparison(
-            comparison, receiver, operator, version_constant
-        )
-        for comparison in comparisons
-    )
+        body = body[1:]
+    return body[0] if body else None
 
 
 def _risk_engine_schema_contract(syntax: ast.AST, errors: list[str]) -> None:
@@ -1100,23 +997,28 @@ def _risk_engine_schema_contract(syntax: ast.AST, errors: list[str]) -> None:
                 f"risk engine schema contract mismatch: {name} must equal {expected}"
             )
 
-    gates = (
-        (
-            "_validate_threats",
-            "threats_doc",
-            ast.NotEq,
-            "CURRENT_THREAT_SCHEMA_VERSION",
-        ),
-        ("migrate", "threats", ast.NotEq, "LEGACY_THREAT_SCHEMA_VERSION"),
-        ("_load_risk_state", "state", ast.NotEq, "RISK_SCHEMA_VERSION"),
-    )
-    for function_name, receiver, operator, constant in gates:
-        if not _function_uses_version_gate(
-            syntax, function_name, receiver, operator, constant
-        ):
+    functions = _function_nodes(syntax)
+    for helper_name, expected_source in RISK_ENGINE_HELPER_CONTRACTS.items():
+        actual = functions.get(helper_name)
+        expected = ast.parse(expected_source).body[0]
+        if actual is None or _normalized_ast(actual) != _normalized_ast(expected):
             errors.append(
                 "risk engine schema contract mismatch: "
-                f"{function_name} must compare {receiver}.version with {constant}"
+                f"{RISK_ENGINE_HELPER_CALLERS[helper_name]} helper {helper_name} "
+                "must match the canonical schema helper"
+            )
+    for caller_name, expected_source in RISK_ENGINE_CALLER_PREFIXES.items():
+        actual_function = functions.get(caller_name)
+        actual = (
+            _first_executable_statement(actual_function)
+            if actual_function is not None
+            else None
+        )
+        expected = ast.parse(expected_source).body[0]
+        if actual is None or _normalized_ast(actual) != _normalized_ast(expected):
+            errors.append(
+                "risk engine schema contract mismatch: "
+                f"{caller_name} must begin with the canonical schema helper call"
             )
 
 

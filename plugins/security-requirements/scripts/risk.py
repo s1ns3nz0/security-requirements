@@ -71,6 +71,24 @@ CURRENT_THREAT_SCHEMA_VERSION = "0.2.0"
 RISK_SCHEMA_VERSION = "0.2.0"
 
 
+def _current_threat_schema_problems(threats_doc: dict) -> list[str]:
+    problems: list[str] = []
+    if not isinstance(threats_doc, Mapping):
+        problems.append("threat document must be a mapping")
+        return problems
+    if threats_doc.get("version") != CURRENT_THREAT_SCHEMA_VERSION:
+        problems.append("threat schema version must be 0.2.0")
+    return problems
+
+
+def _require_legacy_threat_schema(threats: dict) -> None:
+    if (
+        not isinstance(threats, Mapping)
+        or threats.get("version") != LEGACY_THREAT_SCHEMA_VERSION
+    ):
+        raise RiskValidationError("legacy threat schema must be 0.1.0")
+
+
 class RiskArgumentError(ValueError):
     """Raised when the risk CLI does not match its strict grammar."""
 
@@ -613,11 +631,9 @@ def _is_nonempty_text_list(value: Any) -> bool:
 
 
 def _validate_threats(threats_doc: dict) -> tuple[list[str], list[dict]]:
-    problems: list[str] = []
+    problems = _current_threat_schema_problems(threats_doc)
     if not isinstance(threats_doc, Mapping):
-        return ["threat document must be a mapping"], []
-    if threats_doc.get("version") != CURRENT_THREAT_SCHEMA_VERSION:
-        problems.append("threat schema version must be 0.2.0")
+        return problems, []
     threats = threats_doc.get("threats")
     if not isinstance(threats, Sequence) or isinstance(threats, (str, bytes)):
         return problems + ["threats must be a list"], []
@@ -1483,11 +1499,7 @@ def migrate(threats: dict, requirements: dict) -> dict:
     metadata belong to the later human review and are never inferred here.
     """
 
-    if (
-        not isinstance(threats, Mapping)
-        or threats.get("version") != LEGACY_THREAT_SCHEMA_VERSION
-    ):
-        raise RiskValidationError("legacy threat schema must be 0.1.0")
+    _require_legacy_threat_schema(threats)
     records = threats.get("threats")
     if not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
         raise RiskValidationError("legacy threats must be a list")
@@ -1901,20 +1913,24 @@ def _refresh_baseline(
     }
 
 
-def _load_risk_state(paths: Mapping | object) -> tuple[Path, Path, dict]:
+def _load_validated_risk_state(paths: Mapping | object) -> tuple[Path, Path, dict]:
     project_root, state_path = _project_document_path(paths, "state")
     state = _load_optional_mapping(
         state_path,
         "risk state",
         {"version": RISK_SCHEMA_VERSION, "snapshots": []},
     )
-    if state.get("version") != RISK_SCHEMA_VERSION:
+    if not isinstance(state, Mapping) or state.get("version") != RISK_SCHEMA_VERSION:
         raise RiskValidationError("risk state version must be 0.2.0")
     if not isinstance(state.get("snapshots"), Sequence) or isinstance(
         state.get("snapshots"), (str, bytes)
     ):
         raise RiskValidationError("risk state snapshots must be a list")
     return project_root, state_path, state
+
+
+def _load_risk_state(paths: Mapping | object) -> tuple[Path, Path, dict]:
+    return _load_validated_risk_state(paths)
 
 
 def _state_target(project_root: Path, kind: str) -> tuple[Path, Path]:
