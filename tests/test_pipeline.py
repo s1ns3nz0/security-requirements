@@ -10432,6 +10432,32 @@ def test_the_golden_cases_still_span_the_scale():
     assert levels["commerce-payments"] == "high"
 
 
+def test_readme_binds_current_golden_profile_and_movie_risk_distributions():
+    """Adding a profile or changing the hand-reviewed movie scores must update
+    the README claim in the same change. This catches the stale seven-case and
+    pre-risk prose without treating the two different distributions as one."""
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    readme_words = " ".join(readme.split())
+    cases = sorted(path.name for path in GOLDEN_ROOT.iterdir() if path.is_dir())
+    movie = yaml.safe_load(
+        (GOLDEN_ROOT / "movie-rating-aws" / "expected-risk.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert len(cases) == 8
+    assert "Eight golden profiles" in readme_words
+    assert "one Low, four Moderates, and three Highs" in readme_words
+    assert movie["inherent"] == {
+        "overall": "high",
+        "status": "confirmed",
+        "counts": {"critical": 0, "high": 5, "medium": 3, "low": 0},
+        "coverage": "8/8",
+    }
+    assert "eight service-specific threats" in readme_words
+    assert "five High and three Medium" in readme_words
+
+
 def test_the_case_that_reaches_moderate_on_integrity_alone():
     """metering-ledger declares nothing above Low on either axis and lands on
     Moderate anyway, because a committed record may not be lost. It is the only

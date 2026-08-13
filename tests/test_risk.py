@@ -141,12 +141,47 @@ def test_movie_rating_risk_witness():
     assert result["residual"] == expected["residual"]
     assert result["coverage"] == "8/8"
     assert result["assessments"] == expected["assessments"]
+    assert result["temporary_root_removed"] is True
+
+    default = result["confirmation_evidence"]["default"]
+    assert default["publish_risk_summary"] is False
+    assert default["check"] == {"returncode": 0, "stdout": "", "stderr": ""}
+    assert default["binding_matches"] == {
+        "policy": True,
+        "threats": True,
+        "assessment": True,
+        "state": True,
+    }
+    for kind in ("policy", "assessment"):
+        repository = default[kind]["repository"]
+        external = default[kind]["external"]
+        assert repository == external
+        assert repository["status"] == "confirmed"
+        assert repository["confirmed_by"] == "movie-rating-risk-owner"
+        assert repository["authority"] == "self_declared"
 
 
 def test_movie_rating_reports_keep_detail_internal_and_require_explicit_opt_in():
     result = run_risk_golden(MOVIE_RATING_GOLDEN)
 
     assert result["default_public_summary"] is None
+    opt_in = result["confirmation_evidence"]["opt_in"]
+    assert opt_in["publish_risk_summary"] is True
+    assert opt_in["check"] == {"returncode": 0, "stdout": "", "stderr": ""}
+    assert opt_in["binding_matches"] == {
+        "policy": True,
+        "threats": True,
+        "assessment": True,
+        "state": True,
+    }
+    assert opt_in["policy"]["repository"] == opt_in["policy"]["external"]
+    assert opt_in["assessment"]["repository"] == opt_in["assessment"]["external"]
+    assert opt_in["policy"]["repository"]["confirmed_by"] == (
+        "movie-rating-risk-owner"
+    )
+    assert opt_in["assessment"]["repository"]["confirmed_by"] == (
+        "movie-rating-risk-owner"
+    )
     public = result["opt_in_public_summary"]
     assert public is not None
     assert "Overall | high" in public

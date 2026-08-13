@@ -450,17 +450,24 @@ summarised in our own words with links, never reproduced.
 
 ```bash
 python3 -I plugins/security-requirements/scripts/rebuild_catalogs.py  # rebuild every catalog from upstream
-python3 -m pytest tests/                # deterministic layer, 1,266 tests
+python3 -m pytest tests/                # deterministic layer, 1,267 tests
 python3 -m pytest tests/test_distribution_docs.py -q
 python3 scripts/validate_distribution.py .
 ```
 
-Seven golden cases keep the whole scale reachable — they derive to Low, three
-Moderates, and three Highs. If they all collapse to one level, the tailoring has
-stopped discriminating, so a test asserts the spread rather than leaving it to
-whoever notices.
+Eight golden profiles keep the whole scale reachable — they derive to one Low,
+four Moderates, and three Highs. If they all collapse to one level, the
+tailoring has stopped discriminating, so a test asserts the spread rather than
+leaving it to whoever notices.
 
-All seven are synthetic. A profile describes where the data is and what it is
+The `movie-rating-aws` threat-risk witness separately confirms exactly eight
+service-specific threats through the digest-bound external approval workflow.
+Its inherent distribution is five High and three Medium risks with 8/8
+coverage. Residual coverage remains 0/8 and `UNDETERMINED` because the fixture
+does not claim implementation evidence; its public aggregate is rendered only
+from an explicitly opted-in, separately confirmed policy.
+
+All eight are synthetic. A profile describes where the data is and what it is
 worth, and this repository is public, so a real one plus its open requirements
 would be a reconnaissance document.
 
