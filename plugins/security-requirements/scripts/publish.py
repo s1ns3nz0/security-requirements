@@ -462,6 +462,7 @@ def _move_previous_tree_to_backup(
 def _restore_public_root(
     public_root: Path,
     backup: Path,
+    old_recovery: Path | None,
     project_root: Path,
     old_manifest: tuple[tuple[str, str, str], ...] | None,
     new_manifest: tuple[tuple[str, str, str], ...],
@@ -594,7 +595,14 @@ def _restore_public_root(
                 return outcome
             raise PublicationError("cannot restore the previously absent public tree")
 
-        if not _tree_matches(backup, old_manifest, project_root):
+        restore_source: Path | None = None
+        if _tree_matches(backup, old_manifest, project_root):
+            restore_source = backup
+        elif old_recovery is not None and _tree_matches(
+            old_recovery, old_manifest, project_root
+        ):
+            restore_source = old_recovery
+        else:
             state = _public_tree_state(
                 public_root, project_root, old_manifest, new_manifest
             )
@@ -603,10 +611,10 @@ def _restore_public_root(
                 return outcome
             raise PublicationError("verified previous public-tree backup is missing")
 
-        safe_path(backup, project_root=project_root)
+        safe_path(restore_source, project_root=project_root)
         safe_path(public_root, project_root=project_root)
         try:
-            os.replace(backup, public_root)
+            os.replace(restore_source, public_root)
         except BaseException:
             state = _public_tree_state(
                 public_root, project_root, old_manifest, new_manifest
@@ -618,7 +626,21 @@ def _restore_public_root(
                 outcome = "new"
                 return outcome
 
-            # Preserve the sole backup. Restore from a no-follow copy so a
+            # Re-select a still verified source. A failed direct backup rename
+            # may coincide with external backup mutation; the independent
+            # snapshot remains authoritative in that case.
+            if _tree_matches(backup, old_manifest, project_root):
+                restore_source = backup
+            elif old_recovery is not None and _tree_matches(
+                old_recovery, old_manifest, project_root
+            ):
+                restore_source = old_recovery
+            else:
+                raise PublicationError(
+                    "verified previous public-tree recovery is missing"
+                )
+
+            # Preserve the verified source. Restore from a no-follow copy so a
             # failed direct rename cannot leave the canonical path absent.
             recovery = _unused_directory_path(
                 public_root.parent,
@@ -626,7 +648,7 @@ def _restore_public_root(
                 ".security-publish-recovery-",
             )
             try:
-                _copy_tree_no_follow(backup, recovery)
+                _copy_tree_no_follow(restore_source, recovery)
                 if not _tree_matches(recovery, old_manifest, project_root):
                     raise PublicationError(
                         "recovery copy does not match the previous public tree"
@@ -811,6 +833,7 @@ def stage_and_publish(
             state = _restore_public_root(
                 public_root,
                 backup,
+                old_recovery,
                 project,
                 old_manifest,
                 new_manifest,
@@ -838,6 +861,7 @@ def stage_and_publish(
                 state = _restore_public_root(
                     public_root,
                     backup,
+                    old_recovery,
                     project,
                     old_manifest,
                     new_manifest,
@@ -854,6 +878,7 @@ def stage_and_publish(
             state = _restore_public_root(
                 public_root,
                 backup,
+                old_recovery,
                 project,
                 old_manifest,
                 new_manifest,
@@ -880,6 +905,7 @@ def stage_and_publish(
             state = _restore_public_root(
                 public_root,
                 backup,
+                old_recovery,
                 project,
                 old_manifest,
                 new_manifest,
@@ -903,6 +929,7 @@ def stage_and_publish(
             state = _restore_public_root(
                 public_root,
                 backup,
+                old_recovery,
                 project,
                 old_manifest,
                 new_manifest,

@@ -3557,6 +3557,39 @@ def test_activation_failure_recovers_when_direct_backup_restore_fails(
     } == before
 
 
+def test_state_failure_restores_verified_snapshot_when_backup_is_altered(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+
+    def alter_backup_and_fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            backups = list((project / "docs").glob(".security-publish-backup-*"))
+            assert len(backups) == 1
+            (backups[0] / "requirements.md").write_text(
+                "altered backup\n", encoding="utf-8"
+            )
+            raise OSError("injected state failure after backup alteration")
+        return real_write(path, *args, **kwargs)
+
+    monkeypatch.setattr(
+        publish, "safe_write_text", alter_backup_and_fail_publication_state
+    )
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
+
+
 def test_recovery_exists_base_exception_stays_inside_best_effort_boundary(
     tmp_path, monkeypatch
 ):
