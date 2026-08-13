@@ -371,6 +371,20 @@ def test_build_and_refresh_publish_only_from_an_external_staging_directory():
         assert "--out docs/security" not in render_block
         assert "mktemp -d" in text
         assert "outside repository-controlled output trees" in text
+        publish_block = text[publisher : text.index("```", publisher)]
+        assert "--managed-file" not in publish_block
+        assert "risk-summary.md" not in publish_block
+        assert (
+            '--generated "<exact absolute staging directory returned by mktemp>"'
+            in publish_block
+        )
+        assert "--risk-summary" in text
+        assert re.search(
+            r"publisher renders the exact aggregate through "
+            r"`risk\.render_public_summary`",
+            text,
+            flags=re.IGNORECASE,
+        )
 
 
 def test_risk_output_write_boundaries_are_explicitly_preflighted():

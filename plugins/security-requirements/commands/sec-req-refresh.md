@@ -323,9 +323,10 @@ python3 -I "<exact absolute plugin root>/scripts/render.py" \
     --out "<exact absolute staging directory returned by mktemp>"
 ```
 
-If and only if the approved policy opts in, place the deterministic aggregate
-summary in the captured staging directory, include it in the complete managed-file
-set, and preflight its exact final target immediately before publication:
+Never author or copy a summary into staging. If and only if the approved policy
+opts in, preflight its exact final target immediately before publication. The
+publisher renders the exact aggregate through `risk.render_public_summary` from
+the digest-bound inputs and accepts no caller summary or internal fields:
 
 ```
 SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
@@ -334,7 +335,17 @@ python3 -I "<exact absolute plugin root>/scripts/safe_paths.py" \
     --project-root "$PWD" --check-output docs/security/risk-summary.md
 ```
 
-Publish the complete desired managed set in one transaction:
+Publish the complete three-file base set in one transaction:
+
+```
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/publish.py" \
+    --project-root "$PWD" \
+    --generated "<exact absolute staging directory returned by mktemp>"
+```
+
+For the approved opt-in case, use this exact engine-owned invocation instead:
 
 ```
 SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
@@ -342,11 +353,11 @@ SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.
 python3 -I "<exact absolute plugin root>/scripts/publish.py" \
     --project-root "$PWD" \
     --generated "<exact absolute staging directory returned by mktemp>" \
-    --managed-file requirements.md traceability.md responsibility.md
+    --risk-summary
 ```
 
-Append `risk-summary.md` only in the approved opt-in case. The publisher checks
-risk again, preserves unrelated human-owned files, and removes an omitted
+The flag fails unless the externally confirmed policy opts in. The publisher
+checks risk again, preserves unrelated human-owned files, and removes an omitted
 summary only when its digest-bound, plugin-owned external managed-state record
 proves ownership; a repository copy has no authority. A risk, overlay, lint,
 render, or publication failure preserves the previous `docs/security/` bytes

@@ -405,11 +405,11 @@ python3 -I "<exact absolute plugin root>/scripts/render.py" \
     --out "<exact absolute staging directory returned by mktemp>"
 ```
 
-When the approved policy has `publish_risk_summary: true`, place only the
-deterministically rendered aggregate summary in the captured staging directory and
-include `risk-summary.md` in the managed-file list. Immediately before that
-opt-in publication, preflight its exact final target; the publisher validates
-it again at replacement time:
+Never author or copy `risk-summary.md` into staging. When the approved policy
+has `publish_risk_summary: true`, immediately preflight its exact final target.
+The publisher renders the exact aggregate through `risk.render_public_summary`
+from the digest-bound policy and assessment; caller-supplied summary bytes and
+internal fields are never publication inputs.
 
 ```
 SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
@@ -418,8 +418,9 @@ python3 -I "<exact absolute plugin root>/scripts/safe_paths.py" \
     --project-root "$PWD" --check-output docs/security/risk-summary.md
 ```
 
-Finally call the transactional publisher. The list is the complete desired
-plugin-managed set. It rechecks the risk gate, validates all final targets
+For the base public set, call the transactional publisher without a caller
+managed-file list. It always requires all three base documents, rechecks the
+risk gate, validates all final targets
 immediately before its directory swap, preserves unrelated human-owned files,
 and removes an omitted summary only when its digest-bound, plugin-owned external
 managed-state record proves the plugin owned those exact bytes. A repository
@@ -430,13 +431,23 @@ SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
 SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
 python3 -I "<exact absolute plugin root>/scripts/publish.py" \
     --project-root "$PWD" \
-    --generated "<exact absolute staging directory returned by mktemp>" \
-    --managed-file requirements.md traceability.md responsibility.md
+    --generated "<exact absolute staging directory returned by mktemp>"
 ```
 
-Append `risk-summary.md` to that same `--managed-file` invocation only for the
-approved opt-in case. A risk, lint, overlay, render, staging, or publication
-failure leaves the previous `docs/security/` bytes unchanged.
+For the approved opt-in case, use this exact engine-owned invocation instead:
+
+```
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/publish.py" \
+    --project-root "$PWD" \
+    --generated "<exact absolute staging directory returned by mktemp>" \
+    --risk-summary
+```
+
+The flag fails unless the externally confirmed policy opts in. A risk, lint,
+overlay, render, staging, or publication failure leaves the previous
+`docs/security/` bytes unchanged.
 
 ## 9. Report
 

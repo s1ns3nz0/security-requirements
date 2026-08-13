@@ -2692,11 +2692,77 @@ def _write_unconfirmed_risk_documents(project: Path) -> None:
     )
     (internal / "risk-assessment.yaml").write_text(
         yaml.safe_dump(
-            {"assessments": [{"threat_id": "T-01", "status": "PROPOSED"}]},
+            {
+                "assessments": [
+                    {
+                        "threat_id": "T-01",
+                        "status": "PROPOSED",
+                        "proposed": {
+                            "likelihood": {
+                                "criterion": "L4-PUBLIC-LOW-COMPLEXITY",
+                                "evidence": {
+                                    "exposure": "public",
+                                    "access_required": "none",
+                                    "exploit_complexity": "low",
+                                    "preconditions": ["route is reachable"],
+                                    "observed_controls": [],
+                                },
+                                "rationale": ["anonymous route is reachable"],
+                            },
+                            "consequences": [
+                                {
+                                    "id": "C-01",
+                                    "asset": "movie_records",
+                                    "axis": "integrity",
+                                    "criterion": "I4-CROSS-SYSTEM",
+                                    "rationale": ["catalogue mutation crosses tenants"],
+                                }
+                            ],
+                            "impact": {"selected_from": "C-01"},
+                        },
+                        "treatment": {
+                            "strategy": "mitigate",
+                            "owner": "service-team",
+                            "status": "planned",
+                        },
+                    }
+                ]
+            },
             sort_keys=False,
         ),
         encoding="utf-8",
     )
+
+
+def _confirm_publish_risk(project: Path, *, opt_in: bool) -> tuple[dict, dict, dict]:
+    _write_unconfirmed_risk_documents(project)
+    internal = project / ".security-requirements"
+    policy_path = internal / "risk-policy.yaml"
+    policy = yaml.safe_load(policy_path.read_text(encoding="utf-8"))
+    policy["publish_risk_summary"] = opt_in
+    policy_path.write_text(
+        yaml.safe_dump(policy, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+    paths = {
+        "project_root": project,
+        "policy": policy_path,
+        "threats": internal / "threats.yaml",
+        "assessment": internal / "risk-assessment.yaml",
+    }
+    policy = risk.stamp_policy(
+        paths,
+        "risk-owner",
+        "self_declared",
+        confirmed_at="2026-08-13T00:00:00Z",
+    )
+    assessment = risk.stamp_assessment(
+        paths,
+        "risk-owner",
+        "self_declared",
+        confirmed_at="2026-08-13T00:01:00Z",
+    )
+    threats = yaml.safe_load(paths["threats"].read_text(encoding="utf-8"))
+    return policy, threats, assessment
 
 
 def test_failed_risk_gate_preserves_all_previous_public_documents(
@@ -2714,10 +2780,6 @@ def test_failed_risk_gate_preserves_all_previous_public_documents(
         str(project),
         "--generated",
         str(generated),
-        "--managed-file",
-        "requirements.md",
-        "traceability.md",
-        "responsibility.md",
     )
 
     assert result.returncode != 0
@@ -2768,8 +2830,10 @@ def test_transactional_publication_preserves_human_files_and_tracks_summary_owne
     assert (public / "human-notes.md").read_text(encoding="utf-8").startswith("human")
     assert (public / "risk-summary.md").read_text(encoding="utf-8").startswith("human")
 
-    opt_in = _generated_public_docs(
-        tmp_path / "second external staging", include_summary=True
+    policy, threats, assessment = _confirm_publish_risk(project, opt_in=True)
+    opt_in = _generated_public_docs(tmp_path / "second external staging")
+    (opt_in / "risk-summary.md").write_text(
+        "attack_path: caller-controlled internal detail\n", encoding="utf-8"
     )
     with pytest.raises(publish.PublicationError, match="human-owned risk-summary.md"):
         publish.stage_and_publish(project, opt_in, (*standard, "risk-summary.md"))
@@ -2777,14 +2841,69 @@ def test_transactional_publication_preserves_human_files_and_tracks_summary_owne
 
     (public / "risk-summary.md").unlink()
     publish.stage_and_publish(project, opt_in, (*standard, "risk-summary.md"))
-    assert (public / "risk-summary.md").read_text(encoding="utf-8").startswith(
-        "approved"
+    expected = risk.render_public_summary(
+        {"inherent": risk.aggregate_risk(threats, assessment)}, policy
     )
+    assert expected is not None
+    assert (public / "risk-summary.md").read_text(encoding="utf-8") == expected
+    assert "attack_path" not in expected
 
     opt_out = _generated_public_docs(tmp_path / "third external staging")
     publish.stage_and_publish(project, opt_out, standard)
     assert not (public / "risk-summary.md").exists()
     assert (public / "human-notes.md").exists()
+
+
+def test_risk_summary_requires_confirmed_policy_opt_in_and_preserves_public_bytes(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    (generated / "risk-summary.md").write_text("forged aggregate\n", encoding="utf-8")
+    _confirm_publish_risk(project, opt_in=False)
+
+    with pytest.raises(publish.PublicationError, match="publish_risk_summary"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            (
+                "requirements.md",
+                "traceability.md",
+                "responsibility.md",
+                "risk-summary.md",
+            ),
+        )
+
+    assert _read_public_docs(project) == before
+
+
+@pytest.mark.parametrize(
+    "managed_files",
+    [
+        (),
+        ("requirements.md",),
+        ("requirements.md", "traceability.md"),
+        ("risk-summary.md",),
+        (
+            "requirements.md",
+            "traceability.md",
+            "responsibility.md",
+            "requirements.md",
+        ),
+    ],
+)
+def test_transactional_publication_requires_the_complete_base_managed_set(
+    tmp_path, monkeypatch, managed_files
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    generated = _generated_public_docs(tmp_path / "external staging")
+
+    with pytest.raises(publish.PublicationError, match="exact managed file set"):
+        publish.stage_and_publish(project, generated, managed_files)
 
 
 def test_transactional_publication_rejects_files_outside_the_plugin_allowlist(
@@ -2857,7 +2976,124 @@ def test_transactional_publication_rejects_missing_or_repository_staging_without
         project / ".security-requirements" / "staging"
     )
     with pytest.raises(ValueError, match="outside repository-controlled output trees"):
-        publish.stage_and_publish(project, controlled, ("requirements.md",))
+        publish.stage_and_publish(project, controlled, publish.BASE_MANAGED_FILES)
+    assert _read_public_docs(project) == before
+
+
+def test_state_write_failure_restores_every_public_byte(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure")
+        return real_write(path, *args, **kwargs)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
+
+
+def test_failed_restore_keeps_the_only_previous_tree_as_a_backup(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_replace = publish.os.replace
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure")
+        return real_write(path, *args, **kwargs)
+
+    def fail_backup_restore(source, target):
+        if "backup" in Path(source).name and Path(target).name == "security":
+            raise OSError("injected restore failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+    monkeypatch.setattr(publish.os, "replace", fail_backup_restore)
+
+    with pytest.raises(OSError, match="injected restore failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    backups = list((project / "docs").glob(".security-publish-backup-*"))
+    assert len(backups) == 1
+    assert {
+        str(path.relative_to(backups[0])): path.read_bytes()
+        for path in sorted(backups[0].rglob("*"))
+        if path.is_file()
+    } == before
+
+
+def test_backup_cleanup_failure_does_not_report_a_failed_committed_publication(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_remove = publish._remove_tree
+
+    def fail_backup_cleanup(path, project_root):
+        if "backup" in Path(path).name:
+            raise OSError("injected cleanup failure")
+        return real_remove(path, project_root)
+
+    monkeypatch.setattr(publish, "_remove_tree", fail_backup_cleanup)
+
+    publish.stage_and_publish(
+        project,
+        generated,
+        ("requirements.md", "traceability.md", "responsibility.md"),
+    )
+
+    public = project / "docs" / "security"
+    assert (public / "requirements.md").read_text(encoding="utf-8").startswith("new")
+
+
+def test_symlink_inserted_after_copy_is_rejected_before_activation(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    outside = tmp_path / "outside-secret"
+    outside.write_text("do not copy\n", encoding="utf-8")
+    real_copytree = publish._copy_tree_no_follow
+
+    def inject_symlink(source, destination, **kwargs):
+        result = real_copytree(source, destination, **kwargs)
+        (Path(destination) / "late-link").symlink_to(outside)
+        return result
+
+    monkeypatch.setattr(publish, "_copy_tree_no_follow", inject_symlink)
+
+    with pytest.raises((publish.PublicationError, publish.UnsafePathError), match="symlink"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
     assert _read_public_docs(project) == before
 
 
