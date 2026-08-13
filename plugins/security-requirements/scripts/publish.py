@@ -398,6 +398,7 @@ def _public_tree_state(
 def _move_previous_tree_to_backup(
     public_root: Path,
     backup: Path,
+    old_recovery: Path,
     project_root: Path,
     old_manifest: tuple[tuple[str, str, str], ...],
 ) -> None:
@@ -421,6 +422,22 @@ def _move_previous_tree_to_backup(
         # safe to continue to candidate activation.
         if _tree_matches(backup, old_manifest, project_root):
             return
+        # The rename committed but the destination no longer matches the old
+        # bytes. Restore the canonical path from the separately verified old
+        # recovery snapshot before reporting failure.
+        if _tree_matches(old_recovery, old_manifest, project_root):
+            try:
+                if public_root.exists():
+                    _remove_tree(public_root, project_root)
+                _copy_tree_no_follow(old_recovery, public_root)
+            except BaseException:
+                if not public_root.exists():
+                    try:
+                        os.replace(old_recovery, public_root)
+                    except BaseException:
+                        pass
+            if _tree_matches(public_root, old_manifest, project_root):
+                raise move_error
         raise PublicationError(
             "cannot determine the state of the previous public-tree move"
         ) from move_error
@@ -497,9 +514,49 @@ def _restore_public_root(
                             raise PublicationError(
                                 "recovery copy does not match the committed tree"
                             )
+                    except BaseException:
+                        # Copying did not mutate the canonical tree. Only an
+                        # exact reinspection may select commit-forward success.
+                        if _public_tree_state(
+                            public_root,
+                            project_root,
+                            old_manifest,
+                            new_manifest,
+                        ) == "new":
+                            return "new"
+                        raise
+                    try:
                         _remove_tree(public_root, project_root)
                     except BaseException:
-                        return "new"
+                        after_remove = _public_tree_state(
+                            public_root,
+                            project_root,
+                            old_manifest,
+                            new_manifest,
+                        )
+                        if after_remove == "new":
+                            return "new"
+                        if after_remove == "old":
+                            return "old"
+                        # A failed recursive removal may have partially changed
+                        # the tree. Retry only after proving it is neither
+                        # complete expected tree; then restore the old backup.
+                        try:
+                            _remove_tree(public_root, project_root)
+                        except BaseException as retry_error:
+                            after_retry = _public_tree_state(
+                                public_root,
+                                project_root,
+                                old_manifest,
+                                new_manifest,
+                            )
+                            if after_retry == "new":
+                                return "new"
+                            if after_retry == "old":
+                                return "old"
+                            raise PublicationError(
+                                "cannot clear a partially removed public tree"
+                            ) from retry_error
                 else:
                     try:
                         _remove_tree(public_root, project_root)
@@ -630,6 +687,9 @@ def stage_and_publish(
     state_root, state_path = _publication_state_target(project)
     _walk_is_safe(public_root, project)
     previous_managed = _load_state(state_path, state_root)
+    previous_state_bytes = (
+        state_path.read_bytes() if state_path.exists() else None
+    )
     had_public_root = public_root.exists()
     old_manifest = (
         _tree_manifest_no_follow(public_root) if had_public_root else None
@@ -644,6 +704,7 @@ def stage_and_publish(
 
     candidate = _temporary_directory(project, ".security-publish-candidate-")
     backup: Path | None = None
+    old_recovery: Path | None = None
     activated = False
     try:
         if had_public_root:
@@ -702,6 +763,16 @@ def stage_and_publish(
         backup = _unused_directory_path(
             public_root.parent, project, ".security-publish-backup-"
         )
+        if had_public_root:
+            assert old_manifest is not None
+            old_recovery = _unused_directory_path(
+                public_root.parent, project, ".security-publish-previous-"
+            )
+            _copy_tree_no_follow(public_root, old_recovery)
+            if not _tree_matches(old_recovery, old_manifest, project):
+                raise PublicationError(
+                    "previous public-tree recovery copy is incomplete"
+                )
 
         # Revalidate both complete trees after all staging work and immediately
         # before the directory transaction. This closes the deterministic seam
@@ -715,8 +786,22 @@ def stage_and_publish(
         safe_path(public_root, project_root=project)
         if had_public_root:
             assert old_manifest is not None
+            assert old_recovery is not None
             _move_previous_tree_to_backup(
-                public_root, backup, project, old_manifest
+                public_root, backup, old_recovery, project, old_manifest
+            )
+        if not _tree_matches(candidate, new_manifest, project):
+            state = _restore_public_root(
+                public_root,
+                backup,
+                project,
+                old_manifest,
+                new_manifest,
+            )
+            if state == "old":
+                raise PublicationError("candidate tree changed before activation")
+            raise PublicationError(
+                "candidate changed and recovery did not restore the old tree"
             )
         try:
             safe_path(candidate, project_root=project)
@@ -747,6 +832,23 @@ def stage_and_publish(
                     "activation recovery did not produce a verified public tree"
                 ) from activation_error
 
+        if not _tree_matches(public_root, new_manifest, project):
+            activated = False
+            state = _restore_public_root(
+                public_root,
+                backup,
+                project,
+                old_manifest,
+                new_manifest,
+            )
+            if state == "old":
+                raise PublicationError(
+                    "activated public tree does not match the candidate"
+                )
+            raise PublicationError(
+                "activated tree changed and recovery did not restore the old tree"
+            )
+
         try:
             safe_path(state_path, project_root=state_root)
             safe_write_text(
@@ -775,11 +877,43 @@ def stage_and_publish(
             raise PublicationError(
                 "state-write recovery did not produce a verified public tree"
             ) from state_error
+
+        # State persistence is not the cleanup boundary. Recheck the complete
+        # canonical tree immediately before the sole old backup can be removed.
+        if not _tree_matches(public_root, new_manifest, project):
+            activated = False
+            state = _restore_public_root(
+                public_root,
+                backup,
+                project,
+                old_manifest,
+                new_manifest,
+            )
+            if state != "old":
+                raise PublicationError(
+                    "public tree changed before backup cleanup and old bytes "
+                    "could not be restored"
+                )
+            safe_path(state_path, project_root=state_root)
+            if previous_state_bytes is None:
+                state_path.unlink(missing_ok=True)
+            else:
+                safe_write_text(
+                    state_path,
+                    previous_state_bytes.decode("utf-8"),
+                    encoding="utf-8",
+                    project_root=state_root,
+                    create_parents=True,
+                )
+            raise PublicationError(
+                "public tree changed before backup cleanup"
+            )
     finally:
-        if candidate.exists():
-            _best_effort_remove_tree(candidate, project)
-        if activated and backup is not None and backup.exists():
+        _best_effort_remove_tree(candidate, project)
+        if activated and backup is not None:
             _best_effort_remove_tree(backup, project)
+        if activated and old_recovery is not None:
+            _best_effort_remove_tree(old_recovery, project)
 
 
 def argument_parser() -> argparse.ArgumentParser:

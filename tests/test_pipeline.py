@@ -3141,6 +3141,95 @@ def test_committed_activation_exception_continues_only_for_exact_new_tree(
     assert publish._load_state(state_path, state_root)
 
 
+def test_candidate_mutation_immediately_before_activation_restores_old_tree(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_replace = publish.os.replace
+
+    def mutate_candidate_after_backup(source, target):
+        result = real_replace(source, target)
+        if Path(source) == project / "docs" / "security" and "backup" in Path(target).name:
+            candidates = list(project.glob(".security-publish-candidate-*"))
+            assert len(candidates) == 1
+            (candidates[0] / "responsibility.md").unlink()
+        return result
+
+    monkeypatch.setattr(publish.os, "replace", mutate_candidate_after_backup)
+
+    with pytest.raises(publish.PublicationError, match="candidate tree changed"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
+
+
+def test_candidate_mutation_during_activation_restores_old_tree(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_replace = publish.os.replace
+
+    def mutate_after_activation(source, target):
+        result = real_replace(source, target)
+        if "candidate" in Path(source).name and Path(target).name == "security":
+            (Path(target) / "responsibility.md").unlink()
+        return result
+
+    monkeypatch.setattr(publish.os, "replace", mutate_after_activation)
+
+    with pytest.raises(publish.PublicationError, match="activated public tree"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
+
+
+def test_candidate_mutation_after_state_write_is_checked_before_backup_cleanup(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    mutation_injected = False
+
+    def mutate_public_after_state_write(path, *args, **kwargs):
+        nonlocal mutation_injected
+        result = real_write(path, *args, **kwargs)
+        if "publication" in Path(path).parts and not mutation_injected:
+            mutation_injected = True
+            (project / "docs" / "security" / "responsibility.md").unlink()
+        return result
+
+    monkeypatch.setattr(publish, "safe_write_text", mutate_public_after_state_write)
+
+    with pytest.raises(publish.PublicationError, match="before backup cleanup"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert mutation_injected
+    assert _read_public_docs(project) == before
+    state_root, state_path = publish._publication_state_target(project)
+    assert not state_path.exists()
+
+
 def test_incomplete_committed_tree_is_restored_before_activation_error_is_raised(
     tmp_path, monkeypatch
 ):
@@ -3180,6 +3269,51 @@ def test_incomplete_committed_tree_is_restored_before_activation_error_is_raised
     assert _read_public_docs(project) == before
 
 
+def test_partial_remove_during_rollback_reinspects_and_restores_old_tree(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_replace = publish.os.replace
+    real_remove = publish._remove_tree
+    partial_remove_injected = False
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure")
+        return real_write(path, *args, **kwargs)
+
+    def fail_displaced_move(source, target):
+        if Path(source) == project / "docs" / "security" and "failed" in Path(target).name:
+            raise OSError("injected displaced move failure")
+        return real_replace(source, target)
+
+    def partially_remove_public(path, project_root):
+        nonlocal partial_remove_injected
+        if Path(path) == project / "docs" / "security" and not partial_remove_injected:
+            partial_remove_injected = True
+            (Path(path) / "responsibility.md").unlink()
+            raise OSError("injected partial remove failure")
+        return real_remove(path, project_root)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+    monkeypatch.setattr(publish.os, "replace", fail_displaced_move)
+    monkeypatch.setattr(publish, "_remove_tree", partially_remove_public)
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert partial_remove_injected
+    assert _read_public_docs(project) == before
+
+
 def test_committed_displaced_rename_exception_restores_before_state_error(
     tmp_path, monkeypatch
 ):
@@ -3214,6 +3348,38 @@ def test_committed_displaced_rename_exception_restores_before_state_error(
     monkeypatch.setattr(publish, "_tree_manifest_no_follow", fail_displaced_inspection)
 
     with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
+
+
+def test_altered_backup_after_committed_initial_rename_restores_old_canonical(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_replace = publish.os.replace
+
+    def commit_and_alter_backup(source, target):
+        source_path = Path(source)
+        target_path = Path(target)
+        if source_path == project / "docs" / "security" and "backup" in target_path.name:
+            real_replace(source, target)
+            (target_path / "requirements.md").write_text(
+                "altered backup\n", encoding="utf-8"
+            )
+            raise OSError("injected altered backup failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(publish.os, "replace", commit_and_alter_backup)
+
+    with pytest.raises((OSError, publish.PublicationError)):
         publish.stage_and_publish(
             project,
             generated,
@@ -3361,6 +3527,46 @@ def test_backup_cleanup_failure_does_not_report_a_failed_committed_publication(
     public = project / "docs" / "security"
     assert (public / "requirements.md").read_text(encoding="utf-8").startswith("new")
     assert len(list((project / "docs").glob(".security-publish-backup-*"))) == 1
+
+
+@pytest.mark.parametrize("cleanup_target", ["candidate", "backup"])
+def test_post_commit_exists_interrupt_is_inside_best_effort_cleanup(
+    tmp_path, monkeypatch, cleanup_target
+):
+    class CleanupInterrupt(BaseException):
+        pass
+
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_exists = Path.exists
+    committed = False
+
+    def record_state_commit(path, *args, **kwargs):
+        nonlocal committed
+        result = real_write(path, *args, **kwargs)
+        if "publication" in Path(path).parts:
+            committed = True
+        return result
+
+    def interrupt_cleanup_exists(path):
+        if committed and cleanup_target in Path(path).name:
+            raise CleanupInterrupt("injected post-commit exists interrupt")
+        return real_exists(path)
+
+    monkeypatch.setattr(publish, "safe_write_text", record_state_commit)
+    monkeypatch.setattr(Path, "exists", interrupt_cleanup_exists)
+
+    publish.stage_and_publish(
+        project,
+        generated,
+        ("requirements.md", "traceability.md", "responsibility.md"),
+    )
+
+    public = project / "docs" / "security"
+    assert (public / "requirements.md").read_text(encoding="utf-8").startswith("new")
 
 
 @pytest.mark.parametrize("existing_public", [False, True])
