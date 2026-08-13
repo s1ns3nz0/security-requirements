@@ -101,7 +101,7 @@ GATE_SCRIPTS = [
     "lint.py", "select_baseline.py", "apply_overlay.py",
     "merge.py", "classify_resp.py", "render.py",
     "confirmation.py", "semantic_review.py", "runtime_paths.py",
-    "profile_locale.py", "safe_paths.py",
+    "profile_locale.py", "safe_paths.py", "risk.py", "publish.py",
 ]
 
 # One operator for its opposite. Arithmetic and constant mutations are left out:

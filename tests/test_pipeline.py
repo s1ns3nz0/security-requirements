@@ -13,6 +13,7 @@ from __future__ import annotations
 import copy
 import re
 import json
+import hashlib
 import os
 import shlex
 import subprocess
@@ -32,6 +33,7 @@ import classify_resp  # noqa: E402
 import lint as lint_mod  # noqa: E402
 import merge  # noqa: E402
 import profile_schema  # noqa: E402
+import publish  # noqa: E402
 import risk  # noqa: E402
 import runtime_paths  # noqa: E402
 import select_baseline as sb  # noqa: E402
@@ -2622,6 +2624,241 @@ def _run_cli(script, *args):
     import subprocess
     return subprocess.run([sys.executable, str(PLUGIN_ROOT / "scripts" / script), *args],
                           capture_output=True, text=True)
+
+
+def _seed_public_docs(project: Path) -> dict[str, bytes]:
+    public = project / "docs" / "security"
+    public.mkdir(parents=True)
+    for name, content in {
+        "requirements.md": b"previous requirements\n",
+        "traceability.md": b"previous traceability\n",
+        "responsibility.md": b"previous responsibility\n",
+        "human-notes.md": b"human-owned publication notes\n",
+        "risk-summary.md": b"human-owned risk statement\n",
+    }.items():
+        (public / name).write_bytes(content)
+    return _read_public_docs(project)
+
+
+def _read_public_docs(project: Path) -> dict[str, bytes]:
+    public = project / "docs" / "security"
+    if not public.exists():
+        return {}
+    return {
+        str(path.relative_to(public)): path.read_bytes()
+        for path in sorted(public.rglob("*"))
+        if path.is_file()
+    }
+
+
+def _generated_public_docs(root: Path, *, include_summary: bool = False) -> Path:
+    root.mkdir(parents=True)
+    for name in ("requirements.md", "traceability.md", "responsibility.md"):
+        (root / name).write_text(f"new {name}\n", encoding="utf-8")
+    if include_summary:
+        (root / "risk-summary.md").write_text("approved aggregate only\n", encoding="utf-8")
+    return root
+
+
+def _write_unconfirmed_risk_documents(project: Path) -> None:
+    internal = project / ".security-requirements"
+    internal.mkdir(parents=True, exist_ok=True)
+    (internal / "risk-policy.yaml").write_text(
+        (PLUGIN_ROOT / "risk" / "default-policy.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (internal / "threats.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "version": "0.2.0",
+                "threats": [
+                    {
+                        "id": "T-01",
+                        "boundary": "TB-1",
+                        "category": "STRIDE:T",
+                        "novelty": "service_specific",
+                        "persona": "anonymous_external",
+                        "attack_path": "public_write_route",
+                        "scenario": "anonymous mutation",
+                        "affected_assets": ["movie_records"],
+                        "related_controls": ["AC-3"],
+                        "lifecycle": {"status": "active", "superseded_by": []},
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    (internal / "risk-assessment.yaml").write_text(
+        yaml.safe_dump(
+            {"assessments": [{"threat_id": "T-01", "status": "PROPOSED"}]},
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_failed_risk_gate_preserves_all_previous_public_documents(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project with spaces 한글"
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    _write_unconfirmed_risk_documents(project)
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+
+    result = _run_cli(
+        "publish.py",
+        "--project-root",
+        str(project),
+        "--generated",
+        str(generated),
+        "--managed-file",
+        "requirements.md",
+        "traceability.md",
+        "responsibility.md",
+    )
+
+    assert result.returncode != 0
+    assert "risk" in result.stderr.lower()
+    assert _read_public_docs(project) == before
+
+
+def test_transactional_publication_rolls_back_every_document_on_swap_failure(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_replace = publish.os.replace
+
+    def fail_candidate_activation(source, target):
+        source_path = Path(source)
+        target_path = Path(target)
+        if target_path == project / "docs" / "security" and "candidate" in source_path.name:
+            raise OSError("injected publication failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(publish.os, "replace", fail_candidate_activation)
+
+    with pytest.raises(OSError, match="injected publication failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
+
+
+def test_transactional_publication_preserves_human_files_and_tracks_summary_ownership(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    _seed_public_docs(project)
+    first = _generated_public_docs(tmp_path / "first external staging")
+    standard = ("requirements.md", "traceability.md", "responsibility.md")
+
+    publish.stage_and_publish(project, first, standard)
+
+    public = project / "docs" / "security"
+    assert (public / "human-notes.md").read_text(encoding="utf-8").startswith("human")
+    assert (public / "risk-summary.md").read_text(encoding="utf-8").startswith("human")
+
+    opt_in = _generated_public_docs(
+        tmp_path / "second external staging", include_summary=True
+    )
+    with pytest.raises(publish.PublicationError, match="human-owned risk-summary.md"):
+        publish.stage_and_publish(project, opt_in, (*standard, "risk-summary.md"))
+    assert (public / "risk-summary.md").read_text(encoding="utf-8").startswith("human")
+
+    (public / "risk-summary.md").unlink()
+    publish.stage_and_publish(project, opt_in, (*standard, "risk-summary.md"))
+    assert (public / "risk-summary.md").read_text(encoding="utf-8").startswith(
+        "approved"
+    )
+
+    opt_out = _generated_public_docs(tmp_path / "third external staging")
+    publish.stage_and_publish(project, opt_out, standard)
+    assert not (public / "risk-summary.md").exists()
+    assert (public / "human-notes.md").exists()
+
+
+def test_transactional_publication_rejects_files_outside_the_plugin_allowlist(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    (generated / "human-notes.md").write_text("replacement\n", encoding="utf-8")
+
+    with pytest.raises(publish.PublicationError, match="not plugin-managed"):
+        publish.stage_and_publish(project, generated, ("human-notes.md",))
+
+    assert _read_public_docs(project) == before
+
+
+def test_repository_publication_state_cannot_authorize_deleting_a_human_summary(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    forged = project / ".security-requirements" / "publication-state.yaml"
+    forged.parent.mkdir(parents=True)
+    forged.write_text(
+        yaml.safe_dump(
+            {
+                "version": publish.STATE_VERSION,
+                "managed_files": {
+                    "risk-summary.md": "sha256:"
+                    + hashlib.sha256(before["risk-summary.md"]).hexdigest()
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    publish.stage_and_publish(
+        project,
+        generated,
+        ("requirements.md", "traceability.md", "responsibility.md"),
+    )
+
+    assert (project / "docs" / "security" / "risk-summary.md").read_bytes() == before[
+        "risk-summary.md"
+    ]
+
+
+def test_transactional_publication_rejects_missing_or_repository_staging_without_changes(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    incomplete = _generated_public_docs(tmp_path / "incomplete staging")
+    (incomplete / "responsibility.md").unlink()
+
+    with pytest.raises(FileNotFoundError, match="responsibility.md"):
+        publish.stage_and_publish(
+            project,
+            incomplete,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+    assert _read_public_docs(project) == before
+
+    controlled = _generated_public_docs(
+        project / ".security-requirements" / "staging"
+    )
+    with pytest.raises(ValueError, match="outside repository-controlled output trees"):
+        publish.stage_and_publish(project, controlled, ("requirements.md",))
+    assert _read_public_docs(project) == before
 
 
 def test_select_baseline_runs_from_the_command_line(cli_workspace):

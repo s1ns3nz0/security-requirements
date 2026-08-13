@@ -61,6 +61,7 @@ def test_packaged_cli_starts_in_isolated_mode_from_a_hostile_project(tmp_path):
         "merge.py",
         "lint.py",
         "render.py",
+        "publish.py",
         "semantic_review.py",
     ):
         result = subprocess.run(
@@ -320,6 +321,87 @@ def test_refresh_rebuilds_and_republishes_the_complete_pipeline():
     assert refresh.index('/scripts/apply_overlay.py"') < refresh.index(
         '/scripts/render.py"'
     )
+
+
+def test_build_and_refresh_gate_publication_on_confirmed_inherent_risk():
+    exact_check = (
+        f'python3 -I "{PLUGIN_ROOT_LITERAL}/scripts/risk.py" check \\\n'
+        '    --project-root "$PWD" \\\n'
+        '    --policy .security-requirements/risk-policy.yaml \\\n'
+        '    --threats .security-requirements/threats.yaml \\\n'
+        '    --assessment .security-requirements/risk-assessment.yaml'
+    )
+    for workflow, threat_marker in (
+        ("build", "Write `.security-requirements/threats.yaml`"),
+        ("refresh", "Update the threat model incrementally"),
+    ):
+        text = (ROOT / "commands" / f"sec-req-{workflow}.md").read_text(
+            encoding="utf-8"
+        )
+        confirm = f'python3 -I "{PLUGIN_ROOT_LITERAL}/scripts/risk.py" confirm'
+        first_official_output = min(
+            text.index(f'/scripts/classify_resp.py"'),
+            text.index(f'/scripts/merge.py" --cross'),
+        )
+        assert exact_check in text
+        assert text.index(threat_marker) < text.index(confirm)
+        assert text.index(confirm) < text.index(exact_check) < first_official_output
+        review = text[text.index(threat_marker) : text.index(confirm)]
+        assert "batch review table" in review
+        assert "explicit confirmation" in review
+        assert "conversation" in review
+        assert "Residual `UNDETERMINED`" in text
+        assert "does not block" in text
+
+
+def test_build_and_refresh_publish_only_from_an_external_staging_directory():
+    for workflow in ("build", "refresh"):
+        text = (ROOT / "commands" / f"sec-req-{workflow}.md").read_text(
+            encoding="utf-8"
+        )
+        risk_check = text.index('/scripts/risk.py" check')
+        render = text.index('/scripts/render.py"')
+        publisher = text.index('/scripts/publish.py"')
+        assert risk_check < render < publisher
+        render_block = text[render : text.index("```", render)]
+        assert (
+            '--out "<exact absolute staging directory returned by mktemp>"'
+            in render_block
+        )
+        assert "--out docs/security" not in render_block
+        assert "mktemp -d" in text
+        assert "outside repository-controlled output trees" in text
+
+
+def test_risk_output_write_boundaries_are_explicitly_preflighted():
+    required = (
+        ".security-requirements/risk-policy.yaml",
+        ".security-requirements/risk-assessment.yaml",
+        ".security-requirements/risk-evidence.yaml",
+        ".security-requirements/risk-state.yaml",
+        ".security-requirements/reports/risk-register.md",
+        "docs/security/risk-summary.md",
+    )
+    for workflow in ("build", "refresh"):
+        text = (ROOT / "commands" / f"sec-req-{workflow}.md").read_text(
+            encoding="utf-8"
+        )
+        fences = re.findall(
+            r"^```([^\n]*)\n(.*?)^```$", text, flags=re.DOTALL | re.MULTILINE
+        )
+        for target in required:
+            matching_blocks = [
+                block
+                for _language, block in fences
+                if '/scripts/safe_paths.py"' in block
+                and "--check-output" in block
+                and target in block
+            ]
+            assert matching_blocks, f"{workflow}: {target}"
+        assert (
+            '--project-root "<exact absolute staging directory returned by mktemp>" \\\n'
+            '    --check-output "<exact absolute staging directory returned by mktemp>"'
+        ) in text
 
 
 def test_build_lints_requirement_threat_references():

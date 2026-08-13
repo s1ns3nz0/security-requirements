@@ -82,7 +82,101 @@ python3 -I "<exact absolute plugin root>/scripts/safe_paths.py" \
 
 Write `.security-requirements/threats.yaml`.
 
-## 2. Responsibility split
+## 2. Confirm inherent risk before deriving publishable output
+
+Use the bundled default policy unless the user has reviewed an organisation
+override. Immediately before writing the policy copy, preflight only that
+target, then write `.security-requirements/risk-policy.yaml`:
+
+```
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/safe_paths.py" \
+    --project-root "$PWD" --check-output .security-requirements/risk-policy.yaml
+```
+
+Propose likelihood criteria, consequences, impact criteria, rationale, owner,
+and a non-acceptance treatment for every active threat. Do not write numeric
+scores or ratings as authoritative model output. Immediately before writing
+the proposal document, preflight it:
+
+```
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/safe_paths.py" \
+    --project-root "$PWD" --check-output .security-requirements/risk-assessment.yaml
+```
+
+Write `.security-requirements/risk-assessment.yaml`, then display a batch review table
+containing every active threat, proposed likelihood, impact, calculated
+score/rating preview, treatment, and unresolved field. Stop for explicit confirmation.
+If the user adjusts anything, preflight and rewrite the canonical
+assessment, redisplay the table, and ask again. Never treat conversation memory
+as persisted approval.
+
+After the user explicitly confirms the policy and the one canonical assessment
+digest, persist both confirmations and enforce the hard gate in fresh calls:
+
+```
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/risk.py" policy-confirm \
+    --project-root "$PWD" \
+    --policy .security-requirements/risk-policy.yaml \
+    --by user --authority self_declared
+```
+
+```
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/risk.py" confirm \
+    --project-root "$PWD" \
+    --policy .security-requirements/risk-policy.yaml \
+    --threats .security-requirements/threats.yaml \
+    --assessment .security-requirements/risk-assessment.yaml \
+    --by user --authority self_declared
+```
+
+```
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/risk.py" check \
+    --project-root "$PWD" \
+    --policy .security-requirements/risk-policy.yaml \
+    --threats .security-requirements/threats.yaml \
+    --assessment .security-requirements/risk-assessment.yaml
+```
+
+Any `PROPOSED`, `STALE`, or `UNDETERMINED` inherent assessment is a blocker.
+Residual `UNDETERMINED` must be displayed but does not block initial
+publication.
+
+Before a later risk activity writes evidence, immutable state, or the internal
+register, run the matching preflight immediately before that individual write:
+
+```
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/safe_paths.py" \
+    --project-root "$PWD" --check-output .security-requirements/risk-evidence.yaml
+```
+
+```
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/safe_paths.py" \
+    --project-root "$PWD" --check-output .security-requirements/risk-state.yaml
+```
+
+```
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/safe_paths.py" \
+    --project-root "$PWD" \
+    --check-output .security-requirements/reports/risk-register.md
+```
+
+## 3. Responsibility split
 
 ```
 SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
@@ -110,7 +204,7 @@ Use Write with the exact literal path returned by the trusted runtime helper:
 `reviewed: false`. Plugin data persists across plugin upgrades; the installed
 plugin directory does not. It is shown as unverified wherever it appears.
 
-## 3. Regulatory overlay, where one applies
+## 4. Regulatory overlay, where one applies
 
 ```
 SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
@@ -129,7 +223,7 @@ a requirement written from the clause rather than from a control.
 The mapping is this repository's reading, not a published crosswalk. Say so
 when you carry it into the document.
 
-## 4. Cross and prioritise
+## 5. Cross and prioritise
 
 ```
 SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
@@ -138,6 +232,7 @@ python3 -I "<exact absolute plugin root>/scripts/merge.py" --cross \
     --controls .security-requirements/controls.json \
     --responsibility .security-requirements/responsibility.json \
     --threats .security-requirements/threats.yaml \
+    --assessment .security-requirements/risk-assessment.yaml \
     --out .security-requirements/cross.json
 ```
 
@@ -145,7 +240,7 @@ The `threat only` bucket is the point of the exercise. If it is empty, the
 threat model was generic — go back to step 1 rather than shipping a filtered
 baseline.
 
-## 5. Write the requirements
+## 6. Write the requirements
 
 Follow
 `<exact absolute plugin root>/skills/deriving-security-requirements/references/requirement-style.md`.
@@ -171,7 +266,7 @@ carry 800-53 and ASVS identifiers as evidence.
 Generate the `forces_requirements` entries from the declared data types even
 where no threat matched them.
 
-## 6. Merge and render
+## 7. Merge
 
 ```
 SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
@@ -179,10 +274,12 @@ SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.
 python3 -I "<exact absolute plugin root>/scripts/merge.py" --apply \
     --draft .security-requirements/draft.json \
     --existing .security-requirements/requirements.yaml \
-    --state .security-requirements/state.yaml
+    --state .security-requirements/state.yaml \
+    --threats .security-requirements/threats.yaml \
+    --assessment .security-requirements/risk-assessment.yaml
 ```
 
-## 7. Lint, then publish
+## 8. Lint before staging
 
 Lint first. `docs/security/` is the publishable output, and rendering before
 checking means a requirement naming a production bucket is already in the file
@@ -217,19 +314,13 @@ SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.
 python3 -I "<exact absolute plugin root>/scripts/lint.py" --locale "$locale" \
     .security-requirements/requirements.yaml \
     --threats .security-requirements/threats.yaml
-
-SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
-SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
-python3 -I "<exact absolute plugin root>/scripts/render.py" \
-    .security-requirements/requirements.yaml \
-    --out docs/security/
 ```
 
 A failure here is a blocker, not a warning. In particular, a cited control
 identifier that is absent from the catalog means the requirement was invented,
 and one invented identifier discredits the whole document.
 
-## 7b. Re-run each overlay against what was written
+## 8b. Re-run each overlay against what was written
 
 Step 3 ran the overlays before any requirement existed, so it could only say
 which controls the tailoring selected. Now that `requirements.yaml` is written,
@@ -292,7 +383,62 @@ deferral is a decision the derivation already made.
 Without `--cross` there is no prioritisation to consult, so nothing can be
 called deferred and every clause without a candidate is reported as a gap. Pass it.
 
-## 8. Report
+## 8c. Stage, validate, and publish one transaction
+
+Run `mktemp -d` in its own shell call to create a fresh temporary directory
+outside repository-controlled output trees. Capture its exact absolute stdout
+as `<exact absolute staging directory returned by mktemp>`. Do not rely on a
+shell variable in later calls. Preflight that exact staging location immediately
+before rendering into it. Rendered files are still prospective output; do not
+copy any of them to `docs/security/` directly.
+
+```
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/safe_paths.py" \
+    --project-root "<exact absolute staging directory returned by mktemp>" \
+    --check-output "<exact absolute staging directory returned by mktemp>"
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/render.py" \
+    .security-requirements/requirements.yaml \
+    --out "<exact absolute staging directory returned by mktemp>"
+```
+
+When the approved policy has `publish_risk_summary: true`, place only the
+deterministically rendered aggregate summary in the captured staging directory and
+include `risk-summary.md` in the managed-file list. Immediately before that
+opt-in publication, preflight its exact final target; the publisher validates
+it again at replacement time:
+
+```
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/safe_paths.py" \
+    --project-root "$PWD" --check-output docs/security/risk-summary.md
+```
+
+Finally call the transactional publisher. The list is the complete desired
+plugin-managed set. It rechecks the risk gate, validates all final targets
+immediately before its directory swap, preserves unrelated human-owned files,
+and removes an omitted summary only when its digest-bound, plugin-owned external
+managed-state record proves the plugin owned those exact bytes. A repository
+copy of that record has no authority.
+
+```
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/publish.py" \
+    --project-root "$PWD" \
+    --generated "<exact absolute staging directory returned by mktemp>" \
+    --managed-file requirements.md traceability.md responsibility.md
+```
+
+Append `risk-summary.md` to that same `--managed-file` invocation only for the
+approved opt-in case. A risk, lint, overlay, render, staging, or publication
+failure leaves the previous `docs/security/` bytes unchanged.
+
+## 9. Report
 
 State plainly:
 
