@@ -971,10 +971,90 @@ def _direct_gate_comparisons(
         and type_guard.operand.args
         and isinstance(type_guard.operand.args[0], ast.Name)
         and type_guard.operand.args[0].id == "threats"
+        and len(type_guard.operand.args) == 2
+        and isinstance(type_guard.operand.args[1], ast.Name)
+        and type_guard.operand.args[1].id == "Mapping"
         and isinstance(version_guard, ast.Compare)
     ):
         return []
     return [version_guard]
+
+
+def _executable_body(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.stmt]:
+    body = function.body
+    if (
+        body
+        and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and isinstance(body[0].value.value, str)
+    ):
+        return body[1:]
+    return body
+
+
+def _exact_setup_call(
+    statement: ast.stmt, targets: tuple[str, ...], function: str
+) -> bool:
+    if not (
+        isinstance(statement, ast.Assign)
+        and len(statement.targets) == 1
+        and isinstance(statement.value, ast.Call)
+        and isinstance(statement.value.func, ast.Name)
+        and statement.value.func.id == function
+    ):
+        return False
+    assigned = statement.targets[0]
+    if len(targets) == 1:
+        return isinstance(assigned, ast.Name) and assigned.id == targets[0]
+    return (
+        isinstance(assigned, ast.Tuple)
+        and len(assigned.elts) == len(targets)
+        and all(isinstance(item, ast.Name) for item in assigned.elts)
+        and tuple(item.id for item in assigned.elts) == targets
+    )
+
+
+def _canonical_gate_statement(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> ast.If | None:
+    body = _executable_body(function)
+    if function.name == "migrate":
+        return body[0] if body and isinstance(body[0], ast.If) else None
+    if function.name == "_validate_threats":
+        if not (
+            len(body) >= 3
+            and isinstance(body[0], ast.AnnAssign)
+            and isinstance(body[0].target, ast.Name)
+            and body[0].target.id == "problems"
+            and isinstance(body[1], ast.If)
+            and isinstance(body[1].test, ast.UnaryOp)
+            and isinstance(body[1].test.op, ast.Not)
+            and isinstance(body[1].test.operand, ast.Call)
+            and isinstance(body[1].test.operand.func, ast.Name)
+            and body[1].test.operand.func.id == "isinstance"
+            and len(body[1].test.operand.args) == 2
+            and isinstance(body[1].test.operand.args[0], ast.Name)
+            and body[1].test.operand.args[0].id == "threats_doc"
+            and isinstance(body[1].test.operand.args[1], ast.Name)
+            and body[1].test.operand.args[1].id == "Mapping"
+            and len(body[1].body) == 1
+            and isinstance(body[1].body[0], ast.Return)
+            and isinstance(body[2], ast.If)
+        ):
+            return None
+        return body[2]
+    if function.name == "_load_risk_state":
+        if not (
+            len(body) >= 3
+            and _exact_setup_call(
+                body[0], ("project_root", "state_path"), "_project_document_path"
+            )
+            and _exact_setup_call(body[1], ("state",), "_load_optional_mapping")
+            and isinstance(body[2], ast.If)
+        ):
+            return None
+        return body[2]
+    return None
 
 
 def _function_uses_version_gate(
@@ -995,20 +1075,16 @@ def _function_uses_version_gate(
     )
     if function is None:
         return False
-    for statement in function.body:
-        if isinstance(statement, (ast.Return, ast.Raise)):
-            break
-        if not isinstance(statement, ast.If) or not _gate_rejects(statement.body):
-            continue
-        comparisons = _direct_gate_comparisons(function_name, statement.test)
-        if any(
-            _matches_version_comparison(
-                comparison, receiver, operator, version_constant
-            )
-            for comparison in comparisons
-        ):
-            return True
-    return False
+    statement = _canonical_gate_statement(function)
+    if statement is None or not _gate_rejects(statement.body):
+        return False
+    comparisons = _direct_gate_comparisons(function_name, statement.test)
+    return any(
+        _matches_version_comparison(
+            comparison, receiver, operator, version_constant
+        )
+        for comparison in comparisons
+    )
 
 
 def _risk_engine_schema_contract(syntax: ast.AST, errors: list[str]) -> None:

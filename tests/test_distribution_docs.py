@@ -1,3 +1,4 @@
+import ast
 import importlib.util
 import json
 import shutil
@@ -2102,6 +2103,69 @@ def test_distribution_validator_rejects_short_circuited_engine_schema_gates(
     mutated = source.replace(live_gate, decoy, 1)
     assert mutated != source
     engine.write_text(mutated, encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any(
+        "risk engine schema contract mismatch" in error and function_name in error
+        for error in errors
+    ), errors
+
+
+def test_distribution_validator_requires_mapping_in_the_migration_guard(tmp_path):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    engine = clone / "plugins" / PLUGIN_NAME / "scripts" / "risk.py"
+    source = _read(engine)
+    mutated = source.replace(
+        "        not isinstance(threats, Mapping)",
+        "        not isinstance(threats, str)",
+        1,
+    )
+    assert mutated != source
+    engine.write_text(mutated, encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any(
+        "risk engine schema contract mismatch" in error and "migrate" in error
+        for error in errors
+    ), errors
+
+
+@pytest.mark.parametrize(
+    ("function_name", "termination"),
+    (
+        ("_validate_threats", "return [], []"),
+        ("migrate", "raise RuntimeError('unreachable schema guard')"),
+        ("_load_risk_state", "raise RuntimeError('unreachable schema guard')"),
+    ),
+)
+def test_distribution_validator_requires_the_canonical_schema_gate_prefix(
+    tmp_path, function_name, termination
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    engine = clone / "plugins" / PLUGIN_NAME / "scripts" / "risk.py"
+    source = _read(engine)
+    syntax = ast.parse(source)
+    function = next(
+        node
+        for node in syntax.body
+        if isinstance(node, ast.FunctionDef) and node.name == function_name
+    )
+    first = function.body[0]
+    if (
+        isinstance(first, ast.Expr)
+        and isinstance(first.value, ast.Constant)
+        and isinstance(first.value.value, str)
+    ):
+        insertion = first.end_lineno
+    else:
+        insertion = first.lineno - 1
+    lines = source.splitlines(keepends=True)
+    lines.insert(insertion, f"    if True:\n        {termination}\n")
+    engine.write_text("".join(lines), encoding="utf-8")
 
     errors = module.validate(clone)
 

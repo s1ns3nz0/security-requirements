@@ -209,3 +209,50 @@ Validation passed
 claude plugin validate --strict .
 Validation passed
 ```
+
+## Review fix round 4
+
+The final two AST findings were reproduced before implementation. Replacing the
+canonical `Mapping` type in the `migrate` guard with `str` passed because the
+validator checked only the first `isinstance` argument. Prepending a statically
+true terminating `if` before the real guard in each of `_validate_threats`,
+`migrate`, and `_load_risk_state` also passed because the validator searched
+later statements.
+
+Rather than adding partial control-flow analysis, the validator now enforces an
+exact executable prefix for each function after removing only its optional
+docstring. `migrate` must begin with the two-operand guard containing exactly
+`isinstance(threats, Mapping)` and the direct legacy-version comparison.
+`_validate_threats` must begin with its canonical problems declaration, Mapping
+type guard, and current-version guard. `_load_risk_state` must begin with the
+exact project-path load, state load, and risk-version guard. Any inserted
+statement changes that prefix and fails closed; every gate still requires a
+direct rejection action.
+
+Round 4 verification after the final code/test changes:
+
+```text
+python -m pytest tests/test_distribution_docs.py -q
+203 passed, 1 skipped in 57.61s
+
+python -m pytest --collect-only -q
+1257 tests collected
+
+python -m pytest tests/ -q \
+  --junitxml=/tmp/security-requirements-task10-fix-round4.xml
+1255 passed, 2 skipped in 88.71s
+JUnit: tests=1257, failures=0, errors=0, skipped=2
+
+python scripts/validate_distribution.py .
+exit 0
+
+python /Users/s1ns3nz0/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py \
+  plugins/security-requirements
+Plugin validation passed
+
+claude plugin validate --strict plugins/security-requirements
+Validation passed
+
+claude plugin validate --strict .
+Validation passed
+```
