@@ -162,3 +162,50 @@ Validation passed
 claude plugin validate --strict .
 Validation passed
 ```
+
+## Review fix round 3
+
+Two remaining Important findings were reproduced before implementation. A
+comprehensive path-operation spy observed twelve descendant `lstat`/
+`is_junction` operations for each redirected payload-root variant. Separate
+engine mutants showed that both `or False and <legacy-version-comparison>` in
+`migrate` and `if False and <risk-version-comparison>` in `_load_risk_state`
+were accepted by the descendant AST search.
+
+The validator now validates only the two root marketplace metadata paths before
+the redirected-payload early return. Payload manifest metadata traversal starts
+after that gate, so a redirected payload produces no descendant `lstat`,
+`stat`, `read_text`, `exists`, `is_file`, `is_dir`, `is_junction`, or `scandir`
+operation. The AST contract no longer walks condition descendants: `migrate`
+must use the live two-operand `not isinstance(...) or version != LEGACY...`
+shape with the comparison as a direct operand, while `_validate_threats` and
+`_load_risk_state` must use a direct comparison. Each gate must still have a
+direct rejection action.
+
+Round 3 verification after the final code/test changes:
+
+```text
+python -m pytest tests/test_distribution_docs.py -q
+199 passed, 1 skipped in 56.24s
+
+python -m pytest --collect-only -q
+1253 tests collected
+
+python -m pytest tests/ -q \
+  --junitxml=/tmp/security-requirements-task10-fix-round3.xml
+1251 passed, 2 skipped in 87.56s
+JUnit: tests=1253, failures=0, errors=0, skipped=2
+
+python scripts/validate_distribution.py .
+exit 0
+
+python /Users/s1ns3nz0/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py \
+  plugins/security-requirements
+Plugin validation passed
+
+claude plugin validate --strict plugins/security-requirements
+Validation passed
+
+claude plugin validate --strict .
+Validation passed
+```

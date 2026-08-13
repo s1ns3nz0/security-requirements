@@ -462,9 +462,11 @@ def _manifest_paths(
         _relative_path(value, payload, label, errors)
 
 
-def _metadata_symlinks(root: Path, errors: list[str]) -> None:
+def _metadata_symlinks(
+    root: Path, errors: list[str], metadata_files: tuple[Path, ...]
+) -> None:
     found: set[Path] = set()
-    for relative in METADATA_FILES:
+    for relative in metadata_files:
         path = root / relative
         while path != root:
             redirect = _redirect_kind(path)
@@ -948,6 +950,33 @@ def _gate_rejects(body: list[ast.stmt]) -> bool:
     return False
 
 
+def _direct_gate_comparisons(
+    function_name: str, test: ast.expr
+) -> list[ast.Compare]:
+    if function_name != "migrate":
+        return [test] if isinstance(test, ast.Compare) else []
+    if not (
+        isinstance(test, ast.BoolOp)
+        and isinstance(test.op, ast.Or)
+        and len(test.values) == 2
+    ):
+        return []
+    type_guard, version_guard = test.values
+    if not (
+        isinstance(type_guard, ast.UnaryOp)
+        and isinstance(type_guard.op, ast.Not)
+        and isinstance(type_guard.operand, ast.Call)
+        and isinstance(type_guard.operand.func, ast.Name)
+        and type_guard.operand.func.id == "isinstance"
+        and type_guard.operand.args
+        and isinstance(type_guard.operand.args[0], ast.Name)
+        and type_guard.operand.args[0].id == "threats"
+        and isinstance(version_guard, ast.Compare)
+    ):
+        return []
+    return [version_guard]
+
+
 def _function_uses_version_gate(
     syntax: ast.AST,
     function_name: str,
@@ -971,20 +1000,7 @@ def _function_uses_version_gate(
             break
         if not isinstance(statement, ast.If) or not _gate_rejects(statement.body):
             continue
-        comparisons = (
-            [statement.test]
-            if function_name == "_validate_threats"
-            and isinstance(statement.test, ast.Compare)
-            else (
-                []
-                if function_name == "_validate_threats"
-                else [
-                    node
-                    for node in ast.walk(statement.test)
-                    if isinstance(node, ast.Compare)
-                ]
-            )
-        )
+        comparisons = _direct_gate_comparisons(function_name, statement.test)
         if any(
             _matches_version_comparison(
                 comparison, receiver, operator, version_constant
@@ -1141,7 +1157,7 @@ def validate(root: Path) -> list[str]:
     codex_marketplace_path = root / ".agents" / "plugins" / "marketplace.json"
     claude_marketplace = _read_json(claude_marketplace_path, errors, root)
     codex_marketplace = _read_json(codex_marketplace_path, errors, root)
-    _metadata_symlinks(root, errors)
+    _metadata_symlinks(root, errors, METADATA_FILES[:2])
     claude_entry = _plugin_entry(claude_marketplace, "Claude", errors)
     codex_entry = _plugin_entry(codex_marketplace, "Codex", errors)
 
@@ -1165,6 +1181,8 @@ def validate(root: Path) -> list[str]:
 
     if payload_redirect is not None:
         return errors
+
+    _metadata_symlinks(root, errors, METADATA_FILES[2:])
 
     manifests = {
         "Claude": _read_json(payload / ".claude-plugin" / "plugin.json", errors, root),

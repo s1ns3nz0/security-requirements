@@ -1667,49 +1667,56 @@ def test_distribution_validator_never_reads_a_redirected_canonical_risk_asset(
 
 
 @pytest.mark.parametrize("redirect_kind", ("symlink", "junction"))
-def test_distribution_validator_never_reads_or_scans_a_redirected_payload_root(
+def test_distribution_validator_performs_no_descendant_operation_on_redirected_payload(
     tmp_path, monkeypatch, redirect_kind
 ):
     module = _load_validator()
     clone = _distribution_clone(tmp_path)
     payload = clone / "plugins" / PLUGIN_NAME
-    real_read_text = Path.read_text
     real_scandir = module.os.scandir
-    reads = []
-    scans = []
+    real_methods = {
+        name: getattr(Path, name)
+        for name in ("lstat", "stat", "read_text", "exists", "is_file", "is_dir")
+    }
+    operations = []
 
     if redirect_kind == "symlink":
         outside = tmp_path / "outside-payload"
         shutil.copytree(payload, outside)
         shutil.rmtree(payload)
         payload.symlink_to(outside, target_is_directory=True)
-    else:
-        real_is_junction = Path.is_junction
+    real_is_junction = Path.is_junction
 
-        def simulated_junction(path):
-            return path == payload or real_is_junction(path)
+    def observed_method(name):
+        def observe(path, *args, **kwargs):
+            if path != payload and payload in path.parents:
+                operations.append((name, path))
+            return real_methods[name](path, *args, **kwargs)
 
-        monkeypatch.setattr(Path, "is_junction", simulated_junction)
+        return observe
 
-    def observed_read(path, *args, **kwargs):
-        if path == payload or payload in path.parents:
-            reads.append(path)
-        return real_read_text(path, *args, **kwargs)
+    def observed_junction(path):
+        if path != payload and payload in path.parents:
+            operations.append(("is_junction", path))
+        if redirect_kind == "junction" and path == payload:
+            return True
+        return real_is_junction(path)
 
     def observed_scandir(path):
         candidate = Path(path)
-        if candidate == payload or payload in candidate.parents:
-            scans.append(candidate)
+        if candidate != payload and payload in candidate.parents:
+            operations.append(("scandir", candidate))
         return real_scandir(path)
 
-    monkeypatch.setattr(Path, "read_text", observed_read)
+    for name in real_methods:
+        monkeypatch.setattr(Path, name, observed_method(name))
+    monkeypatch.setattr(Path, "is_junction", observed_junction)
     monkeypatch.setattr(module.os, "scandir", observed_scandir)
 
     errors = module.validate(clone)
 
     assert any(f"{redirect_kind} is not allowed in payload" in error for error in errors)
-    assert reads == []
-    assert scans == []
+    assert operations == []
 
 
 def test_distribution_validator_rejects_python_cache_artifacts_in_payload(tmp_path):
@@ -2066,5 +2073,39 @@ def test_distribution_validator_rejects_an_unreachable_current_schema_gate(tmp_p
     assert any(
         "risk engine schema contract mismatch" in error
         and "_validate_threats" in error
+        for error in errors
+    ), errors
+
+
+@pytest.mark.parametrize(
+    ("function_name", "live_gate", "decoy"),
+    (
+        (
+            "migrate",
+            'or threats.get("version") != LEGACY_THREAT_SCHEMA_VERSION',
+            'or False and threats.get("version") != LEGACY_THREAT_SCHEMA_VERSION',
+        ),
+        (
+            "_load_risk_state",
+            'if state.get("version") != RISK_SCHEMA_VERSION:',
+            'if False and state.get("version") != RISK_SCHEMA_VERSION:',
+        ),
+    ),
+)
+def test_distribution_validator_rejects_short_circuited_engine_schema_gates(
+    tmp_path, function_name, live_gate, decoy
+):
+    module = _load_validator()
+    clone = _distribution_clone(tmp_path)
+    engine = clone / "plugins" / PLUGIN_NAME / "scripts" / "risk.py"
+    source = _read(engine)
+    mutated = source.replace(live_gate, decoy, 1)
+    assert mutated != source
+    engine.write_text(mutated, encoding="utf-8")
+
+    errors = module.validate(clone)
+
+    assert any(
+        "risk engine schema contract mismatch" in error and function_name in error
         for error in errors
     ), errors
