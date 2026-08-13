@@ -40,6 +40,7 @@ PLUGIN_MANAGED_FILES = {
     RISK_SUMMARY_FILE,
 }
 STATE_VERSION = "1.0.0"
+COPY_PLATFORM = os.name
 
 
 class PublicationError(ValueError):
@@ -216,7 +217,7 @@ def _remove_tree(path: Path, project_root: Path) -> None:
 def _best_effort_remove_tree(path: Path, project_root: Path) -> None:
     try:
         _remove_tree(path, project_root)
-    except OSError:
+    except Exception:
         # The publication is already committed (or the previous tree already
         # restored). A leftover recovery directory is safer than reporting a
         # failure whose visible output has in fact changed.
@@ -229,19 +230,17 @@ def _copy_tree_no_follow(source: Path, destination: Path, **kwargs) -> Path:
     dirs_exist_ok = kwargs.pop("dirs_exist_ok", False)
     if kwargs:
         raise TypeError(f"unsupported copy options: {', '.join(sorted(kwargs))}")
-    if os.name == "nt":
-        # Windows junction/symlink rejection is enforced before and after this
-        # copy by _walk_is_safe. Keeping redirects as redirects prevents the
-        # copy itself from traversing them.
-        return shutil.copytree(
-            source,
-            destination,
-            symlinks=True,
-            dirs_exist_ok=dirs_exist_ok,
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    directory_only = getattr(os, "O_DIRECTORY", 0)
+    if COPY_PLATFORM != "posix" or not nofollow or not directory_only:
+        # Python does not expose an equivalent atomic no-follow directory-open
+        # contract for Windows junctions/reparse points. Fail before touching
+        # either tree rather than validating only after a redirect was used.
+        raise PublicationError(
+            f"no-follow tree copying is unsupported on platform {COPY_PLATFORM}"
         )
 
-    nofollow = getattr(os, "O_NOFOLLOW", 0)
-    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | nofollow
+    directory_flags = os.O_RDONLY | directory_only | nofollow
 
     if destination.exists():
         if not dirs_exist_ok:
@@ -312,7 +311,15 @@ def _restore_public_root(
     backup: Path,
     project_root: Path,
     had_public_root: bool,
-) -> None:
+) -> bool:
+    """Restore the previous tree, or return false with the new tree still live.
+
+    A false return is a commit-forward result: rollback could not safely move
+    the activated tree, so callers must not raise a false failure or delete the
+    sole previous-tree backup. Any copied recovery artifact is intentionally
+    retained for manual repair.
+    """
+
     displaced: Path | None = None
     if public_root.exists():
         displaced = _unused_directory_path(
@@ -320,14 +327,27 @@ def _restore_public_root(
         )
         safe_path(public_root, project_root=project_root)
         safe_path(displaced, project_root=project_root)
-        os.replace(public_root, displaced)
+        try:
+            os.replace(public_root, displaced)
+        except BaseException:
+            # Directory replacement can fail even though the activated tree is
+            # readable. Preserve a recovery copy, then remove the live new tree
+            # so the previous backup can return to the canonical path.
+            try:
+                _copy_tree_no_follow(public_root, displaced)
+                _walk_is_safe(displaced, project_root)
+                _remove_tree(public_root, project_root)
+            except BaseException:
+                return False
     try:
-        if had_public_root and backup.exists():
+        if had_public_root:
+            if not backup.exists():
+                raise PublicationError("previous public-tree backup is missing")
             safe_path(backup, project_root=project_root)
             safe_path(public_root, project_root=project_root)
             try:
                 os.replace(backup, public_root)
-            except BaseException as restore_error:
+            except BaseException:
                 # Preserve the sole backup. Restore from a no-follow copy so a
                 # failed rename cannot leave the canonical path absent and the
                 # finally block cannot destroy the only previous tree.
@@ -341,14 +361,38 @@ def _restore_public_root(
                     _walk_is_safe(recovery, project_root)
                     safe_path(public_root, project_root=project_root)
                     os.replace(recovery, public_root)
-                except BaseException:
+                except BaseException as recovery_error:
                     if recovery.exists():
                         _best_effort_remove_tree(recovery, project_root)
-                    raise restore_error
-                raise restore_error
+                    raise recovery_error
+        return True
     finally:
         if displaced is not None:
             _best_effort_remove_tree(displaced, project_root)
+
+
+def _restore_or_commit_forward(
+    public_root: Path,
+    backup: Path,
+    project_root: Path,
+    had_public_root: bool,
+) -> bool:
+    """Return whether rollback restored the old live tree.
+
+    If rollback setup itself fails while a public tree is already live, the
+    directory transaction crossed its observable commit point. Preserve the
+    old-tree backup and let the caller return success rather than raising with
+    new bytes live.
+    """
+
+    try:
+        return _restore_public_root(
+            public_root, backup, project_root, had_public_root
+        )
+    except BaseException:
+        if public_root.exists():
+            return False
+        raise
 
 
 def stage_and_publish(
@@ -479,12 +523,18 @@ def stage_and_publish(
             safe_path(public_root, project_root=project)
             os.replace(candidate, public_root)
             activated = True
-        except BaseException:
-            if had_public_root and backup.exists():
-                safe_path(backup, project_root=project)
-                safe_path(public_root, project_root=project)
-                os.replace(backup, public_root)
-            raise
+        except BaseException as activation_error:
+            activated = False
+            restored = _restore_or_commit_forward(
+                public_root, backup, project, had_public_root
+            )
+            if restored:
+                raise activation_error
+            # The replacement primitive crossed its observable commit point
+            # before reporting failure, and rollback could not safely move the
+            # live new tree. Return success and retain the sole old-tree backup
+            # as the internal recovery artifact instead of falsely failing.
+            return
 
         try:
             safe_path(state_path, project_root=state_root)
@@ -495,13 +545,20 @@ def stage_and_publish(
                 project_root=state_root,
                 create_parents=True,
             )
-        except BaseException:
+        except BaseException as state_error:
             activated = False
-            _restore_public_root(public_root, backup, project, had_public_root)
-            raise
+            restored = _restore_or_commit_forward(
+                public_root, backup, project, had_public_root
+            )
+            if restored:
+                raise state_error
+            # The public-tree commit is already visible and rollback cannot
+            # safely displace it. Preserve the previous-tree backup and return
+            # success rather than report failure with new bytes still live.
+            return
     finally:
         if candidate.exists():
-            _remove_tree(candidate, project)
+            _best_effort_remove_tree(candidate, project)
         if activated and backup is not None and backup.exists():
             _best_effort_remove_tree(backup, project)
 

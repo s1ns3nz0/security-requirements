@@ -3004,7 +3004,7 @@ def test_state_write_failure_restores_every_public_byte(tmp_path, monkeypatch):
     assert _read_public_docs(project) == before
 
 
-def test_failed_restore_keeps_the_only_previous_tree_as_a_backup(
+def test_failed_state_restore_keeps_the_only_previous_tree_as_a_backup(
     tmp_path, monkeypatch
 ):
     project = tmp_path / "project"
@@ -3027,7 +3027,7 @@ def test_failed_restore_keeps_the_only_previous_tree_as_a_backup(
     monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
     monkeypatch.setattr(publish.os, "replace", fail_backup_restore)
 
-    with pytest.raises(OSError, match="injected restore failure"):
+    with pytest.raises(OSError, match="injected state failure"):
         publish.stage_and_publish(
             project,
             generated,
@@ -3041,10 +3041,134 @@ def test_failed_restore_keeps_the_only_previous_tree_as_a_backup(
         for path in sorted(backups[0].rglob("*"))
         if path.is_file()
     } == before
+    assert _read_public_docs(project) == before
 
 
-def test_backup_cleanup_failure_does_not_report_a_failed_committed_publication(
+def test_failure_moving_activated_tree_aside_still_restores_previous_public_bytes(
     tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_replace = publish.os.replace
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure")
+        return real_write(path, *args, **kwargs)
+
+    def fail_activated_move_aside(source, target):
+        if (
+            Path(source) == project / "docs" / "security"
+            and "failed" in Path(target).name
+        ):
+            raise OSError("injected move-aside failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+    monkeypatch.setattr(publish.os, "replace", fail_activated_move_aside)
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
+
+
+def test_activation_failure_recovers_when_direct_backup_restore_fails(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_replace = publish.os.replace
+
+    def fail_activation_and_direct_restore(source, target):
+        source_path = Path(source)
+        target_path = Path(target)
+        if "candidate" in source_path.name and target_path.name == "security":
+            raise OSError("injected activation failure")
+        if "backup" in source_path.name and target_path.name == "security":
+            raise OSError("injected direct restore failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(publish.os, "replace", fail_activation_and_direct_restore)
+
+    with pytest.raises(OSError, match="injected activation failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
+    backups = list((project / "docs").glob(".security-publish-backup-*"))
+    assert len(backups) == 1
+    assert {
+        str(path.relative_to(backups[0])): path.read_bytes()
+        for path in sorted(backups[0].rglob("*"))
+        if path.is_file()
+    } == before
+
+
+def test_crossed_activation_commit_returns_success_if_rollback_cannot_start(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_replace = publish.os.replace
+    real_unused = publish._unused_directory_path
+
+    def commit_activation_then_report_failure(source, target):
+        source_path = Path(source)
+        target_path = Path(target)
+        if "candidate" in source_path.name and target_path.name == "security":
+            real_replace(source, target)
+            raise OSError("injected post-commit activation failure")
+        return real_replace(source, target)
+
+    def fail_rollback_setup(parent, project_root, prefix):
+        if prefix == ".security-publish-failed-":
+            raise OSError("injected rollback setup failure")
+        return real_unused(parent, project_root, prefix)
+
+    monkeypatch.setattr(publish.os, "replace", commit_activation_then_report_failure)
+    monkeypatch.setattr(publish, "_unused_directory_path", fail_rollback_setup)
+
+    publish.stage_and_publish(
+        project,
+        generated,
+        ("requirements.md", "traceability.md", "responsibility.md"),
+    )
+
+    public = project / "docs" / "security"
+    assert (public / "requirements.md").read_text(encoding="utf-8").startswith("new")
+    backups = list((project / "docs").glob(".security-publish-backup-*"))
+    assert len(backups) == 1
+    assert {
+        str(path.relative_to(backups[0])): path.read_bytes()
+        for path in sorted(backups[0].rglob("*"))
+        if path.is_file()
+    } == before
+
+
+@pytest.mark.parametrize(
+    "cleanup_error",
+    [
+        OSError("injected cleanup failure"),
+        publish.UnsafePathError("injected unsafe cleanup failure"),
+    ],
+)
+def test_backup_cleanup_failure_does_not_report_a_failed_committed_publication(
+    tmp_path, monkeypatch, cleanup_error
 ):
     project = tmp_path / "project"
     monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
@@ -3054,7 +3178,7 @@ def test_backup_cleanup_failure_does_not_report_a_failed_committed_publication(
 
     def fail_backup_cleanup(path, project_root):
         if "backup" in Path(path).name:
-            raise OSError("injected cleanup failure")
+            raise cleanup_error
         return real_remove(path, project_root)
 
     monkeypatch.setattr(publish, "_remove_tree", fail_backup_cleanup)
@@ -3067,6 +3191,24 @@ def test_backup_cleanup_failure_does_not_report_a_failed_committed_publication(
 
     public = project / "docs" / "security"
     assert (public / "requirements.md").read_text(encoding="utf-8").startswith("new")
+    assert len(list((project / "docs").glob(".security-publish-backup-*"))) == 1
+
+
+def test_windows_copy_fails_closed_before_following_a_junction_capable_tree(
+    tmp_path, monkeypatch
+):
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    source.mkdir()
+    (source / "regular.md").write_text("public\n", encoding="utf-8")
+    monkeypatch.setattr(publish, "COPY_PLATFORM", "nt", raising=False)
+
+    with pytest.raises(
+        publish.PublicationError, match="no-follow tree copying is unsupported"
+    ):
+        publish._copy_tree_no_follow(source, destination)
+
+    assert not destination.exists()
 
 
 def test_symlink_inserted_after_copy_is_rejected_before_activation(
