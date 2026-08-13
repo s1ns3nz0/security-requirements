@@ -2263,6 +2263,166 @@ def _risk_cli_document_args(risk_fixture):
     ]
 
 
+def _prepare_refresh_bound_residual_review(risk_fixture):
+    _add_confirmed_residual(risk_fixture)
+    risk_fixture.confirm_all()
+    evidence = {"evidence": [_evidence_record(risk_fixture.requirements)]}
+    risk_fixture.paths["evidence"].write_text(
+        yaml.safe_dump(evidence, sort_keys=False), encoding="utf-8"
+    )
+    refreshed, messages = risk.refresh_persisted_assessment(risk_fixture.paths)
+    assert "T-01 residual risk is STALE" in messages
+    assert "confirmation" not in refreshed
+    refreshed["assessments"][0]["residual"]["proposed"] = _residual_proposal(
+        "L3-AUTHENTICATED",
+        "I4-CROSS-SYSTEM",
+        likelihood_refs=["EVID-AUTHZ-INTEGRATION-01"],
+    )
+    risk_fixture.paths["assessment"].write_text(
+        yaml.safe_dump(refreshed, sort_keys=False), encoding="utf-8"
+    )
+    return refreshed
+
+
+def test_residual_cli_previews_proposal_from_externally_bound_refresh(
+    risk_fixture,
+):
+    _prepare_refresh_bound_residual_review(risk_fixture)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "risk.py"),
+            "residual",
+            *_risk_cli_document_args(risk_fixture),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "T-01 residual risk: high (score 12)" in result.stdout
+
+
+def test_residual_cli_previews_first_proposal_after_evidence_refresh(risk_fixture):
+    risk_fixture.confirm_all()
+    evidence = {"evidence": [_evidence_record(risk_fixture.requirements)]}
+    risk_fixture.paths["evidence"].write_text(
+        yaml.safe_dump(evidence, sort_keys=False), encoding="utf-8"
+    )
+    refreshed, _messages = risk.refresh_persisted_assessment(risk_fixture.paths)
+    assert "confirmation" not in refreshed
+    refreshed["assessments"][0]["residual"] = {
+        "proposed": _residual_proposal(
+            "L3-AUTHENTICATED",
+            "I4-CROSS-SYSTEM",
+            likelihood_refs=["EVID-AUTHZ-INTEGRATION-01"],
+        )
+    }
+    risk_fixture.paths["assessment"].write_text(
+        yaml.safe_dump(refreshed, sort_keys=False), encoding="utf-8"
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "risk.py"),
+            "residual",
+            *_risk_cli_document_args(risk_fixture),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "T-01 residual risk: high (score 12)" in result.stdout
+
+
+def test_residual_cli_rejects_non_residual_change_during_bound_review(
+    risk_fixture,
+):
+    assessment = _prepare_refresh_bound_residual_review(risk_fixture)
+    assessment["assessments"][0]["treatment"]["owner"] = "attacker"
+    risk_fixture.paths["assessment"].write_text(
+        yaml.safe_dump(assessment, sort_keys=False), encoding="utf-8"
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "risk.py"),
+            "residual",
+            *_risk_cli_document_args(risk_fixture),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "refreshed assessment changed outside residual proposals" in result.stderr
+    assert "T-01 residual risk" not in result.stdout
+
+
+def test_residual_cli_rejects_forged_refresh_assessment_digest(risk_fixture):
+    _prepare_refresh_bound_residual_review(risk_fixture)
+    trusted_path = risk.confirmation_state_path(
+        risk_fixture.paths["project_root"], "assessment"
+    )
+    trusted = yaml.safe_load(trusted_path.read_text(encoding="utf-8"))
+    trusted["refreshed_assessment_digest"] = "sha256:forged"
+    trusted_path.write_text(
+        yaml.safe_dump(trusted, sort_keys=False), encoding="utf-8"
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "risk.py"),
+            "residual",
+            *_risk_cli_document_args(risk_fixture),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "externally bound refreshed assessment digest changed" in result.stderr
+    assert "T-01 residual risk" not in result.stdout
+
+
+def test_residual_cli_rejects_top_level_change_during_bound_review(risk_fixture):
+    assessment = _prepare_refresh_bound_residual_review(risk_fixture)
+    assessment["migration"] = {"status": "forged"}
+    risk_fixture.paths["assessment"].write_text(
+        yaml.safe_dump(assessment, sort_keys=False), encoding="utf-8"
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "risk.py"),
+            "residual",
+            *_risk_cli_document_args(risk_fixture),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "refreshed assessment top-level material changed" in result.stderr
+    assert "T-01 residual risk" not in result.stdout
+
+
 def test_refresh_cli_persists_requirement_staleness_before_review(risk_fixture):
     _add_confirmed_residual(risk_fixture)
     risk_fixture.confirm_all()

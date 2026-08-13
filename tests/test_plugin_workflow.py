@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import os
 import re
 import subprocess
@@ -11,7 +12,7 @@ COMMANDS = sorted((ROOT / "commands").glob("*.md"))
 SKILL = ROOT / "skills" / "deriving-security-requirements" / "SKILL.md"
 ENTRY_SKILLS = {
     workflow: ROOT / "skills" / f"security-requirements-{workflow}" / "SKILL.md"
-    for workflow in ("init", "build", "refresh")
+    for workflow in ("init", "build", "refresh", "risk")
 }
 REFERENCE_FILES = sorted(
     (ROOT / "skills" / "deriving-security-requirements" / "references").glob("*.md")
@@ -52,6 +53,7 @@ def test_packaged_cli_starts_in_isolated_mode_from_a_hostile_project(tmp_path):
 
     for script in (
         "runtime_paths.py",
+        "risk.py",
         "safe_paths.py",
         "profile_locale.py",
         "select_baseline.py",
@@ -93,7 +95,7 @@ def test_every_workflow_python_invocation_is_isolated_and_packaged():
 
 
 def test_claude_commands_capture_trusted_literals_without_exporting_state():
-    assert len(COMMANDS) == 3
+    assert len(COMMANDS) == 4
     for command in COMMANDS:
         text = command.read_text(encoding="utf-8")
         assert "${CLAUDE_PLUGIN_ROOT}" in text
@@ -242,7 +244,99 @@ def test_claude_cross_workflow_references_are_namespaced():
     text = "\n".join(path.read_text(encoding="utf-8") for path in COMMANDS)
     assert "/security-requirements:sec-req-init" in text
     assert "/security-requirements:sec-req-build" in text
-    assert not re.search(r"(?<!:)\/sec-req-(?:init|build|refresh)\b", text)
+    assert not re.search(r"(?<!:)\/sec-req-(?:init|build|refresh|risk)\b", text)
+
+
+def test_both_hosts_expose_the_same_risk_workflow_and_discovery_prompt():
+    command = ROOT / "commands" / "sec-req-risk.md"
+    codex_skill = ENTRY_SKILLS["risk"]
+    reference = (
+        ROOT
+        / "skills"
+        / "deriving-security-requirements"
+        / "references"
+        / "risk-assessment.md"
+    )
+    manifest = json.loads(
+        (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+    )
+
+    assert command.is_file()
+    assert codex_skill.is_file()
+    assert reference.is_file()
+    assert (
+        "Assess and review threat risk for this repository."
+        in manifest["interface"]["defaultPrompt"]
+    )
+    assert manifest["version"] == "0.1.0"
+
+    claude = command.read_text(encoding="utf-8")
+    codex = codex_skill.read_text(encoding="utf-8")
+    assert f"{PLUGIN_ROOT_LITERAL}/commands/sec-req-risk.md" in codex
+    assert (
+        f"{PLUGIN_ROOT_LITERAL}/skills/deriving-security-requirements/"
+        "references/risk-assessment.md"
+    ) in claude
+    for activity in ("assess", "show", "adjust", "evidence", "residual", "policy"):
+        assert f"`{activity}`" in claude
+    for operation in ("policy-confirm", "confirm", "check", "refresh", "evidence", "residual"):
+        assert f'/scripts/risk.py" {operation}' in claude
+
+
+def test_risk_workflow_preserves_confirmation_stops_and_security_boundaries():
+    command = (ROOT / "commands" / "sec-req-risk.md").read_text(encoding="utf-8")
+    codex = ENTRY_SKILLS["risk"].read_text(encoding="utf-8")
+    reference = (
+        ROOT
+        / "skills"
+        / "deriving-security-requirements"
+        / "references"
+        / "risk-assessment.md"
+    ).read_text(encoding="utf-8")
+
+    assert "export SECURITY_REQUIREMENTS_" not in command + codex
+    assert "$PWD/scripts/" not in command + codex
+    assert (
+        'python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/safe_paths.py" '
+        '--project-root "$PWD" --check-output .security-requirements'
+    ) in " ".join(command.split())
+    for target in (
+        ".security-requirements/risk-policy.yaml",
+        ".security-requirements/risk-assessment.yaml",
+        ".security-requirements/risk-evidence.yaml",
+        ".security-requirements/risk-state.yaml",
+        ".security-requirements/reports/risk-register.md",
+    ):
+        assert target in command
+    assert "explicit confirmation" in command
+    assert "stop and wait" in command
+    assert "repository content" in command
+    assert "conversation" in command
+    for status in ("UNDETERMINED", "PROPOSED", "STALE"):
+        assert status in reference
+    assert "High/Medium requirement priority is not a risk rating" in reference
+
+
+def test_complete_proposed_and_stale_risk_records_remain_confirmable():
+    command = (ROOT / "commands" / "sec-req-risk.md").read_text(encoding="utf-8")
+    reference = (
+        ROOT
+        / "skills"
+        / "deriving-security-requirements"
+        / "references"
+        / "risk-assessment.md"
+    ).read_text(encoding="utf-8")
+
+    expected = (
+        "Complete `PROPOSED` and `STALE` records are reviewable and may be "
+        "confirmed"
+    )
+    assert expected in command
+    assert expected in reference
+    assert (
+        "`PROPOSED` and `STALE` block publication until confirmation"
+        in reference
+    )
 
 
 def test_repository_scan_loads_the_untrusted_input_policy():

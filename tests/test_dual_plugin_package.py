@@ -12,7 +12,12 @@ CODEX_ENTRY_SKILLS = {
     / "skills"
     / f"security-requirements-{workflow}"
     / "SKILL.md"
-    for workflow in ("init", "build", "refresh")
+    for workflow in ("init", "build", "refresh", "risk")
+}
+PIPELINE_CODEX_ENTRY_SKILLS = {
+    workflow: path
+    for workflow, path in CODEX_ENTRY_SKILLS.items()
+    if workflow != "risk"
 }
 PLUGIN_ROOT_LITERAL = "<exact absolute plugin root>"
 DATA_ROOT_LITERAL = "<exact absolute data root returned by runtime_paths.py>"
@@ -131,7 +136,7 @@ def test_codex_entry_skills_resolve_from_the_selected_skill_for_every_call():
 
 
 def test_codex_entry_skills_preserve_confirmation_and_do_not_copy_pipeline():
-    for path in CODEX_ENTRY_SKILLS.values():
+    for path in PIPELINE_CODEX_ENTRY_SKILLS.values():
         text = path.read_text(encoding="utf-8")
         assert "stop and wait" in text
         assert "explicit user confirmation" in text
@@ -144,6 +149,25 @@ def test_codex_entry_skills_preserve_confirmation_and_do_not_copy_pipeline():
         assert "/scripts/select_baseline.py" in text
         assert "/scripts/safe_paths.py" in text
         assert "/scripts/classify_resp.py" not in text
+
+
+def test_codex_risk_entry_skill_delegates_without_copying_risk_semantics():
+    text = CODEX_ENTRY_SKILLS["risk"].read_text(encoding="utf-8")
+    assert f"{PLUGIN_ROOT_LITERAL}/commands/sec-req-risk.md" in text
+    assert (
+        f"{PLUGIN_ROOT_LITERAL}/skills/deriving-security-requirements/SKILL.md"
+        in text
+    )
+    assert "/scripts/risk.py" in text
+    assert "/scripts/safe_paths.py" in text
+    assert (
+        f'python3 -I "{PLUGIN_ROOT_LITERAL}/scripts/safe_paths.py"'
+        in text
+    )
+    assert "/scripts/select_baseline.py" not in text
+    assert "/scripts/classify_resp.py" not in text
+    assert "stop and wait" in text
+    assert "explicit user confirmation" in text
 
 
 def test_payload_excludes_mcp_app_and_hook_components():
@@ -187,5 +211,6 @@ def test_codex_manifest_declares_the_required_plugin_interface():
             "Initialize the security requirements profile for this repository.",
             "Build security requirements from the confirmed profile.",
             "Refresh security requirements after service changes.",
+            "Assess and review threat risk for this repository.",
         ],
     }

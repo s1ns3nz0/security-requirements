@@ -13,7 +13,7 @@ import sys
 PLUGIN_NAME = "security-requirements"
 PAYLOAD = Path("plugins") / PLUGIN_NAME
 RUNTIME_DIRECTORIES = ("scripts", "catalogs", "overlays", "responsibility", "skills")
-WORKFLOWS = ("init", "build", "refresh")
+WORKFLOWS = ("init", "build", "refresh", "risk")
 FORBIDDEN_CODEX_COMPONENTS = ("mcpServers", "apps", "hooks")
 METADATA_FILES = (
     Path(".claude-plugin") / "marketplace.json",
@@ -64,6 +64,7 @@ SAFE_OUTPUTS = {
     "init": (".security-requirements",),
     "build": (".security-requirements", "docs/security"),
     "refresh": (".security-requirements", "docs/security"),
+    "risk": (".security-requirements",),
 }
 CANONICAL_SAFE_OUTPUT_PREFLIGHTS = {
     workflow: (

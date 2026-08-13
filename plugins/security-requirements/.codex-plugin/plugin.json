@@ -29,7 +29,8 @@
     "defaultPrompt": [
       "Initialize the security requirements profile for this repository.",
       "Build security requirements from the confirmed profile.",
-      "Refresh security requirements after service changes."
+      "Refresh security requirements after service changes.",
+      "Assess and review threat risk for this repository."
     ]
   }
 }

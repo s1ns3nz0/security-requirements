@@ -2399,6 +2399,101 @@ def check_assessment(paths: Mapping | object) -> list[str]:
     return problems
 
 
+def _without_residual_proposals(records: object, *, snapshot: bool) -> object:
+    """Return assessment records with only reviewable residual proposals removed."""
+
+    if not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
+        return records
+    result = copy.deepcopy(list(records))
+    for record in result:
+        if not isinstance(record, dict):
+            continue
+        if snapshot:
+            record.pop("lifecycle", None)
+        residual = record.get("residual")
+        if isinstance(residual, dict):
+            residual.pop("proposed", None)
+            if not residual:
+                record.pop("residual", None)
+    return result
+
+
+def check_residual_review(paths: Mapping | object) -> list[str]:
+    """Validate confirmed or externally bound state for residual preview.
+
+    A refresh-bound assessment is deliberately unconfirmed while the reviewer
+    adds residual proposals.  Only those proposal fields may differ from the
+    exact digest-bound refresh snapshot; inherent risk, treatment, state, and
+    every material input remain externally bound.
+    """
+
+    project_root, assessment_path = _project_document_path(paths, "assessment")
+    trusted = _read_trusted_confirmation(project_root, "assessment")
+    if not isinstance(trusted, Mapping) or trusted.get("status") != "refresh_bound":
+        return check_assessment(paths)
+
+    _unused_root, policy_path = _project_document_path(paths, "policy")
+    policy = _load_mapping(policy_path, "risk policy")
+    threats, requirements, evidence = _refresh_documents(paths)
+    _unused_root, _state_path, risk_state = _load_risk_state(paths)
+    assessment = _load_mapping(assessment_path, "assessment document")
+    problems = _refresh_binding_problems(
+        trusted,
+        project_root,
+        policy,
+        threats,
+        requirements,
+        evidence,
+        risk_state,
+    )
+    if not trusted.get("refreshed_assessment_digest"):
+        problems.append(
+            "refreshed risk binding is incomplete: refreshed_assessment_digest"
+        )
+    if assessment.get("confirmation") is not None:
+        problems.append("refreshed assessment must remain unconfirmed before review")
+
+    snapshots = risk_state.get("snapshots")
+    snapshot = snapshots[-1] if isinstance(snapshots, list) and snapshots else None
+    if not isinstance(snapshot, Mapping) or snapshot.get("event") != "refreshed":
+        problems.append("externally bound refreshed assessment snapshot is missing")
+    else:
+        if trusted.get("refreshed_assessment_digest") != snapshot.get(
+            "assessment_digest"
+        ):
+            problems.append("externally bound refreshed assessment digest changed")
+        bound_records = copy.deepcopy(snapshot.get("assessments"))
+        if isinstance(bound_records, list):
+            for record in bound_records:
+                if isinstance(record, dict):
+                    record.pop("lifecycle", None)
+        bound_document = _without_confirmation(assessment)
+        bound_document["assessments"] = bound_records
+        if assessment_digest(bound_document) != snapshot.get("assessment_digest"):
+            problems.append("refreshed assessment top-level material changed")
+        current_records = _without_residual_proposals(
+            assessment.get("assessments"), snapshot=False
+        )
+        snapshot_records = _without_residual_proposals(
+            snapshot.get("assessments"), snapshot=True
+        )
+        if canonical_digest(current_records) != canonical_digest(snapshot_records):
+            problems.append("refreshed assessment changed outside residual proposals")
+
+    unexpected_top_level = set(assessment) - {
+        "version",
+        "migration",
+        "assessments",
+        "confirmation",
+    }
+    if unexpected_top_level:
+        problems.append("refreshed assessment has unexpected top-level fields")
+    if assessment.get("version") not in (None, "0.2.0"):
+        problems.append("assessment version must be 0.2.0")
+    problems.extend(validate_assessment(threats, assessment, policy))
+    return list(dict.fromkeys(problems))
+
+
 def refresh_persisted_assessment(paths: Mapping | object) -> tuple[dict, list[str]]:
     """Apply selective refresh transitions to canonical project state."""
 
@@ -2451,8 +2546,10 @@ def refresh_persisted_assessment(paths: Mapping | object) -> tuple[dict, list[st
         policy_changed=baseline.get("policy_digest") != policy_digest(policy),
     )
     next_baseline = _refresh_baseline(threats, requirements, evidence, policy)
-    assessment_changed = canonical_digest(refreshed) != canonical_digest(assessment)
     inputs_changed = canonical_digest(next_baseline) != canonical_digest(baseline)
+    if inputs_changed:
+        refreshed.pop("confirmation", None)
+    assessment_changed = canonical_digest(refreshed) != canonical_digest(assessment)
     if not assessment_changed and not inputs_changed:
         return assessment, []
 
@@ -2810,7 +2907,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "residual":
             problems = check_policy(paths)
-            for problem in check_assessment(paths):
+            for problem in check_residual_review(paths):
                 if problem not in problems:
                     problems.append(problem)
             requirements, evidence, evidence_problems = _validated_evidence_documents(
