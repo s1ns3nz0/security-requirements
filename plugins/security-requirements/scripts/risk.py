@@ -56,6 +56,15 @@ LIFELIHOOD_EVIDENCE_FIELDS = (
     "observed_controls",
 )
 AUTHORITIES = {"self_declared", "externally_attested"}
+EVIDENCE_METHODS = {
+    "iac_inspect",
+    "config_api",
+    "code_grep",
+    "test_case",
+    "artifact_review",
+    "manual",
+}
+EVIDENCE_SUPPORTS = {"likelihood", "impact", "attack_path_removal"}
 MINIMUM_PYTHON = (3, 12)
 
 
@@ -198,6 +207,282 @@ def canonical_digest(value: object) -> str:
     except (TypeError, ValueError) as exc:
         raise RiskValidationError("value cannot be canonically digested") from exc
     return "sha256:" + hashlib.sha256(canonical).hexdigest()
+
+
+def _document_records(document: object, field: str, label: str) -> list:
+    if not isinstance(document, Mapping):
+        return []
+    records = document.get(field, [])
+    if not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
+        raise RiskValidationError(f"{label} must be a list")
+    return list(records)
+
+
+def _requirement_index(requirements: object) -> tuple[dict[str, Mapping], list[str]]:
+    problems: list[str] = []
+    if not isinstance(requirements, Mapping):
+        return {}, ["requirements document must be a mapping"]
+    try:
+        records = _document_records(requirements, "requirements", "requirements")
+    except RiskValidationError as exc:
+        return {}, [str(exc)]
+    result: dict[str, Mapping] = {}
+    for record in records:
+        if not isinstance(record, Mapping):
+            problems.append("requirement must be a mapping")
+            continue
+        requirement_id = record.get("id")
+        if not _nonempty_text(requirement_id):
+            problems.append("requirement id is required")
+            continue
+        if requirement_id in result:
+            problems.append(f"duplicate requirement id: {requirement_id}")
+            continue
+        result[requirement_id] = record
+    return result, problems
+
+
+def _parse_observed_at(value: object) -> bool:
+    if not _nonempty_text(value):
+        return False
+    try:
+        observed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return observed.tzinfo is not None
+
+
+def _parse_expiry(value: object) -> date | None:
+    if not _nonempty_text(value):
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _artifact_digest_is_valid(value: object) -> bool:
+    if not _nonempty_text(value) or not value.startswith("sha256:"):
+        return False
+    digest = value.removeprefix("sha256:")
+    return len(digest) == 64 and all(character in "0123456789abcdef" for character in digest)
+
+
+def _evidence_record_problems(
+    record: object,
+    *,
+    today: date,
+    requirement: Mapping | None = None,
+) -> list[str]:
+    if not isinstance(record, Mapping):
+        return ["evidence record must be a mapping"]
+    evidence_id = record.get("id")
+    label = evidence_id if _nonempty_text(evidence_id) else "<unknown evidence>"
+    problems: list[str] = []
+    if not _nonempty_text(evidence_id):
+        problems.append("evidence id is required")
+    requirement_id = record.get("requirement_id")
+    if not _nonempty_text(requirement_id):
+        problems.append(f"{label} requirement_id is required")
+    method = record.get("method")
+    if method not in EVIDENCE_METHODS:
+        problems.append(f"{label} method is not supported")
+    if record.get("result") != "pass":
+        problems.append(f"{label} result must be pass")
+    if not _parse_observed_at(record.get("observed_at")):
+        problems.append(f"{label} observed_at must be a timezone-aware ISO timestamp")
+    if not _nonempty_text(record.get("observed_by")):
+        problems.append(f"{label} observed_by is required")
+
+    artifact = record.get("artifact")
+    if not isinstance(artifact, Mapping):
+        problems.append(f"{label} artifact is required")
+    else:
+        for field in ("kind", "location"):
+            if not _nonempty_text(artifact.get(field)):
+                problems.append(f"{label} artifact {field} is required")
+        if not _artifact_digest_is_valid(artifact.get("digest")):
+            problems.append(f"{label} artifact digest is required")
+
+    supports = record.get("supports", [])
+    if supports is not None and (
+        not isinstance(supports, Sequence) or isinstance(supports, (str, bytes))
+    ):
+        problems.append(f"{label} supports must be a list")
+    elif any(value not in EVIDENCE_SUPPORTS for value in supports or []):
+        problems.append(f"{label} supports contains an unknown residual effect")
+
+    if "valid_until" in record:
+        expiry = _parse_expiry(record.get("valid_until"))
+        if expiry is None:
+            problems.append(f"{label} valid_until must be an ISO date")
+        elif expiry < today:
+            problems.append(f"{label} is stale because its evidence expired")
+
+    if requirement is not None:
+        managed = requirement.get("managed")
+        if not isinstance(managed, Mapping):
+            problems.append(f"{label} linked requirement has no managed block")
+        elif record.get("requirement_digest") != canonical_digest(managed):
+            problems.append(
+                f"{label} is stale because requirement {requirement_id} changed"
+            )
+        verification = managed.get("verification") if isinstance(managed, Mapping) else None
+        expected_method = verification.get("method") if isinstance(verification, Mapping) else None
+        if expected_method in EVIDENCE_METHODS and method != expected_method:
+            problems.append(f"{label} method does not match the linked requirement")
+    elif not _nonempty_text(record.get("requirement_digest")):
+        problems.append(f"{label} requirement_digest is required")
+    return problems
+
+
+def validate_evidence(evidence: dict, requirements: dict, today: date) -> list[str]:
+    """Validate implementation evidence and bind it to managed requirements."""
+
+    requirement_by_id, problems = _requirement_index(requirements)
+    if not isinstance(evidence, Mapping):
+        return problems + ["evidence document must be a mapping"]
+    try:
+        records = _document_records(evidence, "evidence", "evidence")
+    except RiskValidationError as exc:
+        return problems + [str(exc)]
+    seen_ids: set[str] = set()
+    for record in records:
+        if not isinstance(record, Mapping):
+            problems.append("evidence record must be a mapping")
+            continue
+        evidence_id = record.get("id")
+        if _nonempty_text(evidence_id):
+            if evidence_id in seen_ids:
+                problems.append(f"duplicate evidence id: {evidence_id}")
+            seen_ids.add(evidence_id)
+        requirement_id = record.get("requirement_id")
+        requirement = requirement_by_id.get(requirement_id)
+        if _nonempty_text(requirement_id) and requirement is None:
+            label = evidence_id if _nonempty_text(evidence_id) else "<unknown evidence>"
+            problems.append(
+                f"{label} references unknown requirement: {requirement_id}"
+            )
+        problems.extend(
+            _evidence_record_problems(record, today=today, requirement=requirement)
+        )
+    return problems
+
+
+def _evidence_index(evidence: object) -> dict[str, Mapping]:
+    if not isinstance(evidence, Mapping):
+        return {}
+    records = evidence.get("evidence", evidence)
+    if isinstance(records, Mapping):
+        values = records.values()
+    elif isinstance(records, Sequence) and not isinstance(records, (str, bytes)):
+        values = records
+    else:
+        return {}
+    return {
+        record["id"]: record
+        for record in values
+        if isinstance(record, Mapping) and _nonempty_text(record.get("id"))
+    }
+
+
+def _current_passing_evidence(evidence: object, today: date) -> dict[str, Mapping]:
+    return {
+        evidence_id: record
+        for evidence_id, record in _evidence_index(evidence).items()
+        if not _evidence_record_problems(record, today=today)
+    }
+
+
+def _reduction_evidence(
+    proposed: Mapping,
+    axis: str,
+    current: Mapping[str, Mapping],
+) -> list[Mapping]:
+    axis_data = proposed.get(axis)
+    if not isinstance(axis_data, Mapping):
+        raise RiskValidationError(f"residual {axis} proposal is required")
+    change_field = (
+        "changed_attack_condition" if axis == "likelihood" else "changed_consequence"
+    )
+    if not _nonempty_text(axis_data.get(change_field)):
+        raise RiskValidationError(
+            f"residual {axis} reduction must name the changed "
+            + ("attack condition" if axis == "likelihood" else "consequence")
+        )
+    refs = axis_data.get("evidence_refs")
+    if (
+        not isinstance(refs, Sequence)
+        or isinstance(refs, (str, bytes))
+        or not refs
+        or any(not _nonempty_text(reference) for reference in refs)
+    ):
+        raise RiskValidationError(
+            f"residual reduction requires current passing evidence for {axis}"
+        )
+    records: list[Mapping] = []
+    for reference in refs:
+        record = current.get(reference)
+        if record is None:
+            raise RiskValidationError(
+                f"residual reduction requires current passing evidence: {reference}"
+            )
+        if axis not in (record.get("supports") or []):
+            raise RiskValidationError(f"evidence {reference} does not support {axis}")
+        records.append(record)
+    return records
+
+
+def calculate_residual(
+    inherent: dict,
+    evidence: dict,
+    policy: dict,
+    proposed: dict | None = None,
+    *,
+    today: date | None = None,
+) -> dict:
+    """Calculate a fresh residual proposal, allowing only evidenced reductions."""
+
+    evaluation_date = today or date.today()
+    current = _current_passing_evidence(evidence, evaluation_date)
+    if proposed is None:
+        reason = (
+            "residual proposal is required"
+            if current
+            else "linked requirements have no valid implementation evidence"
+        )
+        return {"status": "UNDETERMINED", "reason": reason}
+    if not isinstance(inherent, Mapping):
+        raise RiskValidationError("inherent risk must be a mapping")
+    for axis in ("likelihood", "impact"):
+        score = inherent.get(axis)
+        if isinstance(score, bool) or not isinstance(score, int) or not 1 <= score <= 5:
+            raise RiskValidationError(f"inherent {axis} score is invalid")
+
+    calculated = calculate_inherent(policy, proposed)
+    used_evidence: list[Mapping] = []
+    warnings: list[str] = []
+    for axis in ("likelihood", "impact"):
+        decrease = inherent[axis] - calculated[axis]
+        if decrease > 0:
+            used_evidence.extend(_reduction_evidence(proposed, axis, current))
+        if decrease >= 2:
+            warnings.append(
+                f"{axis} decreases by {decrease} levels; independent review is recommended"
+            )
+
+    if calculated["score"] == 1 and not any(
+        "attack_path_removal" in (record.get("supports") or [])
+        for record in used_evidence
+    ):
+        raise RiskValidationError(
+            "residual score 1 requires attack-path-removal evidence"
+        )
+
+    result = {"status": "PROPOSED", **calculated}
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 def _without_confirmation(value: Mapping) -> dict:
@@ -1062,7 +1347,79 @@ def argument_parser() -> argparse.ArgumentParser:
                 required=True,
                 action=_StoreOnce,
             )
+
+    evidence_command = commands.add_parser("evidence", allow_abbrev=False)
+    _add_path_argument(evidence_command, "--project-root")
+    _add_path_argument(evidence_command, "--requirements")
+    _add_path_argument(evidence_command, "--evidence")
+
+    residual_command = commands.add_parser("residual", allow_abbrev=False)
+    for name in (
+        "--project-root",
+        "--policy",
+        "--threats",
+        "--assessment",
+        "--requirements",
+        "--evidence",
+    ):
+        _add_path_argument(residual_command, name)
     return parser
+
+
+def _validated_evidence_documents(
+    paths: Mapping | object, evaluation_date: date
+) -> tuple[dict, dict, list[str]]:
+    _project_root, requirements_path = _project_document_path(paths, "requirements")
+    _project_root, evidence_path = _project_document_path(paths, "evidence")
+    requirements = _load_mapping(requirements_path, "requirements document")
+    evidence = _load_mapping(evidence_path, "evidence document")
+    return (
+        requirements,
+        evidence,
+        validate_evidence(evidence, requirements, evaluation_date),
+    )
+
+
+def _residual_results(
+    threats: dict,
+    assessment: dict,
+    evidence: dict,
+    policy: dict,
+    evaluation_date: date,
+) -> tuple[list[tuple[str, dict]], list[str]]:
+    active_ids = {threat["id"] for threat in active_threats(threats)}
+    records = assessment.get("assessments")
+    if not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
+        return [], ["assessments must be a list"]
+    results: list[tuple[str, dict]] = []
+    problems: list[str] = []
+    for record in records:
+        if not isinstance(record, Mapping) or record.get("threat_id") not in active_ids:
+            continue
+        threat_id = record["threat_id"]
+        residual = record.get("residual")
+        if residual is None:
+            continue
+        if not isinstance(residual, Mapping):
+            problems.append(f"{threat_id} residual assessment must be a mapping")
+            continue
+        proposed = residual.get("proposed")
+        if proposed is None and residual.get("status") == "UNDETERMINED":
+            continue
+        inherent = record.get("calculated")
+        try:
+            result = calculate_residual(
+                inherent,
+                evidence,
+                policy,
+                proposed,
+                today=evaluation_date,
+            )
+        except RiskValidationError as exc:
+            problems.append(f"{threat_id} {exc}")
+            continue
+        results.append((threat_id, result))
+    return results, problems
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1077,7 +1434,14 @@ def main(argv: list[str] | None = None) -> int:
         args = argument_parser().parse_args(argv)
         paths = {
             name: getattr(args, name)
-            for name in ("project_root", "policy", "threats", "assessment")
+            for name in (
+                "project_root",
+                "policy",
+                "threats",
+                "assessment",
+                "requirements",
+                "evidence",
+            )
             if hasattr(args, name)
         }
         if args.command == "policy-confirm":
@@ -1090,6 +1454,54 @@ def main(argv: list[str] | None = None) -> int:
                 "confirmed risk assessment "
                 f"({assessment['confirmation']['assessment_digest']})"
             )
+            return 0
+        if args.command == "evidence":
+            _requirements, evidence, problems = _validated_evidence_documents(
+                paths, date.today()
+            )
+            for problem in problems:
+                print(f"ERROR: {problem}", file=sys.stderr)
+            if problems:
+                return 1
+            print(
+                "validated "
+                f"{len(_evidence_index(evidence))} current implementation evidence record(s)"
+            )
+            return 0
+        if args.command == "residual":
+            problems = check_policy(paths)
+            for problem in check_assessment(paths):
+                if problem not in problems:
+                    problems.append(problem)
+            _requirements, evidence, evidence_problems = _validated_evidence_documents(
+                paths, date.today()
+            )
+            problems.extend(
+                problem for problem in evidence_problems if problem not in problems
+            )
+            _project_root, policy_path = _project_document_path(paths, "policy")
+            _project_root, threats_path = _project_document_path(paths, "threats")
+            _project_root, assessment_path = _project_document_path(paths, "assessment")
+            policy = _load_mapping(policy_path, "risk policy")
+            threats = _load_mapping(threats_path, "threat document")
+            assessment = _load_mapping(assessment_path, "assessment document")
+            results, residual_problems = _residual_results(
+                threats, assessment, evidence, policy, date.today()
+            )
+            problems.extend(
+                problem for problem in residual_problems if problem not in problems
+            )
+            for problem in problems:
+                print(f"ERROR: {problem}", file=sys.stderr)
+            if problems:
+                return 1
+            for threat_id, result in results:
+                print(
+                    f"{threat_id} residual risk: {result['rating']} "
+                    f"(score {result['score']})"
+                )
+                for warning in result.get("warnings", []):
+                    print(f"WARN: {threat_id} {warning}")
             return 0
 
         problems = check_policy(paths)

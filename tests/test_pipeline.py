@@ -18,6 +18,7 @@ import shlex
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -7201,6 +7202,134 @@ def test_the_linter_reads_a_threat_file_when_given_one(tmp_path, capsys, monkeyp
     monkeypatch.setattr(sys, "argv", ["lint.py", str(doc), "--threats", str(threats)])
     assert lint_mod.main() == 1
     assert "T-99" in capsys.readouterr().out
+
+
+def test_risk_refs_must_resolve_to_an_assessment(tmp_path):
+    requirements = yaml.safe_load(
+        _requirements_file(
+            tmp_path / "requirements.yaml", risk_refs=["T-99"]
+        ).read_text(encoding="utf-8")
+    )
+    threats = {"threats": [{"id": "T-01", "related_controls": []}]}
+    assessment = {"assessments": [{"threat_id": "T-01"}]}
+
+    findings = lint_mod.lint(
+        requirements, "en", threats, assessment=assessment
+    )
+
+    assert any(
+        finding.rule == "risk-ref-unknown" and "T-99" in finding.message
+        for finding in findings
+    )
+
+
+def test_risk_refs_are_unknown_when_the_assessment_set_is_empty(tmp_path):
+    requirements = yaml.safe_load(
+        _requirements_file(
+            tmp_path / "requirements.yaml", risk_refs=["T-99"]
+        ).read_text(encoding="utf-8")
+    )
+
+    findings = lint_mod.lint(
+        requirements, "en", None, assessment={"assessments": []}
+    )
+
+    assert any(finding.rule == "risk-ref-unknown" for finding in findings)
+
+
+def test_residual_evidence_refs_must_exist_and_be_current(tmp_path):
+    requirements_path = _requirements_file(
+        tmp_path / "requirements.yaml", risk_refs=["T-01"]
+    )
+    requirements = yaml.safe_load(requirements_path.read_text(encoding="utf-8"))
+    managed = requirements["requirements"][0]["managed"]
+    evidence = {
+        "evidence": [
+            {
+                "id": "EVID-EXPIRED-01",
+                "requirement_id": "REQ-DATA-REST-01",
+                "requirement_digest": risk.canonical_digest(managed),
+                "method": "iac_inspect",
+                "result": "pass",
+                "observed_at": "2026-01-01T00:00:00Z",
+                "observed_by": "security-reviewer",
+                "artifact": {
+                    "kind": "test_report",
+                    "location": "internal-only/42",
+                    "digest": "sha256:" + "b" * 64,
+                },
+                "supports": ["likelihood"],
+                "valid_until": "2026-08-12",
+            }
+        ]
+    }
+    assessment = {
+        "assessments": [
+            {
+                "threat_id": "T-01",
+                "residual": {
+                    "proposed": {
+                        "likelihood": {
+                            "evidence_refs": ["EVID-EXPIRED-01", "EVID-MISSING-01"]
+                        },
+                        "impact": {"evidence_refs": []},
+                    }
+                },
+            }
+        ]
+    }
+
+    findings = lint_mod.lint(
+        requirements,
+        "en",
+        {"threats": [{"id": "T-01", "related_controls": []}]},
+        assessment=assessment,
+        evidence=evidence,
+        today=date(2026, 8, 13),
+    )
+
+    assert any(
+        finding.rule == "evidence-ref-unknown" and "EVID-MISSING-01" in finding.message
+        for finding in findings
+    )
+    assert any(
+        finding.rule == "evidence-ref-stale" and "EVID-EXPIRED-01" in finding.message
+        for finding in findings
+    )
+    assert all("internal-only/42" not in finding.message for finding in findings)
+
+
+def test_evidence_requirement_refs_must_resolve(tmp_path):
+    requirements_path = _requirements_file(tmp_path / "requirements.yaml")
+    requirements = yaml.safe_load(requirements_path.read_text(encoding="utf-8"))
+    evidence = {
+        "evidence": [
+            {
+                "id": "EVID-ORPHAN-01",
+                "requirement_id": "REQ-NOT-THERE-01",
+                "requirement_digest": "sha256:" + "c" * 64,
+                "method": "test_case",
+                "result": "pass",
+                "observed_at": "2026-08-12T00:00:00Z",
+                "observed_by": "security-reviewer",
+                "artifact": {
+                    "kind": "test_report",
+                    "location": "internal-only/43",
+                    "digest": "sha256:" + "d" * 64,
+                },
+            }
+        ]
+    }
+
+    findings = lint_mod.lint(
+        requirements, "en", None, evidence=evidence, today=date(2026, 8, 13)
+    )
+
+    assert any(
+        finding.rule == "evidence-requirement-unknown"
+        and "REQ-NOT-THERE-01" in finding.message
+        for finding in findings
+    )
 
 
 def test_an_unsupported_locale_is_refused_before_the_file_is_read(tmp_path, monkeypatch):
