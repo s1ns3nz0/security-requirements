@@ -1521,6 +1521,7 @@ def migrate(threats: dict, requirements: dict) -> dict:
         "threats": copy.deepcopy(dict(threats)),
         "requirements": copy.deepcopy(dict(requirements)),
         "evidence": evidence,
+        "policy_digest": policy_digest(policy),
     }
     return {
         **migration,
@@ -1658,6 +1659,7 @@ def refresh_assessment(
     current_requirements: dict | None = None,
     previous_evidence: dict | None = None,
     current_evidence: dict | None = None,
+    policy_changed: bool = False,
 ) -> dict:
     """Reuse unchanged risk records and stale only refresh-affected decisions."""
 
@@ -1744,6 +1746,12 @@ def refresh_assessment(
             changed = True
         if record is None:
             continue
+
+        if current_status == "active" and policy_changed:
+            if record.get("status") == "CONFIRMED":
+                record["status"] = "STALE"
+                changed = True
+            changed = _mark_residual_stale(record) or changed
 
         if current_status == "active" and previous is None:
             if record.get("status") != "PROPOSED":
@@ -1864,11 +1872,14 @@ def _refresh_documents(paths: Mapping | object) -> tuple[dict, dict, dict]:
     )
 
 
-def _refresh_baseline(threats: dict, requirements: dict, evidence: dict) -> dict:
+def _refresh_baseline(
+    threats: dict, requirements: dict, evidence: dict, policy: dict
+) -> dict:
     return {
         "threats": copy.deepcopy(threats),
         "requirements": copy.deepcopy(requirements),
         "evidence": copy.deepcopy(evidence),
+        "policy_digest": policy_digest(policy),
     }
 
 
@@ -2244,7 +2255,7 @@ def stamp_assessment(
     )
     next_risk_state = copy.deepcopy(risk_state)
     next_risk_state["refresh_baseline"] = _refresh_baseline(
-        confirmed_threats, requirements, evidence
+        confirmed_threats, requirements, evidence, policy
     )
     next_risk_state = append_snapshot(
         next_risk_state,
@@ -2354,6 +2365,8 @@ def check_assessment(paths: Mapping | object) -> list[str]:
                 current_requirements=requirements,
                 previous_evidence=previous_evidence,
                 current_evidence=evidence,
+                policy_changed=baseline.get("policy_digest")
+                != policy_digest(policy),
             )
         except RiskValidationError as exc:
             problems.append(f"risk refresh baseline is invalid: {exc}")
@@ -2435,8 +2448,9 @@ def refresh_persisted_assessment(paths: Mapping | object) -> tuple[dict, list[st
         current_requirements=requirements,
         previous_evidence=baseline.get("evidence"),
         current_evidence=evidence,
+        policy_changed=baseline.get("policy_digest") != policy_digest(policy),
     )
-    next_baseline = _refresh_baseline(threats, requirements, evidence)
+    next_baseline = _refresh_baseline(threats, requirements, evidence, policy)
     assessment_changed = canonical_digest(refreshed) != canonical_digest(assessment)
     inputs_changed = canonical_digest(next_baseline) != canonical_digest(baseline)
     if not assessment_changed and not inputs_changed:

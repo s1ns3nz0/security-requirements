@@ -2443,6 +2443,130 @@ def test_bound_refresh_can_advance_after_another_material_input_change(risk_fixt
     assert trusted["risk_state_digest"] == risk.canonical_digest(state)
 
 
+def _change_and_confirm_policy(risk_fixture, confirmed_at):
+    policy = yaml.safe_load(risk_fixture.paths["policy"].read_text(encoding="utf-8"))
+    policy["publish_risk_summary"] = not policy.get("publish_risk_summary", False)
+    risk_fixture.paths["policy"].write_text(
+        yaml.safe_dump(policy, sort_keys=False), encoding="utf-8"
+    )
+    return risk.stamp_policy(
+        risk_fixture.paths,
+        "risk-owner",
+        "self_declared",
+        confirmed_at=confirmed_at,
+    )
+
+
+def test_confirmed_policy_change_refresh_stales_all_active_risk_and_reconfirms(
+    risk_fixture,
+):
+    _add_confirmed_residual(risk_fixture)
+    risk_fixture.confirm_all()
+    changed_policy = _change_and_confirm_policy(
+        risk_fixture, "2026-08-13T00:02:00Z"
+    )
+
+    refreshed, _messages = risk.refresh_persisted_assessment(risk_fixture.paths)
+
+    record = refreshed["assessments"][0]
+    assert record["status"] == "STALE"
+    assert record["residual"]["status"] == "STALE"
+    assert "confirmation" not in refreshed
+    state = yaml.safe_load(risk_fixture.paths["state"].read_text(encoding="utf-8"))
+    trusted = yaml.safe_load(
+        risk.confirmation_state_path(
+            risk_fixture.paths["project_root"], "assessment"
+        ).read_text(encoding="utf-8")
+    )
+    assert state["refresh_baseline"]["policy_digest"] == risk.policy_digest(
+        changed_policy
+    )
+    assert [snapshot["event"] for snapshot in state["snapshots"]] == [
+        "confirmed",
+        "refreshed",
+    ]
+    assert trusted["status"] == "refresh_bound"
+    assert trusted["policy_digest"] == risk.policy_digest(changed_policy)
+
+    risk.stamp_assessment(
+        risk_fixture.paths,
+        "risk-owner",
+        "self_declared",
+        confirmed_at="2026-08-13T00:03:00Z",
+    )
+
+    assert risk.check_assessment(risk_fixture.paths) == []
+
+
+def test_refresh_bound_policy_change_advances_binding_before_reconfirmation(
+    risk_fixture,
+):
+    _add_confirmed_residual(risk_fixture)
+    risk_fixture.confirm_all()
+    risk_fixture.change_threat("T-01", scenario="first changed scenario")
+    first_refresh, _messages = risk.refresh_persisted_assessment(risk_fixture.paths)
+    assert first_refresh["assessments"][0]["status"] == "STALE"
+    assert first_refresh["assessments"][0]["residual"]["status"] == "CONFIRMED"
+    changed_policy = _change_and_confirm_policy(
+        risk_fixture, "2026-08-13T00:02:00Z"
+    )
+
+    second_refresh, _messages = risk.refresh_persisted_assessment(risk_fixture.paths)
+
+    assert second_refresh["assessments"][0]["residual"]["status"] == "STALE"
+    state_before = yaml.safe_load(
+        risk_fixture.paths["state"].read_text(encoding="utf-8")
+    )
+    trusted = yaml.safe_load(
+        risk.confirmation_state_path(
+            risk_fixture.paths["project_root"], "assessment"
+        ).read_text(encoding="utf-8")
+    )
+    assert state_before["refresh_baseline"]["policy_digest"] == risk.policy_digest(
+        changed_policy
+    )
+    assert [snapshot["event"] for snapshot in state_before["snapshots"]] == [
+        "confirmed",
+        "refreshed",
+        "refreshed",
+    ]
+    assert trusted["risk_state_digest"] == risk.canonical_digest(state_before)
+    assert trusted["policy_digest"] == risk.policy_digest(changed_policy)
+
+    risk.stamp_assessment(
+        risk_fixture.paths,
+        "risk-owner",
+        "self_declared",
+        confirmed_at="2026-08-13T00:03:00Z",
+    )
+
+    state_after = yaml.safe_load(
+        risk_fixture.paths["state"].read_text(encoding="utf-8")
+    )
+    assert state_after["snapshots"][:3] == state_before["snapshots"]
+    assert state_after["snapshots"][-1]["event"] == "confirmed"
+
+
+def test_unchanged_policy_refresh_is_a_byte_preserving_noop(risk_fixture):
+    risk_fixture.confirm_all()
+    trusted_path = risk.confirmation_state_path(
+        risk_fixture.paths["project_root"], "assessment"
+    )
+    before = {
+        "assessment": risk_fixture.paths["assessment"].read_bytes(),
+        "state": risk_fixture.paths["state"].read_bytes(),
+        "trusted": trusted_path.read_bytes(),
+    }
+
+    assessment, messages = risk.refresh_persisted_assessment(risk_fixture.paths)
+
+    assert messages == []
+    assert assessment["confirmation"]["status"] == "confirmed"
+    assert risk_fixture.paths["assessment"].read_bytes() == before["assessment"]
+    assert risk_fixture.paths["state"].read_bytes() == before["state"]
+    assert trusted_path.read_bytes() == before["trusted"]
+
+
 def test_refresh_external_binding_failure_restores_repository_and_trusted_bytes(
     risk_fixture, monkeypatch
 ):
