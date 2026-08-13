@@ -559,7 +559,7 @@ def test_unresolved_risk_ordering_is_after_critical_before_high():
     assert requirements == original
 
 
-def test_active_lifecycle_risk_links_come_from_canonical_threat_records():
+def test_retired_risk_ref_is_preserved_but_excluded_from_exposure():
     threats = {
         "threats": [
             threat_record("T-ACTIVE"),
@@ -585,9 +585,19 @@ def test_active_lifecycle_risk_links_come_from_canonical_threat_records():
     assert risk.derive_risk_links(
         ["T-RETIRED", "T-ACTIVE"], assessment, threats
     ) == {
-        "risk_refs": ["T-ACTIVE"],
+        "risk_refs": ["T-ACTIVE", "T-RETIRED"],
         "risk_exposure": "medium",
     }
+
+
+def test_unknown_risk_ref_is_preserved_for_lint():
+    result = risk.derive_risk_links(
+        ["T-UNKNOWN"],
+        {"assessments": []},
+        {"threats": [threat_record("T-ACTIVE")]},
+    )
+
+    assert result == {"risk_refs": ["T-UNKNOWN"]}
 
 
 def test_expired_acceptance_risk_exposure_is_unresolved_and_sorts_before_high():
@@ -800,6 +810,12 @@ def test_impossible_public_risk_summary_is_rejected(section):
         risk.render_public_summary(
             {"inherent": section}, {"publish_risk_summary": True}
         )
+
+
+@pytest.mark.parametrize("summary", [{}, {"inherent": []}])
+def test_public_risk_summary_requires_a_valid_aggregate_section(summary):
+    with pytest.raises(risk.RiskValidationError, match="public risk summary"):
+        risk.render_public_summary(summary, {"publish_risk_summary": True})
 
 
 def test_provisional_public_risk_summary_with_consistent_coverage_is_allowed():

@@ -834,13 +834,8 @@ def derive_risk_links(
     if not isinstance(threat_refs, Sequence) or isinstance(threat_refs, (str, bytes)):
         raise RiskValidationError("requirement threat_refs must be a list")
     active_ids = {threat["id"] for threat in active_threats(threats)}
-    refs = sorted(
-        {
-            reference
-            for reference in threat_refs
-            if _nonempty_text(reference) and reference in active_ids
-        }
-    )
+    refs = sorted({reference for reference in threat_refs if _nonempty_text(reference)})
+    active_refs = [reference for reference in refs if reference in active_ids]
     if not isinstance(assessment, Mapping):
         raise RiskValidationError("assessment document must be a mapping")
     records = assessment.get("assessments")
@@ -859,14 +854,14 @@ def derive_risk_links(
         records_by_id[threat_id] = record
 
     result: dict[str, object] = {"risk_refs": refs}
-    if not refs:
+    if not active_refs:
         return result
     if today is None:
         today = date.today()
 
     confirmed_ratings: list[str] = []
     unresolved: set[str] = set()
-    for reference in refs:
+    for reference in active_refs:
         record = records_by_id.get(reference)
         if record is None:
             unresolved.add("UNDETERMINED")
@@ -1052,13 +1047,20 @@ def render_register(summary: dict) -> str:
 
 
 def _public_summary_sections(summary: Mapping) -> list[tuple[str, Mapping]]:
-    sections = [
-        (name, value)
-        for name in ("inherent", "residual")
-        if isinstance((value := summary.get(name)), Mapping)
-    ]
+    sections: list[tuple[str, Mapping]] = []
+    for name in ("inherent", "residual"):
+        if name not in summary:
+            continue
+        value = summary[name]
+        if not isinstance(value, Mapping):
+            raise RiskValidationError(
+                f"public risk summary {name} aggregate must be a mapping"
+            )
+        sections.append((name, value))
     if not sections and any(field in summary for field in ("overall", "counts", "coverage")):
         sections.append(("inherent", summary))
+    if not sections:
+        raise RiskValidationError("public risk summary has no aggregate section")
     return sections
 
 
