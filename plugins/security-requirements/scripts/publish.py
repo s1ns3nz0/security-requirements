@@ -427,11 +427,27 @@ def _move_previous_tree_to_backup(
         # recovery snapshot before reporting failure.
         if _tree_matches(old_recovery, old_manifest, project_root):
             try:
-                if public_root.exists():
+                if _public_tree_state(
+                    public_root, project_root, old_manifest, ()
+                ) != "absent":
                     _remove_tree(public_root, project_root)
                 _copy_tree_no_follow(old_recovery, public_root)
             except BaseException:
-                if not public_root.exists():
+                state = _public_tree_state(
+                    public_root, project_root, old_manifest, ()
+                )
+                if state == "old":
+                    raise move_error
+                if state != "absent":
+                    try:
+                        _remove_tree(public_root, project_root)
+                    except BaseException:
+                        state = _public_tree_state(
+                            public_root, project_root, old_manifest, ()
+                        )
+                if state == "absent" or _public_tree_state(
+                    public_root, project_root, old_manifest, ()
+                ) == "absent":
                     try:
                         os.replace(old_recovery, public_root)
                     except BaseException:
@@ -554,9 +570,10 @@ def _restore_public_root(
                                 return "new"
                             if after_retry == "old":
                                 return "old"
-                            raise PublicationError(
-                                "cannot clear a partially removed public tree"
-                            ) from retry_error
+                            if after_retry != "absent":
+                                raise PublicationError(
+                                    "cannot clear a partially removed public tree"
+                                ) from retry_error
                 else:
                     try:
                         _remove_tree(public_root, project_root)
@@ -629,8 +646,7 @@ def _restore_public_root(
                         return outcome
                     raise recovery_error
             finally:
-                if recovery.exists():
-                    _best_effort_remove_tree(recovery, project_root)
+                _best_effort_remove_tree(recovery, project_root)
 
         state = _public_tree_state(
             public_root, project_root, old_manifest, new_manifest
@@ -706,6 +722,7 @@ def stage_and_publish(
     backup: Path | None = None
     old_recovery: Path | None = None
     activated = False
+    committed = False
     try:
         if had_public_root:
             _copy_tree_no_follow(public_root, candidate, dirs_exist_ok=True)
@@ -873,6 +890,7 @@ def stage_and_publish(
                 # Rollback could not begin, but only an exact manifest match
                 # can cross the commit-forward success boundary. Preserve the
                 # sole previous-tree backup as the recovery artifact.
+                committed = True
                 return
             raise PublicationError(
                 "state-write recovery did not produce a verified public tree"
@@ -908,12 +926,13 @@ def stage_and_publish(
             raise PublicationError(
                 "public tree changed before backup cleanup"
             )
+        # This is the commit point. Do not run cleanup, path inspection, or any
+        # other caller-observable seam after this exact manifest check. The two
+        # verified old copies are deliberately retained as recovery artifacts.
+        committed = True
     finally:
-        _best_effort_remove_tree(candidate, project)
-        if activated and backup is not None:
-            _best_effort_remove_tree(backup, project)
-        if activated and old_recovery is not None:
-            _best_effort_remove_tree(old_recovery, project)
+        if not committed:
+            _best_effort_remove_tree(candidate, project)
 
 
 def argument_parser() -> argparse.ArgumentParser:

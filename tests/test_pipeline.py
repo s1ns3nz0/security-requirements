@@ -3314,6 +3314,54 @@ def test_partial_remove_during_rollback_reinspects_and_restores_old_tree(
     assert _read_public_docs(project) == before
 
 
+def test_retry_remove_completion_then_error_restores_old_canonical(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_replace = publish.os.replace
+    real_remove = publish._remove_tree
+    remove_attempts = 0
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure")
+        return real_write(path, *args, **kwargs)
+
+    def fail_displaced_move(source, target):
+        if Path(source) == project / "docs" / "security" and "failed" in Path(target).name:
+            raise OSError("injected displaced move failure")
+        return real_replace(source, target)
+
+    def remove_then_report_error(path, project_root):
+        nonlocal remove_attempts
+        if Path(path) == project / "docs" / "security":
+            remove_attempts += 1
+            if remove_attempts == 1:
+                (Path(path) / "responsibility.md").unlink()
+                raise OSError("injected partial remove failure")
+            real_remove(path, project_root)
+            raise OSError("injected post-remove completion failure")
+        return real_remove(path, project_root)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+    monkeypatch.setattr(publish.os, "replace", fail_displaced_move)
+    monkeypatch.setattr(publish, "_remove_tree", remove_then_report_error)
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert remove_attempts == 2
+    assert _read_public_docs(project) == before
+
+
 def test_committed_displaced_rename_exception_restores_before_state_error(
     tmp_path, monkeypatch
 ):
@@ -3386,6 +3434,53 @@ def test_altered_backup_after_committed_initial_rename_restores_old_canonical(
             ("requirements.md", "traceability.md", "responsibility.md"),
         )
 
+    assert _read_public_docs(project) == before
+
+
+def test_partial_canonical_recovery_copy_is_replaced_with_exact_old_snapshot(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_replace = publish.os.replace
+    real_copy = publish._copy_tree_no_follow
+    partial_copy_injected = False
+
+    def commit_and_alter_backup(source, target):
+        source_path = Path(source)
+        target_path = Path(target)
+        if source_path == project / "docs" / "security" and "backup" in target_path.name:
+            real_replace(source, target)
+            (target_path / "requirements.md").write_text(
+                "altered backup\n", encoding="utf-8"
+            )
+            raise OSError("injected altered backup failure")
+        return real_replace(source, target)
+
+    def partially_copy_old_snapshot(source, destination, **kwargs):
+        nonlocal partial_copy_injected
+        if "previous" in Path(source).name and Path(destination) == project / "docs" / "security":
+            partial_copy_injected = True
+            Path(destination).mkdir()
+            (Path(destination) / "requirements.md").write_text(
+                "partial old tree\n", encoding="utf-8"
+            )
+            raise OSError("injected partial canonical recovery copy")
+        return real_copy(source, destination, **kwargs)
+
+    monkeypatch.setattr(publish.os, "replace", commit_and_alter_backup)
+    monkeypatch.setattr(publish, "_copy_tree_no_follow", partially_copy_old_snapshot)
+
+    with pytest.raises((OSError, publish.PublicationError)):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert partial_copy_injected
     assert _read_public_docs(project) == before
 
 
@@ -3462,12 +3557,63 @@ def test_activation_failure_recovers_when_direct_backup_restore_fails(
     } == before
 
 
+def test_recovery_exists_base_exception_stays_inside_best_effort_boundary(
+    tmp_path, monkeypatch
+):
+    class CleanupInterrupt(BaseException):
+        pass
+
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_replace = publish.os.replace
+    real_exists = Path.exists
+    recovery_installed = False
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure")
+        return real_write(path, *args, **kwargs)
+
+    def fail_direct_restore(source, target):
+        nonlocal recovery_installed
+        source_path = Path(source)
+        target_path = Path(target)
+        if "backup" in source_path.name and target_path.name == "security":
+            raise OSError("injected direct restore failure")
+        result = real_replace(source, target)
+        if "recovery" in source_path.name and target_path.name == "security":
+            recovery_installed = True
+        return result
+
+    def interrupt_recovery_exists(path):
+        if recovery_installed and "recovery" in Path(path).name:
+            raise CleanupInterrupt("injected recovery exists interrupt")
+        return real_exists(path)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+    monkeypatch.setattr(publish.os, "replace", fail_direct_restore)
+    monkeypatch.setattr(Path, "exists", interrupt_recovery_exists)
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert recovery_installed
+    assert _read_public_docs(project) == before
+
+
 def test_crossed_activation_commit_finishes_state_after_verifying_new_tree(
     tmp_path, monkeypatch
 ):
     project = tmp_path / "project"
     monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
-    _seed_public_docs(project)
+    before = _seed_public_docs(project)
     generated = _generated_public_docs(tmp_path / "external staging")
     real_replace = publish.os.replace
 
@@ -3489,31 +3635,75 @@ def test_crossed_activation_commit_finishes_state_after_verifying_new_tree(
 
     public = project / "docs" / "security"
     assert (public / "requirements.md").read_text(encoding="utf-8").startswith("new")
-    assert not list((project / "docs").glob(".security-publish-backup-*"))
+    backups = list((project / "docs").glob(".security-publish-backup-*"))
+    previous = list((project / "docs").glob(".security-publish-previous-*"))
+    assert len(backups) == len(previous) == 1
+    for recovery in (backups[0], previous[0]):
+        assert {
+            str(path.relative_to(recovery)): path.read_bytes()
+            for path in sorted(recovery.rglob("*"))
+            if path.is_file()
+        } == before
     state_root, state_path = publish._publication_state_target(project)
     assert publish._load_state(state_path, state_root)
 
 
-@pytest.mark.parametrize(
-    "cleanup_error",
-    [
-        OSError("injected cleanup failure"),
-        publish.UnsafePathError("injected unsafe cleanup failure"),
-        KeyboardInterrupt("injected interrupt during cleanup"),
-    ],
-)
-def test_backup_cleanup_failure_does_not_report_a_failed_committed_publication(
-    tmp_path, monkeypatch, cleanup_error
+def test_verified_commit_retains_old_copies_without_post_commit_cleanup_seam(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_cleanup = publish._best_effort_remove_tree
+    committed = False
+    post_commit_cleanup_calls: list[Path] = []
+
+    def record_state_commit(path, *args, **kwargs):
+        nonlocal committed
+        result = real_write(path, *args, **kwargs)
+        if "publication" in Path(path).parts:
+            committed = True
+        return result
+
+    def mutate_if_cleanup_runs(path, project_root):
+        if committed:
+            post_commit_cleanup_calls.append(Path(path))
+            (project / "docs" / "security" / "responsibility.md").unlink()
+        return real_cleanup(path, project_root)
+
+    monkeypatch.setattr(publish, "safe_write_text", record_state_commit)
+    monkeypatch.setattr(publish, "_best_effort_remove_tree", mutate_if_cleanup_runs)
+
+    publish.stage_and_publish(
+        project,
+        generated,
+        ("requirements.md", "traceability.md", "responsibility.md"),
+    )
+
+    assert post_commit_cleanup_calls == []
+    public = project / "docs" / "security"
+    assert (public / "responsibility.md").read_text(encoding="utf-8").startswith("new")
+    assert len(list((project / "docs").glob(".security-publish-backup-*"))) == 1
+    assert len(list((project / "docs").glob(".security-publish-previous-*"))) == 1
+
+
+def test_committed_publication_does_not_enter_the_backup_cleanup_hook(
+    tmp_path, monkeypatch
 ):
     project = tmp_path / "project"
     monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
     _seed_public_docs(project)
     generated = _generated_public_docs(tmp_path / "external staging")
     real_remove = publish._remove_tree
+    cleanup_attempted = False
 
     def fail_backup_cleanup(path, project_root):
+        nonlocal cleanup_attempted
         if "backup" in Path(path).name:
-            raise cleanup_error
+            cleanup_attempted = True
+            raise KeyboardInterrupt("injected cleanup failure")
         return real_remove(path, project_root)
 
     monkeypatch.setattr(publish, "_remove_tree", fail_backup_cleanup)
@@ -3526,6 +3716,7 @@ def test_backup_cleanup_failure_does_not_report_a_failed_committed_publication(
 
     public = project / "docs" / "security"
     assert (public / "requirements.md").read_text(encoding="utf-8").startswith("new")
+    assert not cleanup_attempted
     assert len(list((project / "docs").glob(".security-publish-backup-*"))) == 1
 
 
