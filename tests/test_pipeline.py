@@ -13,21 +13,30 @@ from __future__ import annotations
 import copy
 import re
 import json
+import hashlib
+import os
+import shlex
+import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+from datetime import date
 from pathlib import Path
 
 import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "scripts"))
+PLUGIN_ROOT = REPO_ROOT / "plugins" / "security-requirements"
+sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
 import classify_resp  # noqa: E402
 import lint as lint_mod  # noqa: E402
 import merge  # noqa: E402
 import profile_schema  # noqa: E402
+import publish  # noqa: E402
+import risk  # noqa: E402
+import runtime_paths  # noqa: E402
 import select_baseline as sb  # noqa: E402
 
 GOLDEN = REPO_ROOT / "golden" / "b2b-saas-aws"
@@ -68,12 +77,12 @@ def threats():
 # ---------------------------------------------------------------------------
 
 def test_catalog_is_built():
-    assert (REPO_ROOT / "catalogs" / "nist-800-53r5" / "baselines.json").exists(), \
+    assert (PLUGIN_ROOT / "catalogs" / "nist-800-53r5" / "baselines.json").exists(), \
         "run scripts/rebuild_catalogs.py first"
 
 
 def test_baseline_sizes_match_publication():
-    path = REPO_ROOT / "catalogs" / "nist-800-53r5" / "baselines.json"
+    path = PLUGIN_ROOT / "catalogs" / "nist-800-53r5" / "baselines.json"
     baselines = json.loads(path.read_text(encoding="utf-8"))
     # SP 800-53B. A change here means the upstream release moved and the
     # curation needs revisiting, not that the test is wrong.
@@ -83,7 +92,7 @@ def test_baseline_sizes_match_publication():
 
 
 def test_all_twenty_families_are_bundled():
-    meta = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" / "meta.json").read_text(encoding="utf-8"))
+    meta = json.loads((PLUGIN_ROOT / "catalogs" / "nist-800-53r5" / "meta.json").read_text(encoding="utf-8"))
     assert len(meta["families_extracted"]) == 20
     assert meta["partial"] is False
 
@@ -96,13 +105,13 @@ def test_csf_matches_published_structure():
     set, must land on exactly the 106 and 22 that NIST publishes. Anything else
     means the filter drifted and the bundled structure is wrong.
     """
-    meta = json.loads((REPO_ROOT / "catalogs" / "csf-2.0" / "meta.json").read_text(encoding="utf-8"))
+    meta = json.loads((PLUGIN_ROOT / "catalogs" / "csf-2.0" / "meta.json").read_text(encoding="utf-8"))
     assert meta["subcategory_count"] == 106
     assert meta["category_count"] == 22
 
 
 def test_asvs_is_bundled_with_its_licence():
-    asvs = REPO_ROOT / "catalogs" / "asvs-5"
+    asvs = PLUGIN_ROOT / "catalogs" / "asvs-5"
     meta = json.loads((asvs / "meta.json").read_text(encoding="utf-8"))
     assert meta["requirement_count"] > 300
     assert meta["license"] == "CC BY-SA 4.0"
@@ -120,7 +129,7 @@ def test_no_unresolved_parameter_placeholders():
     reference each other's parameters (SC-42(2) uses one declared on SC-42(1)).
     Both leaked raw internal ids such as `ac-07_odp.04` into control statements.
     """
-    for path in (REPO_ROOT / "catalogs" / "nist-800-53r5").glob("*.jsonl"):
+    for path in (PLUGIN_ROOT / "catalogs" / "nist-800-53r5").glob("*.jsonl"):
         for line in path.read_text(encoding="utf-8").splitlines():
             record = json.loads(line)
             assert "_odp" not in record["statement"], record["id"]
@@ -131,6 +140,29 @@ def test_enhancement_identifiers_use_audit_notation():
     ids = lint_mod.load_catalog_ids()
     assert "SC-28(1)" in ids
     assert "sc-28.1" not in ids
+
+
+def test_missing_catalog_errors_emit_only_a_trusted_isolated_rebuild_command(
+    tmp_path, monkeypatch
+):
+    missing = tmp_path / "missing-catalog"
+    monkeypatch.setattr(lint_mod, "CATALOG_DIR", missing)
+    monkeypatch.setattr(sb, "CATALOG_DIR", missing)
+
+    with pytest.raises(SystemExit) as lint_error:
+        lint_mod.load_catalog_ids()
+    with pytest.raises(sb.ProfileError) as baseline_error:
+        sb.load_catalog()
+
+    expected = [
+        str(Path(sys.executable).resolve()),
+        "-I",
+        str((PLUGIN_ROOT / "scripts" / "rebuild_catalogs.py").resolve()),
+    ]
+    for error in (lint_error.value, baseline_error.value):
+        message = str(error)
+        assert "catalog not built; run " in message
+        assert shlex.split(message.partition("run ")[2]) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +231,7 @@ def test_encryption_is_not_an_accepted_modifier(profile):
     Accepting it as grounds for reduction lets a requirement delete itself.
     """
     table = yaml.safe_load(
-        (REPO_ROOT / "catalogs" / "data-types" / "classification.yaml").read_text(encoding="utf-8")
+        (PLUGIN_ROOT / "catalogs" / "data-types" / "classification.yaml").read_text(encoding="utf-8")
     )
     rejected = {m["id"] for m in table["rejected_modifiers"]}
     assert "encrypted_at_rest" in rejected
@@ -579,7 +611,7 @@ def test_availability_hint_is_gone(profile):
     wiring it would have driven availability to High for every service that
     holds secrets -- which is every service."""
     table = yaml.safe_load(
-        (REPO_ROOT / "catalogs" / "data-types" / "classification.yaml").read_text(encoding="utf-8")
+        (PLUGIN_ROOT / "catalogs" / "data-types" / "classification.yaml").read_text(encoding="utf-8")
     )
     assert not any("availability_hint" in t for t in table["types"])
 
@@ -784,6 +816,122 @@ def test_generic_threat_does_not_raise_to_high(crossed):
     assert item["priority"] == "medium"
 
 
+def test_cross_risk_exposure_links_confirmed_assessments_without_changing_priority():
+    controls = {"controls": ["AC-3"], "forced_requirements": []}
+    responsibility = {
+        "controls": [
+            {"control": "AC-3", "responsibility": "team", "services": []}
+        ]
+    }
+    threats = {
+        "threats": [
+            {
+                "id": "T-01",
+                "novelty": "generic",
+                "related_controls": ["AC-3"],
+            },
+            {
+                "id": "T-02",
+                "novelty": "generic",
+                "related_controls": ["AC-3"],
+            },
+        ]
+    }
+    assessment = {
+        "assessments": [
+            {"threat_id": "T-01", "status": "CONFIRMED", "calculated": {"rating": "high"}},
+            {"threat_id": "T-02", "status": "CONFIRMED", "calculated": {"rating": "critical"}},
+        ]
+    }
+
+    result = merge.cross(controls, responsibility, threats, assessment=assessment)
+    item = result["items"][0]
+
+    assert item["threat_refs"] == ["T-01", "T-02"]
+    assert item["risk_refs"] == ["T-01", "T-02"]
+    assert item["risk_exposure"] == "critical"
+    assert item["priority"] == "medium"
+
+
+def test_apply_risk_exposure_preserves_priority_byte_for_byte():
+    priority = {"source": "existing-priority-contract", "rank": 7}
+    draft = [
+        {
+            "slug": "WRITE-AUTHORIZATION",
+            "managed": {
+                "statement": "Writes require authorization.",
+                "threat_refs": ["T-02", "T-01", "T-02"],
+                "priority": priority,
+            },
+        }
+    ]
+    before = json.dumps(draft[0]["managed"]["priority"], sort_keys=True).encode()
+    assessment = {
+        "assessments": [
+            {"threat_id": "T-01", "status": "CONFIRMED", "calculated": {"rating": "high"}},
+            {"threat_id": "T-02", "status": "STALE", "calculated": {"rating": "critical"}},
+        ]
+    }
+
+    threats = {
+        "threats": [
+            {"id": "T-01", "lifecycle": {"status": "active"}},
+            {"id": "T-02", "lifecycle": {"status": "active"}},
+        ]
+    }
+    merged = merge.apply_merge(
+        draft,
+        [],
+        {"issued": {}},
+        assessment=assessment,
+        threats=threats,
+    )
+    requirement = merged["requirements"][0]
+
+    assert requirement["managed"]["risk_refs"] == ["T-01", "T-02"]
+    assert requirement["risk_exposure"] == "high"
+    assert json.dumps(
+        requirement["managed"]["priority"], sort_keys=True
+    ).encode() == before
+
+
+def test_apply_without_assessment_preserves_risk_metadata():
+    requirement_id = "REQ-WRITE-AUTHORIZATION-01"
+    existing = [
+        {
+            "id": requirement_id,
+            "managed": {
+                "statement": "Writes require authorization.",
+                "threat_refs": ["T-01"],
+                "risk_refs": ["T-01"],
+                "priority": "high",
+            },
+            "risk_exposure": "critical",
+            "human": {},
+        }
+    ]
+    draft = [
+        {
+            "slug": "WRITE-AUTHORIZATION",
+            "managed": {
+                "statement": "Every write requires authorization.",
+                "threat_refs": ["T-01"],
+                "priority": "high",
+            },
+        }
+    ]
+
+    merged = merge.apply_merge(
+        draft,
+        existing,
+        {"issued": {"WRITE-AUTHORIZATION": requirement_id}},
+    )
+    requirement = merged["requirements"][0]
+
+    assert requirement["managed"]["risk_refs"] == ["T-01"]
+    assert requirement["risk_exposure"] == "critical"
+
+
 def test_a_declared_capability_discharges_only_what_it_performs():
     """The first version of this moved every covered control to the
     organisation, which deleted work that genuinely exists.
@@ -939,6 +1087,53 @@ def test_human_edits_are_never_overwritten(draft):
     assert updated["human"]["exception"]["approver"] == "CISO"
     assert "A completely rewritten" not in updated["managed"]["statement"]
     assert updated["pending_review"]["managed"]["statement"].startswith("A completely rewritten")
+
+
+@pytest.mark.parametrize("status", ["accepted_risk", "exception"])
+def test_requirement_exception_migration_is_pending_review_only(status):
+    """Legacy exceptions stay in their requirement while threat migration awaits review."""
+    requirements = {
+        "requirements": [
+            {
+                "id": "REQ-AUTHZ-01",
+                "threat_refs": ["T-02", "T-01"],
+                "human": {
+                    "status": status,
+                    "owner": "platform",
+                    "exception": {
+                        "approver": "CISO",
+                        "expires": "2026-12-31",
+                        "reason": "vendor migration window",
+                    },
+                },
+            },
+            {
+                "id": "REQ-NO-THREAT-01",
+                "human": {"status": status, "exception": {"approver": "CISO"}},
+            },
+        ]
+    }
+    original = copy.deepcopy(requirements)
+
+    migrated = risk.propose_exception_migration(requirements)
+
+    assert requirements == original
+    proposal = migrated["requirements"][0]["pending_review"]["risk_treatment"]
+    assert proposal == {
+        "migration": "requirement_exception_to_threat_treatment",
+        "threat_refs": ["T-01", "T-02"],
+        "treatment": {
+            "strategy": "accept",
+            "owner": "platform",
+            "approval": {
+                "approver": "CISO",
+                "rationale": "vendor migration window",
+                "expires": "2026-12-31",
+            },
+        },
+    }
+    assert "pending_review" not in migrated["requirements"][1]
+    assert migrated["requirements"][0]["human"] == original["requirements"][0]["human"]
 
 
 def test_retirement_preserves_an_accepted_risk(draft):
@@ -1288,7 +1483,7 @@ def test_catalog_provenance_records_what_is_on_disk():
     rest where an earlier run put them, so the directory can hold two builds
     while the provenance names one. Consumers read the directory."""
     meta = json.loads(
-        (REPO_ROOT / "catalogs" / "nist-800-53r5" / "meta.json").read_text(encoding="utf-8"))
+        (PLUGIN_ROOT / "catalogs" / "nist-800-53r5" / "meta.json").read_text(encoding="utf-8"))
     assert meta["families_present"] == meta["families_extracted"]
     assert meta["families_stale"] == []
 
@@ -1413,7 +1608,7 @@ def test_hipaa_matches_the_published_rule_shape():
     """Nine administrative standards, four physical, five technical. The
     extractor asserts this too; the test guards the committed artefact."""
     src = json.loads(
-        (REPO_ROOT / "overlays" / "hipaa-security-rule" / "source.json").read_text(encoding="utf-8"))
+        (PLUGIN_ROOT / "overlays" / "hipaa-security-rule" / "source.json").read_text(encoding="utf-8"))
     assert src["standards_per_section"] == {
         "164.308": 9, "164.310": 4, "164.312": 5, "164.314": 2, "164.316": 2}
     assert src["designations"] == {"Required": 24, "Addressable": 22}
@@ -1499,7 +1694,7 @@ def test_the_derivation_carries_every_layer_it_selected(profile):
 
     # And the count must keep naming what it names: the impact baseline it was
     # always the size of, not the union it now sits beside.
-    baselines = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" /
+    baselines = json.loads((PLUGIN_ROOT / "catalogs" / "nist-800-53r5" /
                             "baselines.json").read_text(encoding="utf-8"))
     impact = set(baselines[derived["baseline"].replace("nist-800-53b-", "")])
     assert derived["control_count"] == len(impact) - len(derived["controls_unavailable"])
@@ -1807,7 +2002,7 @@ def test_overlays_pass_the_validator():
     these are the ones needing a view across overlays and against the
     baselines."""
     import subprocess
-    r = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "validate_overlays.py")],
+    r = subprocess.run([sys.executable, str(PLUGIN_ROOT / "scripts" / "validate_overlays.py")],
                        capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
 
@@ -1828,11 +2023,11 @@ def test_unreachable_clauses_are_not_reported_as_gaps(profile):
     derived = sb.run(profile)
     loaded = overlay_mod.load("pipa-isms-p")
 
-    baselines = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" /
+    baselines = json.loads((PLUGIN_ROOT / "catalogs" / "nist-800-53r5" /
                             "baselines.json").read_text(encoding="utf-8"))
     in_any = set().union(*baselines.values())
     catalog_ids = {json.loads(line)["id"]
-                   for line in (REPO_ROOT / "catalogs" / "nist-800-53r5" /
+                   for line in (PLUGIN_ROOT / "catalogs" / "nist-800-53r5" /
                                 "AC.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()}
     orphan = sorted(catalog_ids - in_any)[0]
 
@@ -1858,7 +2053,7 @@ def test_the_programme_layer_is_selected_at_every_impact_level(profile):
     map to them were permanently unreportable -- reported as tool advisories,
     which reads as a mapping error rather than a missing layer.
     """
-    baselines = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" /
+    baselines = json.loads((PLUGIN_ROOT / "catalogs" / "nist-800-53r5" /
                             "baselines.json").read_text(encoding="utf-8"))
     for impact in ("low", "moderate", "high"):
         assert not [c for c in baselines[impact] if c.startswith("PM-")], \
@@ -1884,7 +2079,7 @@ def test_the_programme_layer_lands_on_the_organisation(profile):
     """Thirty-two organisational controls folded into a team's list would bury
     the ones that are the team's. Asserted against what the classifier actually
     produces, not against the layer file it reads."""
-    baselines = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" /
+    baselines = json.loads((PLUGIN_ROOT / "catalogs" / "nist-800-53r5" /
                             "baselines.json").read_text(encoding="utf-8"))
     derived = sb.run(profile)
     result = classify_resp.classify(profile, derived["controls"])
@@ -1930,7 +2125,7 @@ def test_a_public_repository_declaring_confidential_source_is_questioned(profile
 def test_curation_covers_three_providers():
     """Curation must not be AWS-shaped. Two public GCP repositories came back
     with every managed service unverified."""
-    services = REPO_ROOT / "responsibility" / "services"
+    services = PLUGIN_ROOT / "responsibility" / "services"
     providers = set()
     for path in services.glob("*.yaml"):
         providers.add(yaml.safe_load(path.read_text(encoding="utf-8"))["provider"])
@@ -1956,7 +2151,9 @@ def test_generated_service_curation_is_loaded_from_persistent_plugin_data(
         }),
         encoding="utf-8",
     )
-    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path))
+    legacy = tmp_path / "legacy"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path))
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(legacy))
     candidate = copy.deepcopy(profile)
     candidate["inferred"]["managed_services"] = [{"id": "newcloud-db"}]
 
@@ -1966,6 +2163,82 @@ def test_generated_service_curation_is_loaded_from_persistent_plugin_data(
     assert "newcloud-db" in specs
     assert curated == []
     assert uncurated == ["newcloud-db"]
+    assert not legacy.exists()
+
+
+def test_generated_service_curation_rejects_relative_plugin_data_root(
+    profile, tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", "plugin-data")
+    candidate = copy.deepcopy(profile)
+    candidate["inferred"]["managed_services"] = [{"id": "newcloud-db"}]
+
+    with pytest.raises(
+        ValueError, match="SECURITY_REQUIREMENTS_DATA must be an absolute path"
+    ):
+        classify_resp.load_services(candidate, "aws", ["aws"])
+    assert not (project / "plugin-data").exists()
+
+
+def test_generated_service_curation_rejects_state_inside_inspected_project(
+    profile, tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(project / "plugin-data"))
+    candidate = copy.deepcopy(profile)
+    candidate["inferred"]["managed_services"] = [{"id": "newcloud-db"}]
+
+    with pytest.raises(ValueError, match="must be outside the inspected project"):
+        classify_resp.load_services(
+            candidate, "aws", ["aws"], project_root=project
+        )
+
+    assert not (project / "plugin-data").exists()
+
+
+def test_generated_service_cli_rejects_project_contained_state_without_traceback(
+    profile, tmp_path
+):
+    project = tmp_path / "project"
+    state_dir = project / ".security-requirements"
+    state_dir.mkdir(parents=True)
+    candidate = copy.deepcopy(profile)
+    candidate["inferred"]["managed_services"] = [{"id": "newcloud-db"}]
+    profile_path = state_dir / "profile.yaml"
+    controls_path = state_dir / "controls.json"
+    output_path = state_dir / "responsibility.json"
+    profile_path.write_text(yaml.safe_dump(candidate), encoding="utf-8")
+    controls_path.write_text('{"controls": []}\n', encoding="utf-8")
+    env = os.environ.copy()
+    env["SECURITY_REQUIREMENTS_DATA"] = str(project / "plugin-data")
+    env.pop("CLAUDE_PLUGIN_DATA", None)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "classify_resp.py"),
+            str(profile_path),
+            str(controls_path),
+            "--json",
+            str(output_path),
+        ],
+        cwd=project,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "must be outside the inspected project" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert result.stdout == ""
+    assert not output_path.exists()
 
 
 @pytest.mark.parametrize("service_id", ["../outside", "nested/service", "/absolute"])
@@ -1986,12 +2259,71 @@ def test_generated_service_symlink_cannot_escape_plugin_data(
     service_dir = tmp_path / "data" / "responsibility" / "services"
     service_dir.mkdir(parents=True)
     (service_dir / "escaped.yaml").symlink_to(outside)
-    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path / "legacy"))
     candidate = copy.deepcopy(profile)
     candidate["inferred"]["managed_services"] = [{"id": "escaped"}]
 
-    with pytest.raises(ValueError, match="escapes service curation directory"):
+    with pytest.raises(ValueError, match="symlink|escapes service curation directory"):
         classify_resp.load_services(candidate, "aws", ["aws"])
+
+
+def test_generated_service_ancestor_symlink_cannot_redirect_into_project(
+    profile, tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    project_services = project / ".security-requirements" / "services"
+    project_services.mkdir(parents=True)
+    (project_services / "evil.yaml").write_text(
+        yaml.safe_dump({"provider": "aws", "reviewed": True, "controls": {}}),
+        encoding="utf-8",
+    )
+    state_root = tmp_path / "external-state"
+    responsibility = state_root / "responsibility"
+    responsibility.mkdir(parents=True)
+    (responsibility / "services").symlink_to(
+        project_services, target_is_directory=True
+    )
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(state_root))
+    candidate = copy.deepcopy(profile)
+    candidate["inferred"]["managed_services"] = [{"id": "evil"}]
+
+    with pytest.raises(ValueError, match="symlink"):
+        classify_resp.load_services(
+            candidate, "aws", ["aws"], project_root=project
+        )
+
+
+def test_generated_service_rejects_a_physically_project_owned_state_file(
+    profile, tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    state_root = tmp_path / "external-state"
+    service_dir = state_root / "responsibility" / "services"
+    service_dir.mkdir(parents=True)
+    (service_dir / "evil.yaml").write_text(
+        yaml.safe_dump({"provider": "aws", "reviewed": True, "controls": {}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(state_root))
+    candidate = copy.deepcopy(profile)
+    candidate["inferred"]["managed_services"] = [{"id": "evil"}]
+    real_samefile = os.path.samefile
+
+    def samefile(left, right):
+        if Path(left) == service_dir and Path(right) == project:
+            return True
+        return real_samefile(left, right)
+
+    monkeypatch.setattr(runtime_paths.os.path, "samefile", samefile)
+
+    with pytest.raises(
+        ValueError, match="generated service curation must remain outside the project"
+    ):
+        classify_resp.load_services(
+            candidate, "aws", ["aws"], project_root=project
+        )
 
 
 def test_gke_network_policy_is_the_team_s(profile):
@@ -2199,7 +2531,7 @@ def test_shared_survives_when_a_provider_is_present():
 def _catalog_types():
     import yaml
     from pathlib import Path
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     return table, {e["id"]: e for e in table["types"]}
 
@@ -2211,7 +2543,7 @@ def test_gdpr_scope_is_not_a_copy_of_the_personal_data_flag():
     direction that says a regulation does not apply.
     """
     import yaml
-    meta = yaml.safe_load((REPO_ROOT / "overlays" / "gdpr" /
+    meta = yaml.safe_load((PLUGIN_ROOT / "overlays" / "gdpr" /
                            "meta.yaml").read_text(encoding="utf-8"))
     condition = meta["applies_when"]
     assert condition.get("data_types_personal") is True
@@ -2247,7 +2579,7 @@ def test_a_regime_whose_scope_is_not_personal_data_keeps_its_own_list():
     import yaml
     for overlay_id, expected in (("hipaa-security-rule", "health_records"),
                                  ("pci-dss", "payment_card_raw")):
-        meta = yaml.safe_load((REPO_ROOT / "overlays" / overlay_id /
+        meta = yaml.safe_load((PLUGIN_ROOT / "overlays" / overlay_id /
                                "meta.yaml").read_text(encoding="utf-8"))
         assert expected in meta["applies_when"]["data_types_any"]
         assert not meta["applies_when"].get("data_types_personal")
@@ -2291,8 +2623,1437 @@ def cli_workspace(tmp_path_factory, profile):
 
 def _run_cli(script, *args):
     import subprocess
-    return subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / script), *args],
+    return subprocess.run([sys.executable, str(PLUGIN_ROOT / "scripts" / script), *args],
                           capture_output=True, text=True)
+
+
+def _seed_public_docs(project: Path) -> dict[str, bytes]:
+    public = project / "docs" / "security"
+    public.mkdir(parents=True)
+    for name, content in {
+        "requirements.md": b"previous requirements\n",
+        "traceability.md": b"previous traceability\n",
+        "responsibility.md": b"previous responsibility\n",
+        "human-notes.md": b"human-owned publication notes\n",
+        "risk-summary.md": b"human-owned risk statement\n",
+    }.items():
+        (public / name).write_bytes(content)
+    return _read_public_docs(project)
+
+
+def _read_public_docs(project: Path) -> dict[str, bytes]:
+    public = project / "docs" / "security"
+    if not public.exists():
+        return {}
+    return {
+        str(path.relative_to(public)): path.read_bytes()
+        for path in sorted(public.rglob("*"))
+        if path.is_file()
+    }
+
+
+def _generated_public_docs(root: Path, *, include_summary: bool = False) -> Path:
+    root.mkdir(parents=True)
+    for name in ("requirements.md", "traceability.md", "responsibility.md"):
+        (root / name).write_text(f"new {name}\n", encoding="utf-8")
+    if include_summary:
+        (root / "risk-summary.md").write_text("approved aggregate only\n", encoding="utf-8")
+    return root
+
+
+def _write_unconfirmed_risk_documents(project: Path) -> None:
+    internal = project / ".security-requirements"
+    internal.mkdir(parents=True, exist_ok=True)
+    (internal / "risk-policy.yaml").write_text(
+        (PLUGIN_ROOT / "risk" / "default-policy.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (internal / "threats.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "version": "0.2.0",
+                "threats": [
+                    {
+                        "id": "T-01",
+                        "boundary": "TB-1",
+                        "category": "STRIDE:T",
+                        "novelty": "service_specific",
+                        "persona": "anonymous_external",
+                        "attack_path": "public_write_route",
+                        "scenario": "anonymous mutation",
+                        "affected_assets": ["movie_records"],
+                        "related_controls": ["AC-3"],
+                        "lifecycle": {"status": "active", "superseded_by": []},
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    (internal / "risk-assessment.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "assessments": [
+                    {
+                        "threat_id": "T-01",
+                        "status": "PROPOSED",
+                        "proposed": {
+                            "likelihood": {
+                                "criterion": "L4-PUBLIC-LOW-COMPLEXITY",
+                                "evidence": {
+                                    "exposure": "public",
+                                    "access_required": "none",
+                                    "exploit_complexity": "low",
+                                    "preconditions": ["route is reachable"],
+                                    "observed_controls": [],
+                                },
+                                "rationale": ["anonymous route is reachable"],
+                            },
+                            "consequences": [
+                                {
+                                    "id": "C-01",
+                                    "asset": "movie_records",
+                                    "axis": "integrity",
+                                    "criterion": "I4-CROSS-SYSTEM",
+                                    "rationale": ["catalogue mutation crosses tenants"],
+                                }
+                            ],
+                            "impact": {"selected_from": "C-01"},
+                        },
+                        "treatment": {
+                            "strategy": "mitigate",
+                            "owner": "service-team",
+                            "status": "planned",
+                        },
+                    }
+                ]
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _confirm_publish_risk(project: Path, *, opt_in: bool) -> tuple[dict, dict, dict]:
+    _write_unconfirmed_risk_documents(project)
+    internal = project / ".security-requirements"
+    policy_path = internal / "risk-policy.yaml"
+    policy = yaml.safe_load(policy_path.read_text(encoding="utf-8"))
+    policy["publish_risk_summary"] = opt_in
+    policy_path.write_text(
+        yaml.safe_dump(policy, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+    paths = {
+        "project_root": project,
+        "policy": policy_path,
+        "threats": internal / "threats.yaml",
+        "assessment": internal / "risk-assessment.yaml",
+    }
+    policy = risk.stamp_policy(
+        paths,
+        "risk-owner",
+        "self_declared",
+        confirmed_at="2026-08-13T00:00:00Z",
+    )
+    assessment = risk.stamp_assessment(
+        paths,
+        "risk-owner",
+        "self_declared",
+        confirmed_at="2026-08-13T00:01:00Z",
+    )
+    threats = yaml.safe_load(paths["threats"].read_text(encoding="utf-8"))
+    return policy, threats, assessment
+
+
+def test_failed_risk_gate_preserves_all_previous_public_documents(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project with spaces 한글"
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    _write_unconfirmed_risk_documents(project)
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+
+    result = _run_cli(
+        "publish.py",
+        "--project-root",
+        str(project),
+        "--generated",
+        str(generated),
+    )
+
+    assert result.returncode != 0
+    assert "risk" in result.stderr.lower()
+    assert _read_public_docs(project) == before
+
+
+def test_transactional_publication_rolls_back_every_document_on_swap_failure(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_replace = publish.os.replace
+
+    def fail_candidate_activation(source, target):
+        source_path = Path(source)
+        target_path = Path(target)
+        if target_path == project / "docs" / "security" and "candidate" in source_path.name:
+            raise OSError("injected publication failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(publish.os, "replace", fail_candidate_activation)
+
+    with pytest.raises(OSError, match="injected publication failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
+
+
+def test_transactional_publication_preserves_human_files_and_tracks_summary_ownership(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    _seed_public_docs(project)
+    first = _generated_public_docs(tmp_path / "first external staging")
+    standard = ("requirements.md", "traceability.md", "responsibility.md")
+
+    publish.stage_and_publish(project, first, standard)
+
+    public = project / "docs" / "security"
+    assert (public / "human-notes.md").read_text(encoding="utf-8").startswith("human")
+    assert (public / "risk-summary.md").read_text(encoding="utf-8").startswith("human")
+
+    policy, threats, assessment = _confirm_publish_risk(project, opt_in=True)
+    opt_in = _generated_public_docs(tmp_path / "second external staging")
+    (opt_in / "risk-summary.md").write_text(
+        "attack_path: caller-controlled internal detail\n", encoding="utf-8"
+    )
+    with pytest.raises(publish.PublicationError, match="human-owned risk-summary.md"):
+        publish.stage_and_publish(project, opt_in, (*standard, "risk-summary.md"))
+    assert (public / "risk-summary.md").read_text(encoding="utf-8").startswith("human")
+
+    (public / "risk-summary.md").unlink()
+    publish.stage_and_publish(project, opt_in, (*standard, "risk-summary.md"))
+    expected = risk.render_public_summary(
+        {"inherent": risk.aggregate_risk(threats, assessment)}, policy
+    )
+    assert expected is not None
+    assert (public / "risk-summary.md").read_text(encoding="utf-8") == expected
+    assert "attack_path" not in expected
+
+    opt_out = _generated_public_docs(tmp_path / "third external staging")
+    publish.stage_and_publish(project, opt_out, standard)
+    assert not (public / "risk-summary.md").exists()
+    assert (public / "human-notes.md").exists()
+
+
+def test_risk_summary_requires_confirmed_policy_opt_in_and_preserves_public_bytes(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    (generated / "risk-summary.md").write_text("forged aggregate\n", encoding="utf-8")
+    _confirm_publish_risk(project, opt_in=False)
+
+    with pytest.raises(publish.PublicationError, match="publish_risk_summary"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            (
+                "requirements.md",
+                "traceability.md",
+                "responsibility.md",
+                "risk-summary.md",
+            ),
+        )
+
+    assert _read_public_docs(project) == before
+
+
+@pytest.mark.parametrize(
+    "managed_files",
+    [
+        (),
+        ("requirements.md",),
+        ("requirements.md", "traceability.md"),
+        ("risk-summary.md",),
+        (
+            "requirements.md",
+            "traceability.md",
+            "responsibility.md",
+            "requirements.md",
+        ),
+    ],
+)
+def test_transactional_publication_requires_the_complete_base_managed_set(
+    tmp_path, monkeypatch, managed_files
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    generated = _generated_public_docs(tmp_path / "external staging")
+
+    with pytest.raises(publish.PublicationError, match="exact managed file set"):
+        publish.stage_and_publish(project, generated, managed_files)
+
+
+def test_transactional_publication_rejects_files_outside_the_plugin_allowlist(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    (generated / "human-notes.md").write_text("replacement\n", encoding="utf-8")
+
+    with pytest.raises(publish.PublicationError, match="not plugin-managed"):
+        publish.stage_and_publish(project, generated, ("human-notes.md",))
+
+    assert _read_public_docs(project) == before
+
+
+def test_repository_publication_state_cannot_authorize_deleting_a_human_summary(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    forged = project / ".security-requirements" / "publication-state.yaml"
+    forged.parent.mkdir(parents=True)
+    forged.write_text(
+        yaml.safe_dump(
+            {
+                "version": publish.STATE_VERSION,
+                "managed_files": {
+                    "risk-summary.md": "sha256:"
+                    + hashlib.sha256(before["risk-summary.md"]).hexdigest()
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    publish.stage_and_publish(
+        project,
+        generated,
+        ("requirements.md", "traceability.md", "responsibility.md"),
+    )
+
+    assert (project / "docs" / "security" / "risk-summary.md").read_bytes() == before[
+        "risk-summary.md"
+    ]
+
+
+def test_transactional_publication_rejects_missing_or_repository_staging_without_changes(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    incomplete = _generated_public_docs(tmp_path / "incomplete staging")
+    (incomplete / "responsibility.md").unlink()
+
+    with pytest.raises(FileNotFoundError, match="responsibility.md"):
+        publish.stage_and_publish(
+            project,
+            incomplete,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+    assert _read_public_docs(project) == before
+
+    controlled = _generated_public_docs(
+        project / ".security-requirements" / "staging"
+    )
+    with pytest.raises(ValueError, match="outside repository-controlled output trees"):
+        publish.stage_and_publish(project, controlled, publish.BASE_MANAGED_FILES)
+    assert _read_public_docs(project) == before
+
+
+def test_state_write_failure_restores_every_public_byte(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure")
+        return real_write(path, *args, **kwargs)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
+
+
+def test_failed_state_restore_keeps_the_only_previous_tree_as_a_backup(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_replace = publish.os.replace
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure")
+        return real_write(path, *args, **kwargs)
+
+    def fail_backup_restore(source, target):
+        if "backup" in Path(source).name and Path(target).name == "security":
+            raise OSError("injected restore failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+    monkeypatch.setattr(publish.os, "replace", fail_backup_restore)
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    backups = list((project / "docs").glob(".security-publish-backup-*"))
+    assert len(backups) == 1
+    assert {
+        str(path.relative_to(backups[0])): path.read_bytes()
+        for path in sorted(backups[0].rglob("*"))
+        if path.is_file()
+    } == before
+    assert _read_public_docs(project) == before
+
+
+def test_failure_moving_activated_tree_aside_still_restores_previous_public_bytes(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_replace = publish.os.replace
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure")
+        return real_write(path, *args, **kwargs)
+
+    def fail_activated_move_aside(source, target):
+        if (
+            Path(source) == project / "docs" / "security"
+            and "failed" in Path(target).name
+        ):
+            raise OSError("injected move-aside failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+    monkeypatch.setattr(publish.os, "replace", fail_activated_move_aside)
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
+
+
+def test_committed_initial_backup_rename_exception_continues_safely(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_replace = publish.os.replace
+
+    def commit_backup_then_report_failure(source, target):
+        source_path = Path(source)
+        target_path = Path(target)
+        if source_path == project / "docs" / "security" and "backup" in target_path.name:
+            real_replace(source, target)
+            raise OSError("injected post-backup-commit failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(publish.os, "replace", commit_backup_then_report_failure)
+
+    publish.stage_and_publish(
+        project,
+        generated,
+        ("requirements.md", "traceability.md", "responsibility.md"),
+    )
+
+    public = project / "docs" / "security"
+    assert (public / "requirements.md").read_text(encoding="utf-8").startswith("new")
+    assert (public / "human-notes.md").read_text(encoding="utf-8").startswith("human")
+
+
+def test_committed_activation_exception_continues_only_for_exact_new_tree(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_replace = publish.os.replace
+
+    def commit_activation_then_report_failure(source, target):
+        source_path = Path(source)
+        target_path = Path(target)
+        if "candidate" in source_path.name and target_path.name == "security":
+            real_replace(source, target)
+            raise OSError("injected post-activation-commit failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(publish.os, "replace", commit_activation_then_report_failure)
+
+    publish.stage_and_publish(
+        project,
+        generated,
+        ("requirements.md", "traceability.md", "responsibility.md"),
+    )
+
+    public = project / "docs" / "security"
+    assert (public / "requirements.md").read_text(encoding="utf-8").startswith("new")
+    state_root, state_path = publish._publication_state_target(project)
+    assert publish._load_state(state_path, state_root)
+
+
+def test_candidate_mutation_immediately_before_activation_restores_old_tree(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_replace = publish.os.replace
+
+    def mutate_candidate_after_backup(source, target):
+        result = real_replace(source, target)
+        if Path(source) == project / "docs" / "security" and "backup" in Path(target).name:
+            candidates = list(project.glob(".security-publish-candidate-*"))
+            assert len(candidates) == 1
+            (candidates[0] / "responsibility.md").unlink()
+        return result
+
+    monkeypatch.setattr(publish.os, "replace", mutate_candidate_after_backup)
+
+    with pytest.raises(publish.PublicationError, match="candidate tree changed"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
+
+
+def test_candidate_mutation_during_activation_restores_old_tree(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_replace = publish.os.replace
+
+    def mutate_after_activation(source, target):
+        result = real_replace(source, target)
+        if "candidate" in Path(source).name and Path(target).name == "security":
+            (Path(target) / "responsibility.md").unlink()
+        return result
+
+    monkeypatch.setattr(publish.os, "replace", mutate_after_activation)
+
+    with pytest.raises(publish.PublicationError, match="activated public tree"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
+
+
+def test_candidate_mutation_after_state_write_is_checked_before_backup_cleanup(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    mutation_injected = False
+
+    def mutate_public_after_state_write(path, *args, **kwargs):
+        nonlocal mutation_injected
+        result = real_write(path, *args, **kwargs)
+        if "publication" in Path(path).parts and not mutation_injected:
+            mutation_injected = True
+            (project / "docs" / "security" / "responsibility.md").unlink()
+        return result
+
+    monkeypatch.setattr(publish, "safe_write_text", mutate_public_after_state_write)
+
+    with pytest.raises(publish.PublicationError, match="before backup cleanup"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert mutation_injected
+    assert _read_public_docs(project) == before
+    state_root, state_path = publish._publication_state_target(project)
+    assert not state_path.exists()
+
+
+def test_displaced_artifact_setup_failure_occurs_before_activation(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_replace = publish.os.replace
+    real_unused = publish._unused_directory_path
+    activation_attempted = False
+
+    def commit_incomplete_activation_then_report_failure(source, target):
+        nonlocal activation_attempted
+        source_path = Path(source)
+        target_path = Path(target)
+        if "candidate" in source_path.name and target_path.name == "security":
+            activation_attempted = True
+            real_replace(source, target)
+            (target_path / "responsibility.md").unlink()
+            raise OSError("injected incomplete activation failure")
+        return real_replace(source, target)
+
+    def fail_recovery_artifact_setup(parent, project_root, prefix):
+        if prefix == ".security-publish-failed-":
+            raise OSError("injected recovery setup failure")
+        return real_unused(parent, project_root, prefix)
+
+    monkeypatch.setattr(
+        publish.os, "replace", commit_incomplete_activation_then_report_failure
+    )
+    monkeypatch.setattr(publish, "_unused_directory_path", fail_recovery_artifact_setup)
+
+    with pytest.raises(OSError, match="injected recovery setup failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert not activation_attempted
+    assert _read_public_docs(project) == before
+
+
+def test_partial_remove_during_rollback_reinspects_and_restores_old_tree(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_replace = publish.os.replace
+    real_remove = publish._remove_tree
+    partial_remove_injected = False
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure")
+        return real_write(path, *args, **kwargs)
+
+    def fail_displaced_move(source, target):
+        if Path(source) == project / "docs" / "security" and "failed" in Path(target).name:
+            raise OSError("injected displaced move failure")
+        return real_replace(source, target)
+
+    def partially_remove_public(path, project_root):
+        nonlocal partial_remove_injected
+        if Path(path) == project / "docs" / "security" and not partial_remove_injected:
+            partial_remove_injected = True
+            (Path(path) / "responsibility.md").unlink()
+            raise OSError("injected partial remove failure")
+        return real_remove(path, project_root)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+    monkeypatch.setattr(publish.os, "replace", fail_displaced_move)
+    monkeypatch.setattr(publish, "_remove_tree", partially_remove_public)
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert partial_remove_injected
+    assert _read_public_docs(project) == before
+
+
+def test_retry_remove_completion_then_error_restores_old_canonical(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_replace = publish.os.replace
+    real_remove = publish._remove_tree
+    remove_attempts = 0
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure")
+        return real_write(path, *args, **kwargs)
+
+    def fail_displaced_move(source, target):
+        if Path(source) == project / "docs" / "security" and "failed" in Path(target).name:
+            raise OSError("injected displaced move failure")
+        return real_replace(source, target)
+
+    def remove_then_report_error(path, project_root):
+        nonlocal remove_attempts
+        if Path(path) == project / "docs" / "security":
+            remove_attempts += 1
+            if remove_attempts == 1:
+                (Path(path) / "responsibility.md").unlink()
+                raise OSError("injected partial remove failure")
+            real_remove(path, project_root)
+            raise OSError("injected post-remove completion failure")
+        return real_remove(path, project_root)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+    monkeypatch.setattr(publish.os, "replace", fail_displaced_move)
+    monkeypatch.setattr(publish, "_remove_tree", remove_then_report_error)
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert remove_attempts == 2
+    assert _read_public_docs(project) == before
+
+
+def test_committed_displaced_rename_exception_restores_before_state_error(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_replace = publish.os.replace
+    real_manifest = publish._tree_manifest_no_follow
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure")
+        return real_write(path, *args, **kwargs)
+
+    def commit_displaced_then_report_failure(source, target):
+        source_path = Path(source)
+        target_path = Path(target)
+        if source_path == project / "docs" / "security" and "failed" in target_path.name:
+            real_replace(source, target)
+            raise OSError("injected post-displace-commit failure")
+        return real_replace(source, target)
+
+    def fail_displaced_inspection(path):
+        if "failed" in Path(path).name:
+            raise OSError("injected displaced inspection failure")
+        return real_manifest(path)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+    monkeypatch.setattr(publish.os, "replace", commit_displaced_then_report_failure)
+    monkeypatch.setattr(publish, "_tree_manifest_no_follow", fail_displaced_inspection)
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
+
+
+def test_altered_backup_after_committed_initial_rename_restores_old_canonical(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_replace = publish.os.replace
+
+    def commit_and_alter_backup(source, target):
+        source_path = Path(source)
+        target_path = Path(target)
+        if source_path == project / "docs" / "security" and "backup" in target_path.name:
+            real_replace(source, target)
+            (target_path / "requirements.md").write_text(
+                "altered backup\n", encoding="utf-8"
+            )
+            raise OSError("injected altered backup failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(publish.os, "replace", commit_and_alter_backup)
+
+    with pytest.raises((OSError, publish.PublicationError)):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
+
+
+def test_partial_canonical_recovery_copy_is_replaced_with_exact_old_snapshot(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_replace = publish.os.replace
+    real_copy = publish._copy_tree_no_follow
+    partial_copy_injected = False
+
+    def commit_and_alter_backup(source, target):
+        source_path = Path(source)
+        target_path = Path(target)
+        if source_path == project / "docs" / "security" and "backup" in target_path.name:
+            real_replace(source, target)
+            (target_path / "requirements.md").write_text(
+                "altered backup\n", encoding="utf-8"
+            )
+            raise OSError("injected altered backup failure")
+        return real_replace(source, target)
+
+    def partially_copy_old_snapshot(source, destination, **kwargs):
+        nonlocal partial_copy_injected
+        if "previous" in Path(source).name and Path(destination) == project / "docs" / "security":
+            partial_copy_injected = True
+            Path(destination).mkdir()
+            (Path(destination) / "requirements.md").write_text(
+                "partial old tree\n", encoding="utf-8"
+            )
+            raise OSError("injected partial canonical recovery copy")
+        return real_copy(source, destination, **kwargs)
+
+    monkeypatch.setattr(publish.os, "replace", commit_and_alter_backup)
+    monkeypatch.setattr(publish, "_copy_tree_no_follow", partially_copy_old_snapshot)
+
+    with pytest.raises((OSError, publish.PublicationError)):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert partial_copy_injected
+    assert _read_public_docs(project) == before
+
+
+def test_committed_direct_restore_exception_raises_only_with_old_tree_live(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_replace = publish.os.replace
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure")
+        return real_write(path, *args, **kwargs)
+
+    def commit_restore_then_report_failure(source, target):
+        source_path = Path(source)
+        target_path = Path(target)
+        if "backup" in source_path.name and target_path.name == "security":
+            real_replace(source, target)
+            raise OSError("injected post-restore-commit failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+    monkeypatch.setattr(publish.os, "replace", commit_restore_then_report_failure)
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
+
+
+def test_activation_failure_recovers_when_direct_backup_restore_fails(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_replace = publish.os.replace
+
+    def fail_activation_and_direct_restore(source, target):
+        source_path = Path(source)
+        target_path = Path(target)
+        if "candidate" in source_path.name and target_path.name == "security":
+            raise OSError("injected activation failure")
+        if "backup" in source_path.name and target_path.name == "security":
+            raise OSError("injected direct restore failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(publish.os, "replace", fail_activation_and_direct_restore)
+
+    with pytest.raises(OSError, match="injected activation failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
+    backups = list((project / "docs").glob(".security-publish-backup-*"))
+    assert len(backups) == 1
+    assert {
+        str(path.relative_to(backups[0])): path.read_bytes()
+        for path in sorted(backups[0].rglob("*"))
+        if path.is_file()
+    } == before
+
+
+def test_state_failure_restores_verified_snapshot_when_backup_is_altered(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+
+    def alter_backup_and_fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            backups = list((project / "docs").glob(".security-publish-backup-*"))
+            assert len(backups) == 1
+            (backups[0] / "requirements.md").write_text(
+                "altered backup\n", encoding="utf-8"
+            )
+            raise OSError("injected state failure after backup alteration")
+        return real_write(path, *args, **kwargs)
+
+    monkeypatch.setattr(
+        publish, "safe_write_text", alter_backup_and_fail_publication_state
+    )
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
+
+
+def test_restore_source_mutation_before_successful_rename_retries_exact_snapshot(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_replace = publish.os.replace
+    mutation_injected = False
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure before rollback")
+        return real_write(path, *args, **kwargs)
+
+    def mutate_restore_source_then_commit(source, target):
+        nonlocal mutation_injected
+        source_path = Path(source)
+        target_path = Path(target)
+        if (
+            not mutation_injected
+            and target_path == project / "docs" / "security"
+            and any(token in source_path.name for token in ("backup", "recovery"))
+        ):
+            mutation_injected = True
+            (source_path / "requirements.md").write_text(
+                "restore source changed after validation\n", encoding="utf-8"
+            )
+            return real_replace(source, target)
+        return real_replace(source, target)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+    monkeypatch.setattr(publish.os, "replace", mutate_restore_source_then_commit)
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert mutation_injected
+    assert _read_public_docs(project) == before
+
+
+def test_recovery_copy_swapped_to_symlink_is_unlinked_without_touching_target(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    marker = outside / "marker.txt"
+    marker.write_text("must survive\n", encoding="utf-8")
+    real_write = publish.safe_write_text
+    real_replace = publish.os.replace
+    swapped = False
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure before symlink race")
+        return real_write(path, *args, **kwargs)
+
+    def swap_verified_copy_to_symlink(source, target):
+        nonlocal swapped
+        source_path = Path(source)
+        target_path = Path(target)
+        if (
+            not swapped
+            and "recovery" in source_path.name
+            and target_path == project / "docs" / "security"
+        ):
+            swapped = True
+            shutil.rmtree(source_path)
+            source_path.symlink_to(outside, target_is_directory=True)
+        return real_replace(source, target)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+    monkeypatch.setattr(publish.os, "replace", swap_verified_copy_to_symlink)
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert swapped
+    assert marker.read_text(encoding="utf-8") == "must survive\n"
+    assert _read_public_docs(project) == before
+
+
+def test_reparse_like_canonical_is_removed_as_object_before_exact_restore(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_replace = publish.os.replace
+    real_rmdir = os.rmdir
+    marked_reparse: set[Path] = set()
+    reparse_inodes: set[int] = set()
+    reparse_injected = False
+    real_is_redirect_stat = publish._is_redirect_stat
+    real_tree_matches = publish._tree_matches
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure before reparse race")
+        return real_write(path, *args, **kwargs)
+
+    def mark_installed_copy_as_reparse(source, target):
+        nonlocal reparse_injected
+        result = real_replace(source, target)
+        if (
+            "recovery" in Path(source).name
+            and Path(target) == project / "docs" / "security"
+            and not reparse_injected
+        ):
+            reparse_injected = True
+            marked_reparse.add(Path(target))
+            reparse_inodes.add(os.lstat(target).st_ino)
+        return result
+
+    def classify_portable_reparse(metadata):
+        return (
+            metadata.st_ino in reparse_inodes
+            or real_is_redirect_stat(metadata)
+        )
+
+    def reject_marked_reparse(path, expected, project_root):
+        if Path(path) in marked_reparse:
+            return False
+        return real_tree_matches(path, expected, project_root)
+
+    def remove_reparse_object(path, *args, **kwargs):
+        target = Path(path)
+        if target in marked_reparse:
+            marked_reparse.remove(target)
+            reparse_inodes.discard(os.lstat(target).st_ino)
+            for member in sorted(target.rglob("*"), reverse=True):
+                if member.is_dir():
+                    real_rmdir(member)
+                else:
+                    member.unlink()
+            return real_rmdir(target)
+        return real_rmdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+    monkeypatch.setattr(publish.os, "replace", mark_installed_copy_as_reparse)
+    monkeypatch.setattr(publish, "_is_redirect_stat", classify_portable_reparse)
+    monkeypatch.setattr(publish, "_tree_matches", reject_marked_reparse)
+    monkeypatch.setattr(publish.os, "rmdir", remove_reparse_object)
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert reparse_injected
+    assert not marked_reparse
+    assert _read_public_docs(project) == before
+
+
+def test_restore_artifact_allocation_failure_leaves_old_canonical_live(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_unused = publish._unused_directory_path
+
+    def fail_second_restore_slot(parent, project_root, prefix):
+        if prefix == ".security-publish-recovery-b-":
+            assert _read_public_docs(project) == before
+            raise OSError("injected restore-slot allocation failure")
+        return real_unused(parent, project_root, prefix)
+
+    monkeypatch.setattr(publish, "_unused_directory_path", fail_second_restore_slot)
+
+    with pytest.raises(OSError, match="injected restore-slot allocation failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
+
+
+def test_recovery_exists_base_exception_stays_inside_best_effort_boundary(
+    tmp_path, monkeypatch
+):
+    class CleanupInterrupt(BaseException):
+        pass
+
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_replace = publish.os.replace
+    real_exists = Path.exists
+    recovery_installed = False
+
+    def fail_publication_state(path, *args, **kwargs):
+        if "publication" in Path(path).parts:
+            raise OSError("injected state failure")
+        return real_write(path, *args, **kwargs)
+
+    def fail_direct_restore(source, target):
+        nonlocal recovery_installed
+        source_path = Path(source)
+        target_path = Path(target)
+        if "backup" in source_path.name and target_path.name == "security":
+            raise OSError("injected direct restore failure")
+        result = real_replace(source, target)
+        if "recovery" in source_path.name and target_path.name == "security":
+            recovery_installed = True
+        return result
+
+    def interrupt_recovery_exists(path):
+        if recovery_installed and "recovery" in Path(path).name:
+            raise CleanupInterrupt("injected recovery exists interrupt")
+        return real_exists(path)
+
+    monkeypatch.setattr(publish, "safe_write_text", fail_publication_state)
+    monkeypatch.setattr(publish.os, "replace", fail_direct_restore)
+    monkeypatch.setattr(Path, "exists", interrupt_recovery_exists)
+
+    with pytest.raises(OSError, match="injected state failure"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert recovery_installed
+    assert _read_public_docs(project) == before
+
+
+def test_crossed_activation_commit_finishes_state_after_verifying_new_tree(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_replace = publish.os.replace
+
+    def commit_activation_then_report_failure(source, target):
+        source_path = Path(source)
+        target_path = Path(target)
+        if "candidate" in source_path.name and target_path.name == "security":
+            real_replace(source, target)
+            raise OSError("injected post-commit activation failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(publish.os, "replace", commit_activation_then_report_failure)
+
+    publish.stage_and_publish(
+        project,
+        generated,
+        ("requirements.md", "traceability.md", "responsibility.md"),
+    )
+
+    public = project / "docs" / "security"
+    assert (public / "requirements.md").read_text(encoding="utf-8").startswith("new")
+    backups = list((project / "docs").glob(".security-publish-backup-*"))
+    previous = list((project / "docs").glob(".security-publish-previous-*"))
+    assert len(backups) == len(previous) == 1
+    for recovery in (backups[0], previous[0]):
+        assert {
+            str(path.relative_to(recovery)): path.read_bytes()
+            for path in sorted(recovery.rglob("*"))
+            if path.is_file()
+        } == before
+    state_root, state_path = publish._publication_state_target(project)
+    assert publish._load_state(state_path, state_root)
+
+
+def test_verified_commit_retains_old_copies_without_post_commit_cleanup_seam(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_cleanup = publish._best_effort_remove_tree
+    committed = False
+    post_commit_cleanup_calls: list[Path] = []
+
+    def record_state_commit(path, *args, **kwargs):
+        nonlocal committed
+        result = real_write(path, *args, **kwargs)
+        if "publication" in Path(path).parts:
+            committed = True
+        return result
+
+    def mutate_if_cleanup_runs(path, project_root):
+        if committed:
+            post_commit_cleanup_calls.append(Path(path))
+            (project / "docs" / "security" / "responsibility.md").unlink()
+        return real_cleanup(path, project_root)
+
+    monkeypatch.setattr(publish, "safe_write_text", record_state_commit)
+    monkeypatch.setattr(publish, "_best_effort_remove_tree", mutate_if_cleanup_runs)
+
+    publish.stage_and_publish(
+        project,
+        generated,
+        ("requirements.md", "traceability.md", "responsibility.md"),
+    )
+
+    assert post_commit_cleanup_calls == []
+    public = project / "docs" / "security"
+    assert (public / "responsibility.md").read_text(encoding="utf-8").startswith("new")
+    assert len(list((project / "docs").glob(".security-publish-backup-*"))) == 1
+    assert len(list((project / "docs").glob(".security-publish-previous-*"))) == 1
+
+
+def test_committed_publication_does_not_enter_the_backup_cleanup_hook(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_remove = publish._remove_tree
+    cleanup_attempted = False
+
+    def fail_backup_cleanup(path, project_root):
+        nonlocal cleanup_attempted
+        if "backup" in Path(path).name:
+            cleanup_attempted = True
+            raise KeyboardInterrupt("injected cleanup failure")
+        return real_remove(path, project_root)
+
+    monkeypatch.setattr(publish, "_remove_tree", fail_backup_cleanup)
+
+    publish.stage_and_publish(
+        project,
+        generated,
+        ("requirements.md", "traceability.md", "responsibility.md"),
+    )
+
+    public = project / "docs" / "security"
+    assert (public / "requirements.md").read_text(encoding="utf-8").startswith("new")
+    assert not cleanup_attempted
+    assert len(list((project / "docs").glob(".security-publish-backup-*"))) == 1
+
+
+@pytest.mark.parametrize("cleanup_target", ["candidate", "backup"])
+def test_post_commit_exists_interrupt_is_inside_best_effort_cleanup(
+    tmp_path, monkeypatch, cleanup_target
+):
+    class CleanupInterrupt(BaseException):
+        pass
+
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    real_write = publish.safe_write_text
+    real_exists = Path.exists
+    committed = False
+
+    def record_state_commit(path, *args, **kwargs):
+        nonlocal committed
+        result = real_write(path, *args, **kwargs)
+        if "publication" in Path(path).parts:
+            committed = True
+        return result
+
+    def interrupt_cleanup_exists(path):
+        if committed and cleanup_target in Path(path).name:
+            raise CleanupInterrupt("injected post-commit exists interrupt")
+        return real_exists(path)
+
+    monkeypatch.setattr(publish, "safe_write_text", record_state_commit)
+    monkeypatch.setattr(Path, "exists", interrupt_cleanup_exists)
+
+    publish.stage_and_publish(
+        project,
+        generated,
+        ("requirements.md", "traceability.md", "responsibility.md"),
+    )
+
+    public = project / "docs" / "security"
+    assert (public / "requirements.md").read_text(encoding="utf-8").startswith("new")
+
+
+@pytest.mark.parametrize("existing_public", [False, True])
+def test_windows_copy_fails_closed_before_reading_staging_or_creating_candidate(
+    tmp_path, monkeypatch, existing_public
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    if existing_public:
+        _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    monkeypatch.setattr(publish, "COPY_PLATFORM", "nt", raising=False)
+
+    def forbidden_read(_path):
+        raise AssertionError("staging bytes were read before the platform gate")
+
+    def forbidden_candidate(*_args, **_kwargs):
+        raise AssertionError("candidate was created before the platform gate")
+
+    monkeypatch.setattr(Path, "read_bytes", forbidden_read)
+    monkeypatch.setattr(publish, "_temporary_directory", forbidden_candidate)
+
+    with pytest.raises(
+        publish.PublicationError, match="no-follow tree copying is unsupported"
+    ):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert not list(project.glob(".security-publish-candidate-*"))
+
+
+def test_symlink_inserted_after_copy_is_rejected_before_activation(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    monkeypatch.setenv("SECURITY_REQUIREMENTS_DATA", str(tmp_path / "trusted state"))
+    before = _seed_public_docs(project)
+    generated = _generated_public_docs(tmp_path / "external staging")
+    outside = tmp_path / "outside-secret"
+    outside.write_text("do not copy\n", encoding="utf-8")
+    real_copytree = publish._copy_tree_no_follow
+
+    def inject_symlink(source, destination, **kwargs):
+        result = real_copytree(source, destination, **kwargs)
+        (Path(destination) / "late-link").symlink_to(outside)
+        return result
+
+    monkeypatch.setattr(publish, "_copy_tree_no_follow", inject_symlink)
+
+    with pytest.raises((publish.PublicationError, publish.UnsafePathError), match="symlink"):
+        publish.stage_and_publish(
+            project,
+            generated,
+            ("requirements.md", "traceability.md", "responsibility.md"),
+        )
+
+    assert _read_public_docs(project) == before
 
 
 def test_select_baseline_runs_from_the_command_line(cli_workspace):
@@ -2302,11 +4063,87 @@ def test_select_baseline_runs_from_the_command_line(cli_workspace):
     assert "Impact derivation" in r.stdout
 
 
+@pytest.mark.parametrize("symlink_kind", ["ancestor", "target", "broken-target"])
+def test_select_baseline_refuses_project_output_symlinks(
+    profile, tmp_path, symlink_kind
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    state = project / ".security-requirements"
+    if symlink_kind == "ancestor":
+        state.symlink_to(outside, target_is_directory=True)
+        profile_path = outside / "profile.yaml"
+        output = state / "controls.json"
+        victim = outside / "controls.json"
+    else:
+        state.mkdir()
+        profile_path = state / "profile.yaml"
+        victim = outside / "victim.json"
+        if symlink_kind == "target":
+            victim.write_text("keep me\n", encoding="utf-8")
+        output = state / "controls.json"
+        output.symlink_to(victim)
+    profile_path.write_text(yaml.safe_dump(profile), encoding="utf-8")
+    before = victim.read_bytes() if victim.exists() else None
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "select_baseline.py"),
+            str(state / "profile.yaml"),
+            "--json",
+            str(output),
+        ],
+        cwd=project,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "symlink" in result.stderr
+    assert (victim.read_bytes() if victim.exists() else None) == before
+
+
 def test_classify_resp_runs_from_the_command_line(cli_workspace):
     work, profile_path, controls_path = cli_workspace
     r = _run_cli("classify_resp.py", str(profile_path), str(controls_path))
     assert r.returncode == 0, r.stdout + r.stderr
     assert "team implements" in r.stdout
+
+
+@pytest.mark.parametrize("script", ["classify_resp.py", "apply_overlay.py"])
+def test_pipeline_json_outputs_refuse_direct_symlinks(
+    cli_workspace, tmp_path, script
+):
+    work, profile_path, controls_path = cli_workspace
+    output_dir = tmp_path / "project" / ".security-requirements"
+    output_dir.mkdir(parents=True)
+    victim = tmp_path / f"{script}.victim"
+    victim.write_text("keep me\n", encoding="utf-8")
+    output = output_dir / "result.json"
+    output.symlink_to(victim)
+    before = victim.read_bytes()
+    if script == "classify_resp.py":
+        args = (str(profile_path), str(controls_path), "--json", str(output))
+    else:
+        args = (
+            "pipa-isms-p",
+            str(profile_path),
+            str(controls_path),
+            "--force",
+            "--json",
+            str(output),
+        )
+
+    result = _run_cli(script, *args)
+
+    assert result.returncode == 2
+    assert "symlink" in result.stderr
+    assert victim.read_bytes() == before
 
 
 @pytest.mark.parametrize("overlay_id", ALL_OVERLAYS)
@@ -2353,7 +4190,7 @@ def test_a_shared_hint_over_an_all_organisational_mapping_must_be_explained(tmp_
     import validate_overlays as vo
 
     work = tmp_path / "overlays"
-    shutil.copytree(REPO_ROOT / "overlays", work)
+    shutil.copytree(PLUGIN_ROOT / "overlays", work)
 
     target = work / "gdpr" / "mappings.jsonl"
     rows = [json.loads(l) for l in target.read_text(encoding="utf-8").splitlines() if l.strip()]
@@ -2456,7 +4293,7 @@ def test_a_concrete_level_survives_deferral_on_the_other_axis():
     says moderate. A water mark the axis beside it can talk down is not a water
     mark.
     """
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     spec = {t["id"]: t for t in table["types"]}["ml_training_data"]
     assert spec["confidentiality"] == "inherit_max" and spec["integrity"] == "moderate"
@@ -2608,7 +4445,7 @@ def test_deferral_is_a_property_of_the_entry_not_of_one_axis():
     source = inspect.getsource(sb.derive_confidentiality_integrity)
     assert 'if not allow_inherit and "inherit_max" in (c_raw, i_raw):' in source
 
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     integrity_only = [t["id"] for t in table["types"]
                       if t["integrity"] == "inherit_max" and t["confidentiality"] != "inherit_max"]
@@ -2658,7 +4495,7 @@ def test_the_modifier_does_not_restate_the_table():
     """It says the default reading is wrong for this service; the level to use
     is the one already written against the type. A modifier carrying high/high
     of its own would be a second copy of the table, free to drift from it."""
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     modifier = table["modifiers"]["service_content"]
     assert modifier.get("categorises") is True
@@ -2822,7 +4659,7 @@ def test_the_korean_trigger_follows_the_flag_too():
 
     # Category-specific triggers stay per-type: sensitive data and children are
     # not "personal data with a narrower list".
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     following = {k for k, v in table["regulatory_triggers"].items() if v.get("all_personal_data")}
     assert following == {"gdpr_personal_data", "pipa_general"}
@@ -2836,7 +4673,7 @@ def test_isms_p_scope_reads_the_flag_not_a_fourth_copy_of_it(profile):
     pseudonymous analytics was assessed at ISMS scope and told no personal data
     was declared, on a derivation that had just listed some.
     """
-    meta = yaml.safe_load((REPO_ROOT / "overlays" / "pipa-isms-p" /
+    meta = yaml.safe_load((PLUGIN_ROOT / "overlays" / "pipa-isms-p" /
                            "meta.yaml").read_text(encoding="utf-8"))
     assert meta["scope_selector"].get("data_types_personal") is True
     assert "data_types" not in meta["scope_selector"]
@@ -2961,7 +4798,7 @@ def test_a_bank_account_carries_a_name():
     """The label has said "bank account numbers and holder names" all along.
     Unflagged, a European service holding only bank details was told the
     Regulation did not reach it."""
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     assert {t["id"]: t for t in table["types"]}["bank_account"].get("personal_data") is True
 
@@ -3051,7 +4888,7 @@ def test_the_flag_and_the_per_type_trigger_list_agree():
     assert sb.run(cards)["applicable_overlays"] == ["pci-dss"]
 
     # And the marking is declared on the triggers rather than guessed from names.
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     marked = {k for k, v in table["regulatory_triggers"].items()
               if v.get("requires_natural_person")}
@@ -3108,7 +4945,12 @@ def test_one_line_per_overlay_not_per_trigger():
     assert {t["id"] for t in gdpr["triggers"]} == {"gdpr_personal_data", "gdpr_special_category"}
 
     rendered = sb.render_gate(result)
-    assert rendered.count("scripts/apply_overlay.py gdpr") == 1
+    command = (
+        f"{shlex.quote(str(Path(sys.executable).resolve()))} -I "
+        f"{shlex.quote(str((PLUGIN_ROOT / 'scripts' / 'apply_overlay.py').resolve()))} gdpr"
+    )
+    assert rendered.count(command) == 1
+    assert "scripts/apply_overlay.py gdpr" in command
     assert "also reached by" in rendered
 
 
@@ -3131,7 +4973,7 @@ def test_a_requirement_forced_twice_from_one_type_keeps_both_reasons():
     """A modifier and the type it sits on can force the same requirement. Both
     arrive with the same data type and different labels and notes, so grouping
     on the data type alone threw the second of each away."""
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     modifier_forcing = {m for m, spec in table["modifiers"].items()
                         if spec.get("forces_requirements")}
@@ -3181,7 +5023,7 @@ def test_a_covered_regulation_is_still_in_scope():
     of the flag list the gate is supposed to define. Nothing in the catalogue
     sets it today, so the path is exercised directly."""
     import copy as _copy
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     assert not [t for t in table["regulatory_triggers"].values() if t.get("covered")], \
         "if a trigger starts declaring covered, this test should read it instead"
@@ -3258,7 +5100,7 @@ def test_a_modifier_that_cannot_apply_says_so():
     assert not any("changed nothing" in w for w in sb.run(working)["consistency_warnings"])
 
     # The precondition is declared on the modifier, not hard-coded in the check.
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     assert table["modifiers"]["service_content"]["requires"] == "system_information"
     assert table["modifiers"]["legal_entity_only"]["requires"] == "personal_data"
@@ -3272,7 +5114,7 @@ def test_the_interview_answers_reach_the_thing_that_reads_them():
     said they run company-wide SSO -- the one outcome the question exists to
     prevent."""
     import re as _re
-    doc = (REPO_ROOT / "skills" / "deriving-security-requirements" / "references" /
+    doc = (PLUGIN_ROOT / "skills" / "deriving-security-requirements" / "references" /
            "profile-schema.md").read_text(encoding="utf-8")
     block = doc.split("### Q6")[1].split("```")[1]
     labels = [line.strip("[ ]").strip() for line in block.splitlines() if line.strip().startswith("[")]
@@ -3396,7 +5238,7 @@ def test_an_amplifier_that_can_do_nothing_says_so():
     assert "conflicts" not in sb.run(alone)["impact"]["availability"]
 
     # The precondition is declared on the amplifier, not hard-coded.
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "availability.yaml").read_text(encoding="utf-8"))
     solo = [a["id"] for a in table["amplifiers"] if a.get("only_when_alone")]
     assert solo == ["internal_tool_only"]
@@ -3654,10 +5496,10 @@ def test_the_allowlist_holds_nothing_nobody_reads():
     import re as _re
     read_from_managed = set()
     for script in ("render.py", "merge.py", "lint.py"):
-        source = (REPO_ROOT / "scripts" / script).read_text(encoding="utf-8")
+        source = (PLUGIN_ROOT / "scripts" / script).read_text(encoding="utf-8")
         read_from_managed |= set(_re.findall(r'managed(?:\.get\(|\[)"([a-z_]+)"', source))
 
-    schema = (REPO_ROOT / "skills" / "deriving-security-requirements" / "references" /
+    schema = (PLUGIN_ROOT / "skills" / "deriving-security-requirements" / "references" /
               "requirement-style.md").read_text(encoding="utf-8")
     documented = {k for k in lint_mod.MANAGED_KEYS if f"{k}:" in schema}
 
@@ -3673,7 +5515,7 @@ def test_the_allowlist_covers_what_the_rest_of_the_tool_reads():
     import re as _re
     read_from_managed = set()
     for script in ("render.py", "merge.py", "lint.py"):
-        source = (REPO_ROOT / "scripts" / script).read_text(encoding="utf-8")
+        source = (PLUGIN_ROOT / "scripts" / script).read_text(encoding="utf-8")
         read_from_managed |= set(_re.findall(r'managed(?:\.get\(|\[)"([a-z_]+)"', source))
     assert read_from_managed, "this test needs to find the reads it is checking"
     assert read_from_managed <= lint_mod.MANAGED_KEYS, \
@@ -3699,6 +5541,37 @@ def _documents(requirements):
     return (render_mod.render_requirements(doc, titles, meta),
             render_mod.render_traceability(doc, titles, meta),
             render_mod.render_responsibility(doc, meta))
+
+
+def test_requirement_render_ordering_uses_risk_then_existing_priority_then_id():
+    requirements = [
+        _req("REQ-HIGH-01", priority="high"),
+        _req("REQ-UNRESOLVED-LOW-01", priority="low"),
+        _req("REQ-UNRESOLVED-HIGH-B", priority="high"),
+        _req("REQ-UNRESOLVED-HIGH-A", priority="high"),
+        _req("REQ-CRITICAL-01", priority="low"),
+    ]
+    exposures = {
+        "REQ-HIGH-01": "high",
+        "REQ-UNRESOLVED-LOW-01": "UNDETERMINED",
+        "REQ-UNRESOLVED-HIGH-B": "STALE",
+        "REQ-UNRESOLVED-HIGH-A": "PROPOSED",
+        "REQ-CRITICAL-01": "critical",
+    }
+    for requirement in requirements:
+        requirement["risk_exposure"] = exposures[requirement["id"]]
+
+    rendered, _traceability, _responsibility = _documents(requirements)
+
+    ordered_ids = [
+        "REQ-CRITICAL-01",
+        "REQ-UNRESOLVED-HIGH-A",
+        "REQ-UNRESOLVED-HIGH-B",
+        "REQ-UNRESOLVED-LOW-01",
+        "REQ-HIGH-01",
+    ]
+    positions = [rendered.index(f"### {requirement_id}") for requirement_id in ordered_ids]
+    assert positions == sorted(positions)
 
 
 def test_a_retired_requirement_leaves_a_record_without_publishing_the_reason():
@@ -3854,10 +5727,16 @@ def test_a_hint_list_that_can_never_match_is_reported():
     assert any("character by character" in p for p in scalar)
 
 
-@pytest.mark.parametrize("case", sorted(p.name for p in GOLDEN_ROOT.iterdir() if p.is_dir()))
+@pytest.mark.parametrize(
+    "case",
+    sorted(
+        p.name
+        for p in GOLDEN_ROOT.iterdir()
+        if p.is_dir() and (p / "expected-coverage.yaml").is_file()
+    ),
+)
 def test_every_golden_expectation_is_scoreable(case):
-    """The four shipped files are complete. Nothing checked that, so the fifth
-    would not have been."""
+    """Every requirements-coverage expectation is capable of failing."""
     expected = yaml.safe_load((GOLDEN_ROOT / case / "expected-coverage.yaml").read_text(encoding="utf-8"))
     assert not eval_mod.check_expectation(expected)
 
@@ -4123,7 +6002,7 @@ def test_no_raw_parameter_identifier_ships_in_the_catalog():
     the guard that keeps it that way is tested above."""
     leaked = re.compile(r"\[assignment: ([a-z]{2}-\d+[._][a-z0-9_.]*)\]")
     found = []
-    for path in sorted((REPO_ROOT / "catalogs" / "nist-800-53r5").glob("*.jsonl")):
+    for path in sorted((PLUGIN_ROOT / "catalogs" / "nist-800-53r5").glob("*.jsonl")):
         for line in path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
@@ -4182,9 +6061,9 @@ def test_the_shipped_hipaa_overlay_still_matches_what_was_counted():
     shipped is the one the count was taken from, and nothing checked that
     afterwards."""
     criteria = [json.loads(line) for line in
-                (REPO_ROOT / "overlays" / "hipaa-security-rule" / "criteria.jsonl")
+                (PLUGIN_ROOT / "overlays" / "hipaa-security-rule" / "criteria.jsonl")
                 .read_text(encoding="utf-8").splitlines() if line.strip()]
-    meta = yaml.safe_load((REPO_ROOT / "overlays" / "hipaa-security-rule" /
+    meta = yaml.safe_load((PLUGIN_ROOT / "overlays" / "hipaa-security-rule" /
                            "meta.yaml").read_text(encoding="utf-8"))
     assert len(criteria) == meta["criteria_count"] == 68
 
@@ -4313,7 +6192,7 @@ def test_a_statement_about_what_the_data_is_wins_over_an_adjustment():
 
     # Two absolute statements that disagree cannot both be true, and the tool
     # says so rather than picking whichever was written first.
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" /
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" /
                             "classification.yaml").read_text(encoding="utf-8"))
     absolutes = [m for m, spec in table["modifiers"].items()
                  if isinstance((spec.get("effect") or {}).get("confidentiality"), str)]
@@ -4402,6 +6281,38 @@ def test_a_second_refresh_with_no_change_moves_nothing(tmp_path):
     assert "retired        0" in second.stdout
 
 
+def test_merge_preflights_existing_and_state_before_either_write(tmp_path):
+    work = tmp_path / "project" / ".security-requirements"
+    work.mkdir(parents=True)
+    _refresh_workspace(work)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    victim = outside / "state.yaml"
+    victim.write_text("issued: {}\n", encoding="utf-8")
+    state = work / "state.yaml"
+    state.unlink()
+    state.symlink_to(victim)
+    existing = work / "requirements.yaml"
+    before_existing = existing.read_bytes()
+    before_state = victim.read_bytes()
+
+    result = _run_cli(
+        "merge.py",
+        "--apply",
+        "--draft",
+        str(work / "draft.json"),
+        "--existing",
+        str(existing),
+        "--state",
+        str(state),
+    )
+
+    assert result.returncode == 2
+    assert "symlink" in result.stderr
+    assert existing.read_bytes() == before_existing
+    assert victim.read_bytes() == before_state
+
+
 @pytest.mark.parametrize("broken,expected", [
     ("issued:\n  PKI-SIGNING-KEY: 1\n", "is not an identifier"),
     ("issued: [a, b]\n", "is a list"),
@@ -4485,7 +6396,7 @@ def _broken_overlay(tmp_path, monkeypatch, *, meta_change=None, mapping_change=N
     """A copy of a real overlay with one thing wrong with it."""
     import shutil
     work = tmp_path / "overlays"
-    shutil.copytree(REPO_ROOT / "overlays", work)
+    shutil.copytree(PLUGIN_ROOT / "overlays", work)
     source = work / "gdpr"
 
     if meta_change:
@@ -4721,7 +6632,7 @@ def test_the_catalog_is_the_one_the_build_produces():
     catalogue and the script that claims to generate it have parted company."""
     import subprocess
     before = {path.name: path.read_bytes()
-              for path in sorted((REPO_ROOT / "catalogs" / "nist-800-53r5").glob("*.jsonl"))}
+              for path in sorted((PLUGIN_ROOT / "catalogs" / "nist-800-53r5").glob("*.jsonl"))}
     assert before, "the catalogue must be present"
     # Not rebuilt here -- that needs the network. What is asserted is that every
     # record parses and carries the fields the pipeline reads.
@@ -4941,7 +6852,7 @@ def test_a_nested_assignment_is_a_second_decision_not_an_artefact():
 
     # And the shipped catalogue reads the same way, which is what makes the
     # nesting a property of the regulation rather than of this test.
-    for line in (REPO_ROOT / "catalogs" / "nist-800-53r5" / "AC.jsonl") \
+    for line in (PLUGIN_ROOT / "catalogs" / "nist-800-53r5" / "AC.jsonl") \
             .read_text(encoding="utf-8").splitlines():
         if line.strip() and json.loads(line)["id"] == "AC-7":
             assert re.search(r"\[assignment:[^\]]*\[assignment:[^\]]*\]",
@@ -5391,8 +7302,8 @@ def test_the_publishing_step_does_not_fail_a_build_on_style():
     perfectly safe to publish. Promoting the one rule that is about disclosure
     is the fix; blanket strictness was a blocker wearing a style note's
     clothes."""
-    for path in (REPO_ROOT / "commands" / "sec-req-build.md",
-                 REPO_ROOT / "skills" / "deriving-security-requirements" / "SKILL.md"):
+    for path in (PLUGIN_ROOT / "commands" / "sec-req-build.md",
+                 PLUGIN_ROOT / "skills" / "deriving-security-requirements" / "SKILL.md"):
         text = path.read_text(encoding="utf-8")
         for line in text.splitlines():
             if "lint.py" in line and "--strict" in line:
@@ -5439,11 +7350,11 @@ def test_the_documented_order_lints_before_it_publishes():
     emitted warnings, and warnings pass. The fix was the order plus promoting
     the disclosure rule to ERROR; see the test below for why it was not
     --strict."""
-    build = (REPO_ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
+    build = (PLUGIN_ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
     assert build.index("scripts/lint.py") < build.index("scripts/render.py"), \
         "lint runs before the publishable files are written"
 
-    skill = (REPO_ROOT / "skills" / "deriving-security-requirements" /
+    skill = (PLUGIN_ROOT / "skills" / "deriving-security-requirements" /
              "SKILL.md").read_text(encoding="utf-8")
     assert skill.index("scripts/lint.py") < skill.index("scripts/render.py")
 
@@ -5547,7 +7458,7 @@ def test_nothing_this_repository_ships_would_block_a_build():
     reason no author could find in their own draft. Promoting a rule to fatal
     means owning what the tool itself puts through it."""
     import yaml as _yaml
-    services = sorted((REPO_ROOT / "responsibility" / "services").glob("*.yaml"))
+    services = sorted((PLUGIN_ROOT / "responsibility" / "services").glob("*.yaml"))
     assert services, "this test needs the files it is checking"
 
     hits = []
@@ -5627,7 +7538,7 @@ def test_the_command_that_writes_the_deliverable_writes_only_what_may_be_publish
 
     out = tmp_path / "published"
     result = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "render.py"), str(source), "--out", str(out)],
+        [sys.executable, str(PLUGIN_ROOT / "scripts" / "render.py"), str(source), "--out", str(out)],
         capture_output=True, text=True, cwd=str(REPO_ROOT))
     assert result.returncode == 0, result.stderr
 
@@ -5644,6 +7555,105 @@ def test_the_command_that_writes_the_deliverable_writes_only_what_may_be_publish
     assert "REQ-DATA-REST-01" in published
     for name in written:
         assert (out / name).read_text(encoding="utf-8").endswith("\n")
+
+
+def test_render_preflights_every_document_before_publishing_any(tmp_path):
+    project = tmp_path / "project"
+    source_dir = project / ".security-requirements"
+    out = project / "docs" / "security"
+    source_dir.mkdir(parents=True)
+    out.mkdir(parents=True)
+    source = source_dir / "requirements.yaml"
+    source.write_text(
+        yaml.safe_dump({"requirements": [_req("REQ-DATA-REST-01")]}),
+        encoding="utf-8",
+    )
+    victim = tmp_path / "outside.md"
+    victim.write_text("keep me\n", encoding="utf-8")
+    (out / "responsibility.md").symlink_to(victim)
+    before = victim.read_bytes()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "render.py"),
+            str(source),
+            "--out",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=project,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "symlink" in result.stderr
+    assert not (out / "requirements.md").exists()
+    assert not (out / "traceability.md").exists()
+    assert victim.read_bytes() == before
+
+
+def test_render_refuses_a_docs_security_ancestor_symlink(tmp_path):
+    project = tmp_path / "project"
+    source_dir = project / ".security-requirements"
+    docs = project / "docs"
+    outside = tmp_path / "outside"
+    source_dir.mkdir(parents=True)
+    docs.mkdir()
+    outside.mkdir()
+    (docs / "security").symlink_to(outside, target_is_directory=True)
+    source = source_dir / "requirements.yaml"
+    source.write_text(
+        yaml.safe_dump({"requirements": [_req("REQ-DATA-REST-01")]}),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "render.py"),
+            str(source),
+            "--out",
+            str(docs / "security"),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=project,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "symlink" in result.stderr
+    assert list(outside.iterdir()) == []
+
+
+def test_safe_output_preflight_rejects_a_symlinked_project_root(tmp_path):
+    project = tmp_path / "real-project"
+    project.mkdir()
+    project_link = tmp_path / "project-link"
+    project_link.symlink_to(project, target_is_directory=True)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(PLUGIN_ROOT / "scripts" / "safe_paths.py"),
+            "--project-root",
+            str(project_link),
+            "--check-output",
+            str(project_link / ".security-requirements"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "project root is a symlink" in result.stderr
+    assert not (project / ".security-requirements").exists()
 
 
 @pytest.mark.parametrize("url", [
@@ -5690,7 +7700,7 @@ def test_the_citation_hosts_reach_every_authority_this_repository_cites():
     citation_fields = ("text", "document_library", "reference", "retrieved_from",
                        "structure_from")
     checked = 0
-    for meta_path in sorted((REPO_ROOT / "overlays").glob("*/meta.yaml")):
+    for meta_path in sorted((PLUGIN_ROOT / "overlays").glob("*/meta.yaml")):
         source = (_yaml.safe_load(meta_path.read_text(encoding="utf-8")) or {}).get("source") or {}
         for field in citation_fields:
             value = source.get(field)
@@ -6589,7 +8599,7 @@ def test_the_hipaa_overlay_that_ships_has_the_published_shape():
     standards, four physical, five technical -- asserted here against the file
     that actually ships."""
     clauses = [json.loads(line) for line in
-               (REPO_ROOT / "overlays" / "hipaa-security-rule" / "criteria.jsonl")
+               (PLUGIN_ROOT / "overlays" / "hipaa-security-rule" / "criteria.jsonl")
                .read_text(encoding="utf-8").splitlines() if line.strip()]
     per_section = {}
     for clause in clauses:
@@ -6695,7 +8705,7 @@ def test_every_integrity_hint_the_catalogue_declares_is_applied():
     behaviour alone, because the note is what anyone reads to find out what the
     tool does."""
     catalogue = yaml.safe_load(
-        (REPO_ROOT / "catalogs" / "data-types" / "availability.yaml").read_text(encoding="utf-8"))
+        (PLUGIN_ROOT / "catalogs" / "data-types" / "availability.yaml").read_text(encoding="utf-8"))
     hinted = [entry for entry in catalogue.get("rpo_buckets", [])
               if entry.get("integrity_hint")]
     assert hinted, "this test needs the hints it is checking"
@@ -6777,6 +8787,151 @@ def test_the_linter_reads_a_threat_file_when_given_one(tmp_path, capsys, monkeyp
     monkeypatch.setattr(sys, "argv", ["lint.py", str(doc), "--threats", str(threats)])
     assert lint_mod.main() == 1
     assert "T-99" in capsys.readouterr().out
+
+
+def test_risk_refs_must_resolve_to_an_assessment(tmp_path):
+    requirements = yaml.safe_load(
+        _requirements_file(
+            tmp_path / "requirements.yaml", risk_refs=["T-99"]
+        ).read_text(encoding="utf-8")
+    )
+    threats = {"threats": [{"id": "T-01", "related_controls": []}]}
+    assessment = {"assessments": [{"threat_id": "T-01"}]}
+
+    findings = lint_mod.lint(
+        requirements, "en", threats, assessment=assessment
+    )
+
+    assert any(
+        finding.rule == "risk-ref-unknown" and "T-99" in finding.message
+        for finding in findings
+    )
+
+
+def test_risk_refs_are_unknown_when_the_assessment_set_is_empty(tmp_path):
+    requirements = yaml.safe_load(
+        _requirements_file(
+            tmp_path / "requirements.yaml", risk_refs=["T-99"]
+        ).read_text(encoding="utf-8")
+    )
+
+    findings = lint_mod.lint(
+        requirements, "en", None, assessment={"assessments": []}
+    )
+
+    assert any(finding.rule == "risk-ref-unknown" for finding in findings)
+
+
+def test_threat_id_does_not_satisfy_risk_ref_without_an_assessment(tmp_path):
+    requirements = yaml.safe_load(
+        _requirements_file(
+            tmp_path / "requirements.yaml", risk_refs=["T-01"]
+        ).read_text(encoding="utf-8")
+    )
+
+    findings = lint_mod.lint(
+        requirements,
+        "en",
+        {"threats": [{"id": "T-01", "related_controls": []}]},
+        assessment=None,
+    )
+
+    assert any(finding.rule == "risk-ref-unknown" for finding in findings)
+
+
+def test_residual_evidence_refs_must_exist_and_be_current(tmp_path):
+    requirements_path = _requirements_file(
+        tmp_path / "requirements.yaml", risk_refs=["T-01"]
+    )
+    requirements = yaml.safe_load(requirements_path.read_text(encoding="utf-8"))
+    managed = requirements["requirements"][0]["managed"]
+    evidence = {
+        "evidence": [
+            {
+                "id": "EVID-EXPIRED-01",
+                "requirement_id": "REQ-DATA-REST-01",
+                "requirement_digest": risk.canonical_digest(managed),
+                "method": "iac_inspect",
+                "result": "pass",
+                "observed_at": "2026-01-01T00:00:00Z",
+                "observed_by": "security-reviewer",
+                "artifact": {
+                    "kind": "test_report",
+                    "location": "internal-only/42",
+                    "digest": "sha256:" + "b" * 64,
+                },
+                "supports": ["likelihood"],
+                "valid_until": "2026-08-12",
+            }
+        ]
+    }
+    assessment = {
+        "assessments": [
+            {
+                "threat_id": "T-01",
+                "residual": {
+                    "proposed": {
+                        "likelihood": {
+                            "evidence_refs": ["EVID-EXPIRED-01", "EVID-MISSING-01"]
+                        },
+                        "impact": {"evidence_refs": []},
+                    }
+                },
+            }
+        ]
+    }
+
+    findings = lint_mod.lint(
+        requirements,
+        "en",
+        {"threats": [{"id": "T-01", "related_controls": []}]},
+        assessment=assessment,
+        evidence=evidence,
+        today=date(2026, 8, 13),
+    )
+
+    assert any(
+        finding.rule == "evidence-ref-unknown" and "EVID-MISSING-01" in finding.message
+        for finding in findings
+    )
+    assert any(
+        finding.rule == "evidence-ref-stale" and "EVID-EXPIRED-01" in finding.message
+        for finding in findings
+    )
+    assert all("internal-only/42" not in finding.message for finding in findings)
+
+
+def test_evidence_requirement_refs_must_resolve(tmp_path):
+    requirements_path = _requirements_file(tmp_path / "requirements.yaml")
+    requirements = yaml.safe_load(requirements_path.read_text(encoding="utf-8"))
+    evidence = {
+        "evidence": [
+            {
+                "id": "EVID-ORPHAN-01",
+                "requirement_id": "REQ-NOT-THERE-01",
+                "requirement_digest": "sha256:" + "c" * 64,
+                "method": "test_case",
+                "result": "pass",
+                "observed_at": "2026-08-12T00:00:00Z",
+                "observed_by": "security-reviewer",
+                "artifact": {
+                    "kind": "test_report",
+                    "location": "internal-only/43",
+                    "digest": "sha256:" + "d" * 64,
+                },
+            }
+        ]
+    }
+
+    findings = lint_mod.lint(
+        requirements, "en", None, evidence=evidence, today=date(2026, 8, 13)
+    )
+
+    assert any(
+        finding.rule == "evidence-requirement-unknown"
+        and "REQ-NOT-THERE-01" in finding.message
+        for finding in findings
+    )
 
 
 def test_an_unsupported_locale_is_refused_before_the_file_is_read(tmp_path, monkeypatch):
@@ -7038,7 +9193,7 @@ def test_a_baseline_control_in_an_unbundled_family_is_reported_unavailable(monke
     nothing -- deleting the reporting entirely would have passed it. The
     catalogue is narrowed here instead."""
     real = sb.load_catalog()
-    baselines = json.loads((REPO_ROOT / "catalogs" / "nist-800-53r5" / "baselines.json")
+    baselines = json.loads((PLUGIN_ROOT / "catalogs" / "nist-800-53r5" / "baselines.json")
                            .read_text(encoding="utf-8"))
     missing = sorted(baselines["high"])[0]
     monkeypatch.setattr(sb, "load_catalog",
@@ -7058,7 +9213,7 @@ def test_a_hint_that_is_not_an_impact_level_stops_the_derivation(monkeypatch):
     silently would be the original failure in a new spelling: the catalogue
     claims an effect and the derivation ignores it. That is what this whole
     branch was written to stop happening."""
-    real = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" / "availability.yaml")
+    real = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" / "availability.yaml")
                           .read_text(encoding="utf-8"))
     broken = copy.deepcopy(real)
     for bucket in broken["rpo_buckets"]:
@@ -7200,7 +9355,7 @@ def test_overlay_user_output_uses_staged_assurance_language(b2b_funnel_inputs):
     for banned in ("partly covered", "unanswered", "actually answers"):
         assert banned not in output
     help_text = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "apply_overlay.py"), "--help"],
+        [sys.executable, str(PLUGIN_ROOT / "scripts" / "apply_overlay.py"), "--help"],
         check=True,
         capture_output=True,
         text=True,
@@ -7439,12 +9594,12 @@ def test_the_axis_universe_is_read_from_the_catalogues_not_listed():
     import axis_coverage
     space = axis_coverage.universe()
     types_table = yaml.safe_load(
-        (REPO_ROOT / "catalogs" / "data-types" / "classification.yaml").read_text(encoding="utf-8"))
+        (PLUGIN_ROOT / "catalogs" / "data-types" / "classification.yaml").read_text(encoding="utf-8"))
     assert space["data_type"] == {t["id"] for t in types_table["types"]}
-    assert space["overlay"] == {p.name for p in (REPO_ROOT / "overlays").iterdir()
+    assert space["overlay"] == {p.name for p in (PLUGIN_ROOT / "overlays").iterdir()
                                 if (p / "meta.yaml").exists()}
     layers = yaml.safe_load(
-        (REPO_ROOT / "responsibility" / "layers.yaml").read_text(encoding="utf-8"))
+        (PLUGIN_ROOT / "responsibility" / "layers.yaml").read_text(encoding="utf-8"))
     assert space["deployment_model"] == set(layers["deployment_models"])
 
 
@@ -7512,13 +9667,13 @@ def test_the_build_carries_the_locale_to_the_step_that_needs_it():
     """A documented flow that cannot publish in the language the tool is built
     for is a defect in the documentation, and the only thing that catches it is
     reading the documentation as an artefact."""
-    build = (REPO_ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
+    build = (PLUGIN_ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
     invocation = next(line for line in build.splitlines()
                       if "scripts/lint.py" in line and line.strip().startswith("python3"))
     assert "--locale" in invocation, \
         f"the documented lint step drops the profile's locale: {invocation.strip()}"
 
-    skill = (REPO_ROOT / "skills" / "deriving-security-requirements" /
+    skill = (PLUGIN_ROOT / "skills" / "deriving-security-requirements" /
              "SKILL.md").read_text(encoding="utf-8")
     assert "--locale" in skill, "the stage table has to say so too"
 
@@ -7530,7 +9685,7 @@ def test_the_notice_accounts_for_everything_that_ships():
     obligation that is live and unstated, and it was live on a public
     repository."""
     notice = (REPO_ROOT / "NOTICE").read_text(encoding="utf-8")
-    shipped = sorted(p.name for p in (REPO_ROOT / "catalogs").iterdir() if p.is_dir())
+    shipped = sorted(p.name for p in (PLUGIN_ROOT / "catalogs").iterdir() if p.is_dir())
     assert shipped, "this test needs the directories it is checking"
     for directory in shipped:
         assert f"catalogs/{directory}/" in notice, \
@@ -7544,7 +9699,7 @@ def test_the_notice_accounts_for_everything_that_ships():
     for directory in shipped:
         described = notice.split(f"catalogs/{directory}/", 1)[1].split("\n\n", 1)[0]
         if "own LICENSE" in described or "carries its own" in described:
-            assert (REPO_ROOT / "catalogs" / directory / "LICENSE").exists(), directory
+            assert (PLUGIN_ROOT / "catalogs" / directory / "LICENSE").exists(), directory
 
 
 def test_a_korean_document_survives_the_whole_pipeline():
@@ -7631,13 +9786,13 @@ def _minimal_profile(**declared):
 
 
 def _every_data_type():
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" / "classification.yaml")
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" / "classification.yaml")
                            .read_text(encoding="utf-8"))
     return [t["id"] for t in table["types"]]
 
 
 def _every_modifier():
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" / "classification.yaml")
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" / "classification.yaml")
                            .read_text(encoding="utf-8"))
     return sorted(table.get("modifiers") or {})
 
@@ -7648,7 +9803,7 @@ def test_every_data_type_derives(data_type):
     run. `inherit_max` types need a second type to inherit from, which is the
     one shape this has to set up rather than assume."""
     types = [{"id": data_type}]
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" / "classification.yaml")
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" / "classification.yaml")
                            .read_text(encoding="utf-8"))
     spec = next(t for t in table["types"] if t["id"] == data_type)
     if "inherit" in str(spec.get("confidentiality")) or "inherit" in str(spec.get("integrity")):
@@ -7674,7 +9829,7 @@ def test_every_modifier_does_what_the_catalogue_says_it_does(modifier):
     result to the effect the catalogue declares: a relative bump moves the axis
     or is already saturated, an absolute value fixes it, and a modifier with no
     effect must not move it at all."""
-    table = yaml.safe_load((REPO_ROOT / "catalogs" / "data-types" / "classification.yaml")
+    table = yaml.safe_load((PLUGIN_ROOT / "catalogs" / "data-types" / "classification.yaml")
                            .read_text(encoding="utf-8"))
     effect = (table["modifiers"][modifier].get("effect") or {}).get("confidentiality")
 
@@ -7720,7 +9875,7 @@ def test_every_provider_splits(provider):
     # deployment layer for all seven, so the test proved only that the name was
     # echoed back. Curation is what makes a provider more than a label, so the
     # difference it makes is what has to be asserted.
-    curated = [p.stem for p in (REPO_ROOT / "responsibility" / "services").glob(f"{provider}-*.yaml")]
+    curated = [p.stem for p in (PLUGIN_ROOT / "responsibility" / "services").glob(f"{provider}-*.yaml")]
     with_service = copy.deepcopy(profile)
     with_service["inferred"]["managed_services"] = [{"id": curated[0]}] if curated else \
                                                    [{"id": f"{provider}-imaginary"}]
@@ -7847,7 +10002,7 @@ def test_the_style_guide_requires_a_requirement_someone_can_carry_out():
     """Step 8 is a model step, so the guidance is the primary control and the
     report note is the prompt for it. A rule that exists in neither place is a
     rule the next derivation will break the same way."""
-    guide = (REPO_ROOT / "skills" / "deriving-security-requirements" / "references" /
+    guide = (PLUGIN_ROOT / "skills" / "deriving-security-requirements" / "references" /
              "requirement-style.md").read_text(encoding="utf-8")
     assert "Executable by the organisation" in guide
     assert "existing_org_controls" in guide, \
@@ -7859,7 +10014,7 @@ def test_the_style_guide_requires_a_requirement_someone_can_carry_out():
     headings = re.findall(r"^### (\d+)\.", guide, re.M)
     words = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
     sources = {"requirement-style.md": guide,
-               "SKILL.md": (REPO_ROOT / "skills" / "deriving-security-requirements" /
+               "SKILL.md": (PLUGIN_ROOT / "skills" / "deriving-security-requirements" /
                             "SKILL.md").read_text(encoding="utf-8")}
     for name, text in sources.items():
         for stated in re.findall(r"(\w+) rules", text):
@@ -7943,13 +10098,25 @@ def test_no_profile_field_is_declared_and_never_read():
         for path, leaf in walk(yaml.safe_load(case.read_text(encoding="utf-8"))):
             declared[path] = leaf
 
-    source = "".join((REPO_ROOT / "scripts" / name).read_text(encoding="utf-8")
-                     for name in sorted(p.name for p in (REPO_ROOT / "scripts").glob("*.py")))
+    source = "".join((PLUGIN_ROOT / "scripts" / name).read_text(encoding="utf-8")
+                     for name in sorted(p.name for p in (PLUGIN_ROOT / "scripts").glob("*.py")))
 
     # Read by the model steps rather than the scripts, and named here so the
     # exemption is a decision rather than an omission.
-    for_the_model = {"repo.root", "generated_at",
-                     "inferred.external_integrations[].purpose"}
+    for_the_model = {
+        "repo.root",
+        "repo.revision",
+        "generated_at",
+        "inferred.external_integrations[].purpose",
+        "operating_assumptions",
+        "operating_assumptions.service",
+        "operating_assumptions.anonymous_reads",
+        "operating_assumptions.anonymous_writes",
+        "operating_assumptions.data",
+        "operating_assumptions.recovery",
+        "operating_assumptions.additional_obligations",
+        "operating_assumptions.storage_region",
+    }
     # `generated_at` and `repo.root` are the model's; `purpose` is prose for a
     # human. Everything else a profile states has to reach a script, or the
     # interview is asking a question whose answer changes nothing and the author
@@ -8013,7 +10180,7 @@ def test_every_mutation_exemption_still_names_a_mutant_that_lives():
     exemptions = mutate.load_exemptions()
     for mutant in sorted(exemptions):
         name, line, mutation = mutant.split(":", 2)
-        source = REPO_ROOT / "scripts" / name
+        source = PLUGIN_ROOT / "scripts" / name
         assert source.exists(), f"{mutant} names a script that is gone"
 
         lines = source.read_text(encoding="utf-8").splitlines()
@@ -8036,13 +10203,75 @@ def test_the_mutation_tool_never_edits_the_working_tree():
     mutated file behind that read as four real regressions. It copies the tree
     now, and the property is worth holding: a tool that can corrupt the
     repository while looking for defects is a defect."""
-    source = (REPO_ROOT / "scripts" / "mutate.py").read_text(encoding="utf-8")
+    source = (PLUGIN_ROOT / "scripts" / "mutate.py").read_text(encoding="utf-8")
     assert "copytree" in source
-    # Every write goes to the copy. A write to REPO_ROOT / "scripts" would be
+    # Every write goes to the copy. A write to PLUGIN_ROOT / "scripts" would be
     # the mistake, and it is spelled distinctly enough to look for.
     for line in source.splitlines():
-        if ".write_text(" in line and "REPO_ROOT" in line:
+        if ".write_text(" in line and any(
+            root_name in line for root_name in ("REPO_ROOT", "PLUGIN_ROOT")
+        ):
             assert False, f"mutate.py writes into the repository: {line.strip()}"
+
+
+@pytest.mark.parametrize("unsafe", ["../outside.py", "/tmp/outside.py", "nested/../../outside.py"])
+def test_mutation_file_argument_cannot_escape_packaged_scripts(monkeypatch, unsafe):
+    import mutate
+
+    monkeypatch.setattr(
+        mutate,
+        "mutation_points",
+        lambda path: pytest.fail(f"unsafe path reached mutation_points: {path}"),
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        mutate.main(["--file", unsafe])
+
+    assert exc.value.code == 2
+
+
+def test_mutation_copy_is_restored_when_the_test_run_is_interrupted(tmp_path):
+    import mutate
+
+    copied_source = tmp_path / "lint.py"
+    original = "if left == right:\n    pass\n"
+    mutated = "if left != right:\n    pass\n"
+    copied_source.write_text(original, encoding="utf-8")
+
+    def interrupt(_work):
+        assert copied_source.read_text(encoding="utf-8") == mutated
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        mutate.run_mutant(tmp_path, copied_source, mutated, original, runner=interrupt)
+
+    assert copied_source.read_text(encoding="utf-8") == original
+
+
+def test_mutation_file_argument_cannot_follow_a_packaged_symlink(
+    tmp_path, monkeypatch
+):
+    import mutate
+
+    payload = tmp_path / "payload"
+    scripts = payload / "scripts"
+    scripts.mkdir(parents=True)
+    victim = tmp_path / "outside.py"
+    victim.write_text("keep me\n", encoding="utf-8")
+    (scripts / "redirect.py").symlink_to(victim)
+    before = victim.read_bytes()
+    monkeypatch.setattr(mutate, "PLUGIN_ROOT", payload)
+    monkeypatch.setattr(
+        mutate,
+        "mutation_points",
+        lambda path: pytest.fail(f"symlink reached mutation_points: {path}"),
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        mutate.main(["--file", "redirect.py"])
+
+    assert exc.value.code == 2
+    assert victim.read_bytes() == before
 
 
 def test_the_gate_scripts_are_the_ones_that_run_every_time():
@@ -8052,7 +10281,7 @@ def test_the_gate_scripts_are_the_ones_that_run_every_time():
     import mutate
 
     documented = set(mutate.GATE_SCRIPTS)
-    build = (REPO_ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
+    build = (PLUGIN_ROOT / "commands" / "sec-req-build.md").read_text(encoding="utf-8")
     invoked = set(re.findall(r"scripts/(\w+\.py)", build))
     # The build also runs select_baseline through sec-req-init, and the rebuild
     # scripts are deliberately outside the scope -- they run offline and refuse
@@ -8092,7 +10321,7 @@ def test_a_threat_may_cite_a_requirement_from_the_bundled_asvs_catalogue():
     """The defect end to end. ASVS-V11.1.1 exists in catalogs/asvs-5, and the
     cross step reported it as not a control identifier because the normaliser
     had rewritten it first."""
-    asvs = sorted(lint_mod.load_ids(REPO_ROOT / "catalogs" / "asvs-5"))
+    asvs = sorted(lint_mod.load_ids(PLUGIN_ROOT / "catalogs" / "asvs-5"))
     assert asvs, "this test needs the bundled ASVS catalogue"
     profile, _ = profile_schema.normalise(
         yaml.safe_load((GOLDEN_ROOT / "b2b-saas-aws" / "profile.yaml")
@@ -8117,7 +10346,7 @@ def test_neither_script_keeps_its_own_copy_of_the_rule():
     and the repository has removed this exact shape before -- resolve_layer had
     three copies and one had already drifted."""
     for name in ("lint.py", "merge.py"):
-        source = (REPO_ROOT / "scripts" / name).read_text(encoding="utf-8")
+        source = (PLUGIN_ROOT / "scripts" / name).read_text(encoding="utf-8")
         body = source.split("def canonical_")[1].split("\n\n\n")[0]
         assert "canonical_control_id" in body, f"{name} does not delegate"
         assert "partition(" not in body, f"{name} still carries its own conversion"
@@ -8165,7 +10394,7 @@ def test_the_style_guide_names_both_ways_a_requirement_can_be_unbuildable():
     not have the thing the requirement is about, and the interface may not be
     ours to change. All three are answered by the profile, and all three were
     ignored by a requirement anyway."""
-    guide = (REPO_ROOT / "skills" / "deriving-security-requirements" / "references" /
+    guide = (PLUGIN_ROOT / "skills" / "deriving-security-requirements" / "references" /
              "requirement-style.md").read_text(encoding="utf-8")
 
     # Inside rule 4, not anywhere in the file. The first version checked the
@@ -8183,7 +10412,7 @@ def test_the_style_guide_names_both_ways_a_requirement_can_be_unbuildable():
         assert phrase in rule_four, f"rule 4 names the fields without the test: {phrase!r}"
     assert "the missing answer is the requirement" in rule_four
 
-    schema = (REPO_ROOT / "skills" / "deriving-security-requirements" / "references" /
+    schema = (PLUGIN_ROOT / "skills" / "deriving-security-requirements" / "references" /
               "profile-schema.md").read_text(encoding="utf-8")
     assert "fixed_interfaces" in schema, "a field the guidance reads has to be asked for"
 
@@ -8198,9 +10427,35 @@ def test_the_golden_cases_still_span_the_scale():
         levels[case] = sb.run(profile)["baseline"].replace("nist-800-53b-", "")
 
     assert sorted(levels.values()) == ["high", "high", "high", "low", "moderate",
-                                       "moderate", "moderate"], levels
+                                       "moderate", "moderate", "moderate"], levels
     assert levels["internal-admin"] == "low"
     assert levels["commerce-payments"] == "high"
+
+
+def test_readme_binds_current_golden_profile_and_movie_risk_distributions():
+    """Adding a profile or changing the hand-reviewed movie scores must update
+    the README claim in the same change. This catches the stale seven-case and
+    pre-risk prose without treating the two different distributions as one."""
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    readme_words = " ".join(readme.split())
+    cases = sorted(path.name for path in GOLDEN_ROOT.iterdir() if path.is_dir())
+    movie = yaml.safe_load(
+        (GOLDEN_ROOT / "movie-rating-aws" / "expected-risk.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert len(cases) == 8
+    assert "Eight golden profiles" in readme_words
+    assert "one Low, four Moderates, and three Highs" in readme_words
+    assert movie["inherent"] == {
+        "overall": "high",
+        "status": "confirmed",
+        "counts": {"critical": 0, "high": 5, "medium": 3, "low": 0},
+        "coverage": "8/8",
+    }
+    assert "eight service-specific threats" in readme_words
+    assert "five High and three Medium" in readme_words
 
 
 def test_the_case_that_reaches_moderate_on_integrity_alone():
@@ -8281,7 +10536,7 @@ def test_every_count_the_documentation_claims_is_the_count_that_is_there():
     was added, and five deployment models when there are seven. A front page is
     the first thing anyone believes, and nothing was checking it."""
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    catalog = REPO_ROOT / "catalogs" / "nist-800-53r5"
+    catalog = PLUGIN_ROOT / "catalogs" / "nist-800-53r5"
 
     controls = {json.loads(line)["id"] for path in catalog.glob("*.jsonl")
                 for line in path.read_text(encoding="utf-8").splitlines() if line.strip()}
@@ -8292,26 +10547,26 @@ def test_every_count_the_documentation_claims_is_the_count_that_is_there():
         assert name.capitalize() in readme or name.upper() in readme or name in readme, \
             f"the {name} set is not mentioned on the front page"
 
-    csf = REPO_ROOT / "catalogs" / "csf-2.0"
+    csf = PLUGIN_ROOT / "catalogs" / "csf-2.0"
     subs = sum(1 for line in (csf / "subcategories.jsonl").read_text(encoding="utf-8").splitlines()
                if line.strip())
     cats = len(json.loads((csf / "categories.json").read_text(encoding="utf-8")))
     assert f"{subs} subcategories under {cats} categories" in readme
 
-    asvs = REPO_ROOT / "catalogs" / "asvs-5"
+    asvs = PLUGIN_ROOT / "catalogs" / "asvs-5"
     reqs = sum(1 for path in asvs.glob("*.jsonl")
                for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
     assert f"{reqs} requirements across {len(list(asvs.glob('*.jsonl')))} chapters" in readme
 
     import yaml as _yaml
-    layers = _yaml.safe_load((REPO_ROOT / "responsibility" / "layers.yaml").read_text(encoding="utf-8"))
+    layers = _yaml.safe_load((PLUGIN_ROOT / "responsibility" / "layers.yaml").read_text(encoding="utf-8"))
     for count, noun in ((len(layers["deployment_models"]), "deployment models"),
-                        (len([p for p in (REPO_ROOT / "responsibility" / "services")
+                        (len([p for p in (PLUGIN_ROOT / "responsibility" / "services")
                               .glob("aws-*.yaml")]), "AWS services")):
         assert _readme_claims(readme, count, noun), \
             f"the README does not say {count} {noun}; it should, in any of {_spellings(count)}"
 
-    for overlay in sorted((REPO_ROOT / "overlays").iterdir()):
+    for overlay in sorted((PLUGIN_ROOT / "overlays").iterdir()):
         meta_path = overlay / "meta.yaml"
         if not meta_path.exists():
             continue
@@ -8340,3 +10595,62 @@ def test_the_test_count_on_the_front_page_is_the_test_count():
     assert claimed, "the README states a test count"
     assert int(claimed.group(1).replace(",", "")) == int(match.group(1)), \
         f"README says {claimed.group(1)}, the suite collects {match.group(1)}"
+
+
+def test_movie_rating_golden_records_the_approved_operating_context_and_threats():
+    case = GOLDEN_ROOT / "movie-rating-aws"
+    profile = yaml.safe_load((case / "profile.yaml").read_text(encoding="utf-8"))
+    threats = yaml.safe_load((case / "threats.yaml").read_text(encoding="utf-8"))
+
+    assert profile["repo"] == {
+        "visibility": "public",
+        "root": ".",
+        "source": "aws-samples/aws-serverless-crud-sample",
+        "revision": "e974c2cce7b5c4774e0fbd18a9ba3c0208c3a37f",
+    }
+    assert profile["operating_assumptions"] == {
+        "service": "Public API for browsing, adding, deleting, and rating movies",
+        "anonymous_reads": True,
+        "anonymous_writes": False,
+        "data": "Public movie titles, release years, descriptions, and ratings",
+        "recovery": "RTO one day or longer; RPO several hours",
+        "additional_obligations": "none declared",
+        "storage_region": "undetermined",
+    }
+    derived = sb.run(profile)
+    assert {
+        axis: derived["impact"][axis]["level"]
+        for axis in ("confidentiality", "integrity", "availability")
+    } == {"confidentiality": "low", "integrity": "moderate", "availability": "low"}
+    assert derived["impact"]["system"] == "moderate"
+    assert derived["baseline"] == "nist-800-53b-moderate"
+    assert any(
+        "intended for publication" in reason
+        for reason in derived["impact"]["confidentiality"]["because"]
+    )
+    assert any(
+        "public content" in reason and reason.endswith("moderate")
+        for reason in derived["impact"]["integrity"]["because"]
+    )
+    assert len(threats["threats"]) == 8
+    assert {row["id"] for row in threats["threats"]} == {
+        "T-01",
+        "T-02",
+        "T-03",
+        "T-04",
+        "T-05",
+        "T-06",
+        "T-07",
+        "T-08",
+    }
+    assert all(row["novelty"] == "service_specific" for row in threats["threats"])
+    assert all(row["lifecycle"] == {"status": "active", "superseded_by": []}
+               for row in threats["threats"])
+
+    golden_text = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(case.glob("*.yaml"))
+    )
+    assert not re.search(r"\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}", golden_text)
+    assert "/Users/" not in golden_text
+    assert "/tmp/" not in golden_text
+    assert "C:\\" not in golden_text

@@ -33,7 +33,7 @@
 | 6 | 규제 스코프 | v1 코어만 + 트리거 감지·미지원 선언 | 커버 못 하는 걸 커버한 척하지 않는다 |
 | 7 | 산출물 | YAML SSOT + MD 렌더 + 추적표 | ID 안정성·재실행 diff·후속 도구 연결점 |
 | 8 | 재실행 정책 | 필드 소유권 분리 + append-only 상태전이 | 사람 편집·예외승인 보존, 감사 이력 유지 |
-| 9 | 패키징 | 명령 3개 + 스킬 + 결정론적 스크립트 | 조회는 스크립트, 판단은 모델 |
+| 9 | 패키징 | 명령 4개 + 대응 스킬 + 결정론적 스크립트 | 조회는 스크립트, 판단은 모델 |
 | 10 | 영향도 판정 | 데이터유형 테이블로 유도 + 게이트 확인 | 서비스 오너 어휘로 묻고, 산출 근거를 노출 |
 | 11 | 위협 모델링 | DFD → 경계별 STRIDE + LINDDUN + 페르소나 | 일반론 억제. 서비스 고유 위협이 제품 차별성 |
 | 12 | 검증 체계 | 단위테스트 + ID 빌드게이트 + 골든셋 커버리지 | 층마다 다른 검증 수단 |
@@ -58,12 +58,14 @@
 | 3. **프로파일 확인 게이트** | 승인 | **사람** |
 | 4. 영향도 판정 → 베이스라인 선택 | 테이블 조회 | 스크립트 |
 | 5. 위협 모델링 | 판단·창의 | 모델 |
-| 6. 책임 분류 | 큐레이션 조회 | 스크립트 (미등록만 모델) |
-| 7. 교차·우선순위 | 집합 연산 | 스크립트 |
-| 8. 요구사항 작문 | 서비스 언어로 재작성 | 모델 |
-| 9. 병합 | 필드 소유권 규칙 | 스크립트 |
-| 10. 렌더 | 템플릿 | 스크립트 |
-| 11. 품질 린트 | 규칙 + 판단 | 스크립트 + 모델 |
+| 6. 고유 위험 제안 | criterion·근거·consequence 제안 | 모델 |
+| 7. **위험·treatment 확인 게이트** | exact digest 승인 | **사람** |
+| 8. 책임 분류 | 큐레이션 조회 | 스크립트 (미등록만 모델) |
+| 9. 교차·우선순위 | 집합 연산 | 스크립트 |
+| 10. 요구사항 작문 | 서비스 언어로 재작성 | 모델 |
+| 11. 병합 | 필드 소유권 규칙 | 스크립트 |
+| 12. 렌더 | 템플릿 | 스크립트 |
+| 13. 품질 린트 | 규칙 + 판단 | 스크립트 + 모델 |
 
 **3번 게이트는 생략 불가.** 프로파일이 틀리면 그 아래 전부가 정교하게 틀리고, 사용자는 역추적을
 못 한다.
@@ -94,52 +96,87 @@ profile
 
 ## 4. 디렉토리 구조
 
+Claude Code와 Codex는 별도 marketplace 엔트리를 갖지만, 둘 다
+`plugins/security-requirements/` 하나만 가리킨다. Claude는 `commands/`의
+`sec-req-init`·`sec-req-build`·`sec-req-refresh`·`sec-req-risk` slash command를 사용하고,
+Codex는 대응하는 `skills/security-requirements-{init,build,refresh,risk}/SKILL.md`
+자연어 진입 스킬을 사용한다. 어느 호스트도 런타임 스크립트·카탈로그·오버레이를 복사하지 않는다.
+릴리스 전 `python3 scripts/validate_distribution.py .`가 두 marketplace,
+manifest 상대 경로, 네 진입점, risk asset·policy schema·version agreement,
+symlink/junction과 중복 payload를 코드 실행 없이 읽기 전용으로 검사한다.
+
 ```
 .claude-plugin/
-  plugin.json
-commands/
-  sec-req-init.md        # 1~3단계
-  sec-req-build.md       # 4~11단계
-  sec-req-refresh.md     # 재실행·병합
-skills/
-  deriving-security-requirements/
-    SKILL.md
-    references/
-      profile-schema.md
-      threat-modeling.md      # DFD·STRIDE·LINDDUN·페르소나 절차
-      requirement-style.md    # 작문 3원칙
-scripts/
-  select_baseline.py     # 결정론적
-  classify_resp.py
-  merge.py
-  render.py
-  lint.py
-  rebuild_catalogs.py    # OSCAL → JSONL 재생성
-catalogs/
-  nist-800-53r5/         # 공공도메인
-    AC.jsonl ... (20 패밀리)
-    baselines.json
-  csf-2.0/
-    subcategories.jsonl
-    crosswalk-800-53.json
-  asvs-5/                # CC BY-SA 4.0 — 격리
-    LICENSE  NOTICE
-    V1.jsonl ...
-  data-types/
-    classification.yaml  # 데이터유형 → C/I/A 기여도
-  csp-rules/             # 자체 작성 + 출처 URL
-    aws.md
-responsibility/
-  layers.yaml            # 배포모델별 거친 매핑
-  services/
-    aws-s3.yaml          # reviewed: true
-    ...
+  marketplace.json
+.agents/
+  plugins/
+    marketplace.json
+plugins/
+  security-requirements/
+    .claude-plugin/
+      plugin.json
+    .codex-plugin/
+      plugin.json
+    commands/
+      sec-req-init.md        # 1~3단계
+      sec-req-build.md       # 4~11단계
+      sec-req-refresh.md     # 재실행·병합
+      sec-req-risk.md        # 위험 평가·확인·증적·잔여 위험
+    skills/
+      deriving-security-requirements/
+        SKILL.md
+        references/
+          profile-schema.md
+          threat-modeling.md      # DFD·STRIDE·LINDDUN·페르소나 절차
+          requirement-style.md    # 작문 3원칙
+          risk-assessment.md      # 5x5 평가·확인·treatment·residual 절차
+      security-requirements-init/
+        SKILL.md
+      security-requirements-build/
+        SKILL.md
+      security-requirements-refresh/
+        SKILL.md
+      security-requirements-risk/
+        SKILL.md
+    risk/
+      default-policy.yaml   # 5x5 기본 정책; public summary는 opt-in
+    scripts/
+      select_baseline.py     # 결정론적
+      classify_resp.py
+      merge.py
+      render.py
+      lint.py
+      risk.py               # 점수·digest·gate·report 결정론 엔진
+      rebuild_catalogs.py    # OSCAL → JSONL 재생성
+    catalogs/
+      nist-800-53r5/         # 공공도메인
+        AC.jsonl ... (20 패밀리)
+        baselines.json
+      csf-2.0/
+        subcategories.jsonl
+      asvs-5/                # CC BY-SA 4.0 — 격리
+        LICENSE  NOTICE
+        V1.jsonl ...
+      data-types/
+        classification.yaml  # 데이터유형 → C/I/A 기여도
+      csp-rules/             # 자체 작성 + 출처 URL
+        aws.md
+    overlays/
+      SCHEMA.md
+      ...
+    responsibility/
+      layers.yaml            # 배포모델별 거친 매핑
+      services/
+        aws-s3.yaml          # reviewed: true
+        ...
 golden/                  # 전부 합성 케이스
   b2b-saas-aws/
   mobile-backend/
   internal-admin/
   commerce-payments/
 tests/
+scripts/
+  validate_distribution.py  # 배포 루트 전용 검사기
 ```
 
 ### 사용자 레포에 생성되는 것
@@ -148,6 +185,11 @@ tests/
 .security-requirements/     # 민감 — 가시성에 따라 gitignore
   profile.yaml
   threats.yaml
+  risk-policy.yaml
+  risk-assessment.yaml
+  risk-evidence.yaml
+  risk-state.yaml
+  reports/risk-register.md  # 내부용; attack path·owner·acceptance·artifact 포함
   requirements.yaml
   status.yaml
   state.yaml               # 발급된 ID 대장
@@ -155,6 +197,7 @@ docs/security/              # 공개 무해 — 항상 커밋
   requirements.md
   traceability.md
   responsibility.md
+  risk-summary.md           # 승인 정책이 opt-in한 경우만; 집계만 포함
 ```
 
 ---
@@ -233,6 +276,45 @@ threats:
 STRIDE는 프라이버시 위협을 못 잡는다. 연결가능성·식별가능성은 6분류 어디에도 없다.
 프로파일에 PII가 있으면 LINDDUN 축을 추가로 돌린다.
 
+### Threat risk rating and approval boundary
+
+Risk is assessed per active `threat × persona × attack path`. The bundled
+policy uses `likelihood × impact` with exact bands: 1–4 low, 5–9 medium,
+10–16 high, and 17–25 critical. Impact is the highest explicit consequence,
+not an average. The overall rating is the highest active confirmed threat and
+is always accompanied by distribution and coverage; scores are never summed.
+
+The model proposes criterion IDs, evidence, consequences, rationale, and a
+non-acceptance treatment. The deterministic engine calculates the score and
+digest. The model does not approve policy, inherent risk, treatment, acceptance,
+or residual risk. A human confirms the complete canonical batch, while an
+authoritative matching record is stored outside the inspected repository and
+bound to project, policy, threat, and assessment digests. Missing, proposed,
+stale, or undetermined inherent risk blocks publication.
+
+Requirement priority is not a risk rating. Priority ranks how directly a
+requirement follows from the threat model and baseline. Risk rating measures
+threat magnitude; neither value is derived from the other. Accepted risk keeps
+its score and remains in the aggregate. Acceptance is separate human-owned
+governance with approver, role, owner, rationale, and expiry, and an expired
+acceptance becomes unresolved.
+
+Residual risk is independently proposed and confirmed. Only current passing
+implementation evidence can support a reduced axis; a requirement, planned
+control, or plausible repository prose cannot. Missing, expired, or
+requirement-stale evidence leaves residual risk `UNDETERMINED`. This is allowed
+for initial publication because only confirmed inherent risk is the hard gate.
+
+The detailed register is internal. Public summary generation is opt-in through
+the approved `publish_risk_summary: true` policy and exposes only overall
+rating, distribution, and coverage. It excludes attack paths, owners,
+acceptance details, and internal evidence locations.
+
+Legacy threat schema `0.1.0` is migrated transactionally into unconfirmed
+scaffolding without changing prior published documents, fabricating approval,
+or replacing requirement exceptions. Human confirmation advances the threat
+schema to `0.2.0`; accepted-risk migration remains pending review until then.
+
 ---
 
 ## 6. 요구사항 작문 3원칙
@@ -294,8 +376,8 @@ v1 CSP는 AWS만. Azure/GCP는 `layers.yaml` 수준의 거친 커버리지만.
 | 대상 | 라이선스 |
 |---|---|
 | 코드·스크립트·자체작성 룰 | Apache-2.0 |
-| `catalogs/nist-*` | 미국 공공도메인 (명시) |
-| `catalogs/asvs-5/` | CC BY-SA 4.0 + NOTICE (격리) |
+| `plugins/security-requirements/catalogs/nist-*` | 미국 공공도메인 (명시) |
+| `plugins/security-requirements/catalogs/asvs-5/` | CC BY-SA 4.0 + NOTICE (격리) |
 
 CC BY-SA의 share-alike는 각색물에 전파되지 코드 전체를 감염시키지 않는다 (GPL과 다름). ASVS를
 JSONL로 변환한 것은 각색물이므로 해당 파일은 CC BY-SA를 유지하되, 별도 디렉토리에 두어
@@ -345,7 +427,7 @@ v1은 규제 오버레이를 포함하지 않는다. 대신 트리거를 감지�
 → 개인정보보호법 고유식별정보. 미지원, 별도 검토 필요
 ```
 
-`overlays/` 디렉토리는 스키마만 두고 비워둔다. 두 번째 카탈로그는 코어가 실제로 쓰이는 것을
+`plugins/security-requirements/overlays/` 디렉토리는 스키마만 두고 비워둔다. 두 번째 카탈로그는 코어가 실제로 쓰이는 것을
 확인한 뒤 붙인다.
 
 **참고**: 한국 법령·고시는 저작권법 제7조에 따라 보호 대상이 아니므로 번들 가능하다
@@ -399,10 +481,10 @@ v1은 규제 오버레이를 포함하지 않는다. 대신 트리거를 감지�
 
 ### 완료
 
-- `catalogs/data-types/classification.yaml` — 25개 데이터유형 → C/I 기여도, 수식어,
+- `plugins/security-requirements/catalogs/data-types/classification.yaml` — 25개 데이터유형 → C/I 기여도, 수식어,
   규제 트리거 매핑
-- `catalogs/data-types/availability.yaml` — RTO/RPO/가중요인 → A 유도
-- `skills/deriving-security-requirements/references/profile-schema.md` — 프로파일 스키마,
+- `plugins/security-requirements/catalogs/data-types/availability.yaml` — RTO/RPO/가중요인 → A 유도
+- `plugins/security-requirements/skills/deriving-security-requirements/references/profile-schema.md` — 프로파일 스키마,
   출처 분리 원칙, 인터뷰 7문항, 확인 게이트, UNDETERMINED 처리
 
 설계 중 확정된 부가 규칙:
@@ -522,13 +604,13 @@ UNDETERMINED 0이고, 예외 목록은 검토 가능한 길이로 유지된다.
   `inferred` 블록을 채우는 경로는 아직 한 번도 돌지 않았다
 - `threats.yaml`·`draft.json`은 골든 1번만 존재하는 고정 픽스처. 2~4번은 모델
   실행 시 채점용
-- 규제 오버레이 0개. `overlays/SCHEMA.md`만 있음
+- 규제 오버레이 0개. `plugins/security-requirements/overlays/SCHEMA.md`만 있음
 - CSP 큐레이션은 AWS만. Azure·GCP는 배포모델 층으로 폴백
 - `render.py` 259줄은 프롬프트로 대체 가능 — 유지 이유는 산출물 diff 안정성뿐
 
 ### 다음 (당시 계획)
 
-1. 실제 레포에 `/sec-req-init` 실행
+1. 실제 레포에 `/security-requirements:sec-req-init` 실행
 2. ISMS-P 오버레이
 3. Azure·GCP 서비스 큐레이션
 
@@ -590,7 +672,7 @@ Week 2까지는 합성 프로파일만 썼다. 이후 로컬 레포 12개에 실
 
 스위프가 단순 수정으로 안 끝나고 구조를 바꾼 게 다섯 개다.
 
-- **`scripts/profile_schema.py` 신설.** 값 공간 재검증에서 나온 9개가 전부
+- **`plugins/security-requirements/scripts/profile_schema.py` 신설.** 값 공간 재검증에서 나온 9개가 전부
   "사용자 문자열을 정확 일치로 비교" 한 부류였다. 호출부마다 `.lower()`를
   뿌리면 다섯을 고치고 여섯째를 남긴다. 정규화를 한 곳으로 올려 부류 자체를
   도달 불가로 만들었다

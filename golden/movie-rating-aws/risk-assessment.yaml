@@ -1,0 +1,255 @@
+# Deterministic review witness. CONFIRMED records represent the approved batch
+# used to test calculation and reporting; they are not an authoritative plugin
+# approval because no matching external digest-bound state is present here.
+
+assessments:
+  - threat_id: T-01
+    status: CONFIRMED
+    proposed:
+      likelihood:
+        criterion: L2-RESTRICTED
+        evidence:
+          exposure: deployment artifact or developer workspace
+          access_required: artifact, workspace, backup, or source-history read access
+          exploit_complexity: non-trivial artifact acquisition
+          preconditions:
+            - An operator replaces the tutorial placeholders with long-lived credentials.
+            - The resulting configuration is copied into a readable artifact or workspace.
+          observed_controls: []
+        rationale:
+          - Exploitation requires restricted access to an artifact or workspace and an unsafe operator action.
+      consequences:
+        - id: C-01
+          asset: aws_account_resources
+          axis: confidentiality
+          criterion: I4-CROSS-SYSTEM
+          affected_scope: account resources reachable by the exposed identity
+          recoverability: credential revocation and account investigation required
+          scope_expansion:
+            evidence:
+              - The configuration supplies credentials directly to the AWS SDK rather than limiting them to one Movies-table operation.
+          rationale:
+            - Stolen credentials can expose resources outside the movie service and require account-wide investigation.
+      impact: {selected_from: C-01}
+    calculated: {likelihood: 2, impact: 4, score: 8, rating: medium}
+    treatment: {strategy: mitigate, owner: movie-service-team, status: planned}
+    residual:
+      status: UNDETERMINED
+      reason: linked requirements have no valid implementation evidence
+
+  - threat_id: T-02
+    status: CONFIRMED
+    proposed:
+      likelihood:
+        criterion: L3-AUTHENTICATED
+        evidence:
+          exposure: Lambda runtime
+          access_required: code execution inside the deployed function
+          exploit_complexity: ordinary post-compromise AWS SDK calls
+          preconditions:
+            - A dependency or application flaw provides code execution in the Lambda runtime.
+          observed_controls:
+            - The tutorial recommends broad AWS-managed FullAccess policies.
+        rationale:
+          - The attack starts with internal runtime authority but broad policies make cross-service actions ordinary.
+      consequences:
+        - id: C-01
+          asset: aws_account_resources
+          axis: integrity
+          criterion: I4-CROSS-SYSTEM
+          affected_scope: unrelated Lambda functions and DynamoDB tables in the account
+          recoverability: restore affected resources and investigate account activity
+          scope_expansion:
+            evidence:
+              - AWSLambdaFullAccess and AmazonDynamoDBFullAccess are not scoped to the Movies table.
+          rationale:
+            - Compromise is not confined to movie records and can alter unrelated account resources.
+      impact: {selected_from: C-01}
+    calculated: {likelihood: 3, impact: 4, score: 12, rating: high}
+    treatment: {strategy: mitigate, owner: movie-service-team, status: planned}
+    residual:
+      status: UNDETERMINED
+      reason: linked requirements have no valid implementation evidence
+
+  - threat_id: T-03
+    status: CONFIRMED
+    proposed:
+      likelihood:
+        criterion: L5-DIRECT-AUTOMATABLE
+        evidence:
+          exposure: public internet write routes
+          access_required: none
+          exploit_complexity: direct and readily automated requests
+          preconditions:
+            - API Gateway forwards a write route to the Lambda handler.
+          observed_controls: []
+        rationale:
+          - Anonymous callers can directly repeat movie create, delete, and rating operations.
+      consequences:
+        - id: C-01
+          asset: movie_records
+          axis: integrity
+          criterion: I3-CORE-SERVICE
+          affected_scope: the public catalogue and aggregate ratings
+          recoverability: restore records and reconstruct legitimate rating changes
+          rationale:
+            - Bulk tampering materially undermines the core movie-browsing and rating service.
+      impact: {selected_from: C-01}
+    calculated: {likelihood: 5, impact: 3, score: 15, rating: high}
+    treatment: {strategy: mitigate, owner: movie-service-team, status: planned}
+    residual:
+      status: UNDETERMINED
+      reason: linked requirements have no valid implementation evidence
+
+  - threat_id: T-04
+    status: CONFIRMED
+    proposed:
+      likelihood:
+        criterion: L5-DIRECT-AUTOMATABLE
+        evidence:
+          exposure: public request body and route values
+          access_required: none
+          exploit_complexity: low-cost repeated malformed requests
+          preconditions:
+            - The handler accepts a request before enforcing a bounded schema.
+          observed_controls:
+            - year is parsed but range and failed conversion are not rejected.
+        rationale:
+          - Public callers can automate oversized and malformed inputs without credentials.
+      consequences:
+        - id: C-01
+          asset: lambda_capacity
+          axis: availability
+          criterion: I3-CORE-SERVICE
+          affected_scope: movie API execution and DynamoDB capacity
+          recoverability: shed load and remove malformed records
+          rationale:
+            - Repeated unbounded requests can materially degrade the core API and consume its storage capacity.
+      impact: {selected_from: C-01}
+    calculated: {likelihood: 5, impact: 3, score: 15, rating: high}
+    treatment: {strategy: mitigate, owner: movie-service-team, status: planned}
+    residual:
+      status: UNDETERMINED
+      reason: linked requirements have no valid implementation evidence
+
+  - threat_id: T-05
+    status: CONFIRMED
+    proposed:
+      likelihood:
+        criterion: L4-PUBLIC-LOW-COMPLEXITY
+        evidence:
+          exposure: public HTTP response
+          access_required: none
+          exploit_complexity: trigger a handled DynamoDB failure
+          preconditions:
+            - A request reaches a branch whose DynamoDB operation fails.
+          observed_controls: []
+        rationale:
+          - An anonymous caller can induce common error paths and inspect the full response.
+      consequences:
+        - id: C-01
+          asset: operational_metadata
+          axis: confidentiality
+          criterion: I2-LIMITED-SCOPE
+          affected_scope: resource names and diagnostic details for the movie service
+          recoverability: deploy stable error mapping and rotate any exposed identifiers if needed
+          rationale:
+            - The disclosure aids reconnaissance but is limited to service diagnostics rather than business secrets.
+      impact: {selected_from: C-01}
+    calculated: {likelihood: 4, impact: 2, score: 8, rating: medium}
+    treatment: {strategy: mitigate, owner: movie-service-team, status: planned}
+    residual:
+      status: UNDETERMINED
+      reason: linked requirements have no valid implementation evidence
+
+  - threat_id: T-06
+    status: CONFIRMED
+    proposed:
+      likelihood:
+        criterion: L4-PUBLIC-LOW-COMPLEXITY
+        evidence:
+          exposure: public request values copied to application logging
+          access_required: none to inject data; log-reader access to retrieve it
+          exploit_complexity: low-complexity sentinel injection
+          preconditions:
+            - The Lambda records request, response, or error detail in CloudWatch Logs.
+          observed_controls: []
+        rationale:
+          - A public caller can place chosen values into commonly logged error and response paths.
+      consequences:
+        - id: C-01
+          asset: app_logs
+          axis: confidentiality
+          criterion: I2-LIMITED-SCOPE
+          affected_scope: movie-service CloudWatch log readers and retained log entries
+          recoverability: redact fields and expire affected log events
+          rationale:
+            - Exposure is limited to values submitted to this service and principals who can read its logs.
+      impact: {selected_from: C-01}
+    calculated: {likelihood: 4, impact: 2, score: 8, rating: medium}
+    treatment: {strategy: mitigate, owner: movie-service-team, status: planned}
+    residual:
+      status: UNDETERMINED
+      reason: linked requirements have no valid implementation evidence
+
+  - threat_id: T-07
+    status: CONFIRMED
+    proposed:
+      likelihood:
+        criterion: L5-DIRECT-AUTOMATABLE
+        evidence:
+          exposure: every public mutation path
+          access_required: none under the observed design
+          exploit_complexity: direct write request without an audit event contract
+          preconditions:
+            - A create, delete, or rating request reaches DynamoDB.
+          observed_controls:
+            - General response logging does not bind a security event to a caller and target.
+        rationale:
+          - Every automated mutation can occur without the attribution data needed for later review.
+      consequences:
+        - id: C-01
+          asset: audit_records
+          axis: integrity
+          criterion: I2-LIMITED-SCOPE
+          affected_scope: attribution and investigation of movie-record mutations
+          recoverability: correlate partial logs or reconstruct changes from backups
+          rationale:
+            - Missing attribution impairs investigation but does not by itself corrupt systems beyond this service.
+      impact: {selected_from: C-01}
+    calculated: {likelihood: 5, impact: 2, score: 10, rating: high}
+    treatment: {strategy: mitigate, owner: movie-service-team, status: planned}
+    residual:
+      status: UNDETERMINED
+      reason: linked requirements have no valid implementation evidence
+
+  - threat_id: T-08
+    status: CONFIRMED
+    proposed:
+      likelihood:
+        criterion: L4-PUBLIC-LOW-COMPLEXITY
+        evidence:
+          exposure: public API Gateway resource paths
+          access_required: none
+          exploit_complexity: add a prefix while retaining a recognized final segment
+          preconditions:
+            - Gateway policies distinguish complete paths.
+            - Lambda dispatch uses only the final path segment.
+          observed_controls: []
+        rationale:
+          - An anonymous caller can cheaply probe alternate prefixes whose final segment selects a privileged operation.
+      consequences:
+        - id: C-01
+          asset: movie_records
+          axis: integrity
+          criterion: I3-CORE-SERVICE
+          affected_scope: privileged movie create, delete, or rating operations
+          recoverability: restore affected records and correct the route contract
+          rationale:
+            - Route-policy divergence can expose core state-changing operations through an unintended path.
+      impact: {selected_from: C-01}
+    calculated: {likelihood: 4, impact: 3, score: 12, rating: high}
+    treatment: {strategy: mitigate, owner: movie-service-team, status: planned}
+    residual:
+      status: UNDETERMINED
+      reason: linked requirements have no valid implementation evidence

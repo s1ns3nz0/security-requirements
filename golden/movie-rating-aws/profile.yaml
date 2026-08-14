@@ -1,0 +1,63 @@
+# Synthetic operating profile for the movie-rating threat/risk witness.
+#
+# The architecture and operating assumptions are derived from the pinned AWS
+# serverless CRUD sample, then explicitly approved for this example. This is
+# not a production deployment template and describes no real organisation.
+
+version: "0.1.0"
+locale: en
+catalog_versions:
+  nist_800_53: r5
+  data_types: "0.2.0"
+
+repo:
+  visibility: public
+  root: "."
+  source: aws-samples/aws-serverless-crud-sample
+  revision: e974c2cce7b5c4774e0fbd18a9ba3c0208c3a37f
+
+operating_assumptions:
+  service: Public API for browsing, adding, deleting, and rating movies
+  anonymous_reads: true
+  anonymous_writes: false
+  data: Public movie titles, release years, descriptions, and ratings
+  recovery: RTO one day or longer; RPO several hours
+  additional_obligations: none declared
+  storage_region: undetermined
+
+inferred:
+  csp: aws
+  deployment_model: serverless
+  managed_services:
+    - id: aws-api-gateway
+      evidence: README.md and API resource configuration
+    - id: aws-lambda
+      evidence: movies-dynamodb Lambda handler
+    - id: aws-dynamodb
+      evidence: Movies table CRUD calls
+    - id: aws-cloudwatch-logs
+      evidence: Lambda execution logging
+  stack: [javascript, nodejs, aws-sdk]
+  auth_mechanism: none_observed
+  entrypoints:
+    - GET /movies
+    - POST /add-movie
+    - DELETE /movies/{title}/{year}
+    - POST /movies/{title}/{year}/rating
+  external_integrations: []
+  region_storage: undetermined
+
+declared:
+  data_types:
+    - id: public_content
+      modifiers: [intended_public]
+    - id: app_logs
+    - id: audit_logs
+  availability:
+    rto: rto_day_plus
+    rpo: rpo_hours_plus
+    amplifiers: []
+  users: [anonymous_public]
+  regulations_declared: []
+  existing_org_controls: []
+  user_regions: []

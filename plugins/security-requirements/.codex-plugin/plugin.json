@@ -1,0 +1,36 @@
+{
+  "name": "security-requirements",
+  "version": "0.2.0",
+  "description": "Derives tailored security requirements for a service from NIST CSF 2.0, SP 800-53, OWASP ASVS, and cloud provider guidance. Prescriptive, not discovery: it says what the service must satisfy, before or independently of any code existing. Requires Python 3.12 or newer and PyYAML.",
+  "author": {
+    "name": "s1ns3nz0"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/s1ns3nz0/security-requirements",
+  "repository": "https://github.com/s1ns3nz0/security-requirements",
+  "keywords": [
+    "security",
+    "compliance",
+    "requirements",
+    "nist",
+    "800-53",
+    "csf",
+    "asvs",
+    "threat-modeling"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Security Requirements",
+    "shortDescription": "Derive verifiable security requirements for a service",
+    "longDescription": "Build and maintain a tailored security requirements contract from architecture or repository evidence, NIST, OWASP ASVS, cloud responsibility guidance, threat modeling, and applicable regulatory overlays.",
+    "developerName": "s1ns3nz0",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "defaultPrompt": [
+      "Initialize the security requirements profile for this repository.",
+      "Build security requirements from the confirmed profile.",
+      "Refresh security requirements after service changes.",
+      "Assess and review threat risk for this repository."
+    ]
+  }
+}

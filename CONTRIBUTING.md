@@ -15,7 +15,9 @@ derivation that touches it.
 
 ## Adding a service
 
-Create `responsibility/services/<provider>-<service>.yaml`. Use
+Create
+`plugins/security-requirements/responsibility/services/<provider>-<service>.yaml`.
+Use
 `aws-s3.yaml` as the model.
 
 ```yaml
@@ -41,7 +43,7 @@ controls:
 ### Rules
 
 **Only list controls where the service changes the answer.** Everything else
-falls through to `responsibility/layers.yaml`. A file restating the layer
+falls through to `plugins/security-requirements/responsibility/layers.yaml`. A file restating the layer
 defaults adds maintenance and no information.
 
 **Never assert inheritance as fact.** `csp_claimed` means the provider claims
@@ -81,12 +83,12 @@ failure where the tool ignores the profile and emits a generic set.
 
 ## Adding an overlay
 
-See `overlays/SCHEMA.md`. Check the licence table before bundling any source
+See `plugins/security-requirements/overlays/SCHEMA.md`. Check the licence table before bundling any source
 text — that decision is not recoverable once published.
 
 ## Changing the classification tables
 
-`catalogs/data-types/classification.yaml` decides the baseline size, so a change
+`plugins/security-requirements/catalogs/data-types/classification.yaml` decides the baseline size, so a change
 here moves every derivation.
 
 Two rules learned by getting them wrong:
@@ -107,11 +109,30 @@ Moderate, and High respectively; the range being reachable is the point.
 
 ## Running things
 
+Development and validation require Python 3.12 or newer and PyYAML. The runtime
+uses `pathlib.Path.is_junction()` as a mandatory output-safety check and does not
+support older Python versions.
+
 ```
-python3 scripts/rebuild_catalogs.py     # rebuild from upstream
+python3 -I plugins/security-requirements/scripts/rebuild_catalogs.py  # rebuild from upstream
 python3 -m pytest tests/                # deterministic layer
-python3 scripts/lint.py <requirements>  # source integrity and style gate
+python3 -I plugins/security-requirements/scripts/lint.py <requirements>  # source integrity and style gate
 ```
+
+## Validating a distributable clone
+
+Before a release, run the clean-clone checks from the repository root:
+
+```bash
+python3 -m pytest tests/test_distribution_docs.py -q
+python3 scripts/validate_distribution.py .
+```
+
+The validator is read-only: it does not install plugins or rewrite either
+marketplace. It checks that both host marketplaces resolve to the one payload,
+that the host manifests and their relative paths exist, and that all three
+Claude commands and Codex skills are present. Keep runtime assets in the shared
+payload; do not add symlinks or a second copy of a runtime directory.
 
 Bundled catalogs are committed so the tool works offline and so a change in
 upstream data is visible as a diff rather than a silent shift.

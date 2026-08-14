@@ -16,9 +16,11 @@ htmlcov/
 # Local isolated development worktrees.
 .worktrees/
 
-# Agent tooling installed for local authoring, not part of the plugin. The
-# plugin itself ships from .claude-plugin/, commands/, and skills/, which this
-# does not match.
-.agents/
+# Agent tooling installed for local authoring, except for the Codex marketplace
+# manifest that distributes this plugin.
+.agents/*
+!.agents/plugins/
+.agents/plugins/*
+!.agents/plugins/marketplace.json
 .claude/
 skills-lock.json
