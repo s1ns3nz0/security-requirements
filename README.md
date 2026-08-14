@@ -150,6 +150,64 @@ published documents or inventing approval. Only human confirmation advances
 the threat schema to `0.2.0`. Existing requirement exceptions remain in place
 until their proposed threat-level accepted-risk migration is reviewed.
 
+### Worked example: an AWS movie-rating API
+
+The `movie-rating-aws` witness starts with a public API Gateway endpoint, a
+Python Lambda, a DynamoDB `Movies` table, CloudWatch Logs, and an
+`app_config.json` credential path. Anonymous users can browse, create, delete,
+and rate movies.
+
+Those deployment assumptions matter. Public mutation routes raise likelihood;
+broad Lambda policies expand impact beyond one table; error and logging paths
+create separate disclosure boundaries. The model therefore does not begin with
+a generic list of web vulnerabilities.
+
+The workflow is:
+
+1. Draw five trust boundaries from the public client through API Gateway,
+   Lambda, DynamoDB, configuration, and CloudWatch.
+2. Apply STRIDE to each concrete flow and retain only service-specific attack
+   paths with a persona, affected asset, and related controls.
+3. Select likelihood and impact criteria from structured evidence. The model
+   proposes them; the deterministic engine computes `likelihood × impact`.
+4. Review all active threats as one batch. A human confirms the exact policy,
+   threat, and assessment digests before the result becomes authoritative.
+5. Recalculate residual risk only from current implementation evidence. A
+   planned requirement alone cannot lower a score.
+
+The confirmed inherent assessment is:
+
+| ID | Concrete attack path | L | I | Score | Rating |
+|---|---|---:|---:|---:|---|
+| T-01 | Long-lived AWS credentials copied into an artifact | 2 | 4 | 8 | Medium |
+| T-02 | Compromised Lambda abuses account-wide managed policies | 3 | 4 | 12 | High |
+| T-03 | Anonymous callers automate movie and rating mutation | 5 | 3 | 15 | High |
+| T-04 | Unbounded public input consumes Lambda and DynamoDB capacity | 5 | 3 | 15 | High |
+| T-05 | AWS SDK errors disclose operational metadata to clients | 4 | 2 | 8 | Medium |
+| T-06 | Attacker-controlled request data reaches CloudWatch Logs | 4 | 2 | 8 | Medium |
+| T-07 | Mutations lack an attributable security audit event | 5 | 2 | 10 | High |
+| T-08 | Final-path dispatch diverges from API Gateway route policy | 4 | 3 | 12 | High |
+
+The overall inherent rating is **High**: five High and three Medium threats,
+with all eight active threats assessed. It is not an average that hides the
+largest scenario; the aggregate retains the highest active rating and reports
+the complete distribution and coverage.
+
+Residual risk is **`UNDETERMINED` (0/8)**. The fixture contains proposed
+requirements but no passing implementation evidence, so it cannot claim that
+authentication, least privilege, schema validation, redaction, audit events,
+or exact route matching has reduced either likelihood or impact.
+
+That result drives requirements without turning requirement priority into a
+risk score. T-03 supports authentication and authorization properties; T-04
+supports bounded schema validation and capacity controls; T-07 supports an
+attributable, tamper-resistant audit trail. Each keeps its threat reference.
+
+The literal reviewed inputs and expected result live in
+[`golden/movie-rating-aws`](golden/movie-rating-aws). The regression suite
+replays the public confirmation API, verifies the external digest binding, and
+asserts the exact five-High/three-Medium distribution.
+
 ## Who has to do it
 
 <p align="center">
