@@ -18,16 +18,111 @@ Review found that the earlier movie witness did not execute the public
 confirmation boundary, installed payloads came from a mutable worktree, event
 checks were aggregate string searches, and project/config hash scopes were
 incomplete. This fix round corrected the deterministic witness and README. It
-also built a stricter host harness. The latest current-commit run proved an
-isolated login-shell interpreter binding, immutable installation, a complete
-canonical read-only fixture, and an unchanged hostile project across the Codex
-model phase. Its natural-audit prompt explicitly prohibited shell-state and
-command-resolution mutation. Codex then emitted the installed adapter's exact
-documented root-resolution block, but the unchanged audit-only verifier did
-not normalize its double-quoted space-containing paths as equivalent to the
-single-quoted form in its allowlist. It failed closed before accepting the
-semantic sequence or framed execution log and before starting Claude. The
-dual-host witness therefore remains incomplete.
+also built a stricter host harness. The latest bounded run proved an isolated
+login-shell interpreter binding, immutable installation, exact installed
+shared-resource reads, canonical full child argv, a complete read-only fixture,
+and an unchanged hostile project across the Codex model phase. Its
+natural-audit prompt explicitly prohibited shell-state and command-resolution
+mutation. The unchanged audit verifier nevertheless rejected the textual
+shell representation of Codex command 4 before accepting the run. Claude was
+therefore not started, and the dual-host witness remains incomplete.
+
+### Canonical shared-resource attempt against `807f05b`
+
+The ignored host prompt was narrowed to the canonical installed workflow. It
+required both hosts, after adapter selection, to read these exact immutable
+resources in order before `safe_paths.py` or `risk.py`:
+
+```text
+skills/deriving-security-requirements/SKILL.md
+skills/deriving-security-requirements/references/risk-assessment.md
+commands/sec-req-risk.md
+```
+
+It also required `check` and `residual` to copy the packaged command's full
+argv, preserving `--project-root`, `--policy`, `--threats`, `--assessment`,
+`--requirements`, `--evidence`, and `--state` in order. The audit-only
+shell-state, command-resolution, no-write, and explicit-confirmation-stop
+prohibitions remained in force. Fresh offline gates passed:
+
+```text
+event, resource-order, controller, shim-log, signal, retention, and prompt tests: 45 passed
+compiled stderr-shim tests: 8 passed
+missing and late resource reads: rejected for both hosts
+Python compile, zsh syntax, nested ZDOTDIR, and git diff checks: pass
+```
+
+Exactly one Codex model attempt was made. Claude was permitted only after a
+fully accepted Codex result, so no Claude model attempt followed the Codex
+failure. The run used only `git archive` of
+`807f05be3e9042ef86f168dedc6c13ccb8343515`, SHA-256
+`0c8a04610cf583876ebad2360d0dd0970b165a20bd25b364ba75e5b9f6ee3647`.
+Both isolated installations byte-matched the archive, including the shared
+workflow resources:
+
+| Immutable installed file | SHA-256 |
+|---|---:|
+| `scripts/runtime_paths.py` | `0cb933c604659f98a60757225ced7ebf79c4ac223624d531df6912b006d39a3d` |
+| `scripts/safe_paths.py` | `9f09f687ad4a35e819476f0ef0faf8ccd906622666b5f114d9d3418de30319ee` |
+| `scripts/risk.py` | `a4ad8c1c14ff0ef5058c78dcf793d7bf8580b43fc955bf2abb02bc13c9e9162c` |
+| shared `SKILL.md` | `ebc754fd23184f3ec3663c0f457aa786139631f899788c9fa0b59f198f04d0de` |
+| `references/risk-assessment.md` | `91d74bc7883e8e3fb4e85c97eeb5028b18df2bb7ca4504edddd7f074fa276e86` |
+| `commands/sec-req-risk.md` | `b84489e95ff08389d66d1205e177d16b1db79709b007deea594f83b703f84993` |
+| Codex risk adapter `SKILL.md` | `891050c2ef848fe2e76eaf3c11592b872cf35a09e0080fbb830250ab6de3c5ee` |
+
+Codex issued the exact three installed read-only resource loads before the
+engine calls. The stderr controller captured nine normal-completion execution
+frames. Decoding those retained frames proves `python3 -I` with the exact
+installed paths; the `check` and `residual` records each contain the complete
+packaged argv above and returned the expected status 1 for intentionally absent
+external policy and assessment confirmations. The controller's pre-redaction
+aggregate frame hash was
+`83abd1f1bb8539f083e61043d28e0dbe6915e1cf30f447f661e6ade9f188e6c6`.
+These frames are evidence of this normal execution, not a cryptographic
+attestation against a malicious host or model.
+
+The run still failed closed before the event and frame evidence could be
+accepted as a completed host witness:
+
+```text
+codex structured shell command 4 has an unexpected interpreter invocation
+```
+
+The decoded child record contradicts an argv omission: it contains the exact
+full `risk.py check` argv. The rejection is therefore a textual structured-
+shell parsing gap for the host-emitted quoted multiline command, not evidence
+that the packaged engine ran with reconstructed or missing arguments. Per the
+single-run bound, the verifier was not relaxed and the host was not retried.
+No `TASK11_HOST_E2E=pass` marker exists.
+
+The complete Codex hostile project was identical immediately before and after
+the model phase:
+
+```text
+0c40a5bd74978bc0a4bb1b5d9b02cf91882cf5badee7973360c56f65f8c5964d
+```
+
+Fallback cleanup removed the exact disposable root. Immediate independent
+post-failure hashes matched every declared pre-run nonvolatile scope and the
+pinned interpreter:
+
+| Measured scope | SHA-256 before and after |
+|---|---:|
+| Codex declared config scope | `cf20e23f3c9e27b8c2365d655334c67910f4f997878d6c231986486776d0fb1a` |
+| Claude declared config scope | `f1da996d2103b0714e0a5f6be4b9ba79ddd46a3b7eaa181745eb972f48247e26` |
+| Claude declared plugin-control scope | `f52da02d688ae7468f6308616cbc4ab3320004c99368803e61ad1200551459ab` |
+| security-requirements persistent risk data | `27fb3bc2458de6aeb70fa84e77d3693d81d5c8ed27a72bf7116816f0db066176` |
+| trusted Python executable | `f99b6dedada5ef94e58e6479f0015a2e112f6f34b3e7e7e925611ce96ca0d3de` |
+
+The mode-`0700` failed-run evidence directory is retained for diagnosis. Its
+secret scan passed and conservatively redacted 61 `sk-`-like substrings,
+including false positives inside `risk-*` filenames, after live verification.
+The retained redacted hashes are
+`6e4c8fb8d6b1109ad98a02ffb9f47aec42bbc0d99773a5f7cae3fc61c2c52c2e`
+for Codex JSONL and
+`3d8c48dc7c0568cd0b600c9d74756445cb753b81d4cf1e9c0910f9e5bb7ebf2f`
+for its binary record file. Items 14, the live portion of 15, and 17 remain
+unproven.
 
 ### Final stderr-transport host attempt
 
