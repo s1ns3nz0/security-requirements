@@ -29,6 +29,71 @@ single-quoted form in its allowlist. It failed closed before accepting the
 semantic sequence or framed execution log and before starting Claude. The
 dual-host witness therefore remains incomplete.
 
+### Final stderr-transport host attempt
+
+A final ignored-harness remediation removed the shim's sandbox-blocked
+evidence-file reopen. The compiled shim instead emitted one bounded binary
+execution record as a capability-tagged stderr frame after each pinned Python
+child completed. A trusted controller outside the host sandbox decoded each
+frame, rejected malformed, unauthenticated, truncated, oversized, and
+non-canonical records, and created a mode-`0600`, `O_EXCL` binary log with
+`flock` and `fsync`. The shim did not open or create an evidence path. Fresh
+offline tests passed before the host attempt:
+
+```text
+compiled shim behavior: 8 passed
+event, controller-recorder, shim-log, signal, retention, and prompt behavior: 43 passed
+Seatbelt deny-file-write emission, spaces/Unicode, stderr coexistence,
+exit/signal propagation, ZDOTDIR, INT=130, fail-fast, and zsh syntax: pass
+```
+
+The single material run used the exact current commit
+`89b7cfa9f4e864d43f4e91d67773dd5ed7dccfb0` through a `git archive` with
+SHA-256
+`da68bca5f4a672b801de139278d2494f1242bed69a8ddb7975058fcfd5efb16e`.
+Both isolated installations byte-matched the archive for all three runtime
+scripts and the respective Claude command and Codex skill adapters. Codex
+produced seven decoded execution frames, whose controller-owned binary log
+hashes to
+`ea46619e588d328a5632e4cbfc03a6284fd7484ed23d33b397859cd53aecaf91`.
+The complete Codex hostile project was unchanged immediately before and after
+the model phase:
+`512e1fc1591b23e9fbc97524506ee1c29de865d1ec3fcc6a85a21510dd0abced`.
+
+The attempt nevertheless failed closed during independent semantic command
+verification:
+
+```text
+codex structured shell command 5 has an unexpected interpreter invocation
+```
+
+No accepted execution-log or adapter-success claim was emitted. Because Codex
+did not pass, Claude's model phase was not started. The exact temporary root
+was removed. Immediate post-cleanup measurements matched their pre-run values:
+
+| Measured scope | SHA-256 before and after |
+|---|---|
+| Codex declared config scope | `cf20e23f3c9e27b8c2365d655334c67910f4f997878d6c231986486776d0fb1a` |
+| Claude declared config scope | `5f263acaed3c6d7b8ce15ad5030fdb57ffe5beaf99eea223f746af5529a79cd6` |
+| Claude declared plugin-control scope | `f52da02d688ae7468f6308616cbc4ab3320004c99368803e61ad1200551459ab` |
+| security-requirements persistent risk data | `27fb3bc2458de6aeb70fa84e77d3693d81d5c8ed27a72bf7116816f0db066176` |
+| trusted Python executable | `f99b6dedada5ef94e58e6479f0015a2e112f6f34b3e7e7e925611ce96ca0d3de` |
+
+The mode-`0700` failure-evidence directory was retained because the run did
+not pass. Its secret scan passed with one credential-file redaction, and the
+retained Codex raw-event hash is
+`54e22b36de41871775d202f9c1fc32f73dfafacf0b1f5fea4949b2e4e3426a8a`.
+
+An independent pre-live review returned after the bounded Codex run had
+already begun and rejected the transport as sufficient proof. It found that
+the aggregate frame check was not bijectively bound to each host lifecycle
+event and terminal status, that the readable bearer capability was not a
+signature or MAC and therefore did not prevent replay, and that an entirely
+truncated prefix could be omitted without an explicit end/count commitment.
+Those findings, independently of the semantic-command rejection above, mean
+the stderr transport cannot support an accepted exact-execution claim. No
+rerun was performed. Items 14, the live portion of 15, and 17 remain unproven.
+
 ## Environment
 
 | Component | Version |
