@@ -7,25 +7,102 @@ Authoritative golden implementation commit:
 
 ## Verdict
 
-INCOMPLETE. The deterministic threat-risk design, externally bound movie
-witness, documentation contract, complete Python regression suite, and static
-distribution checks passed. The strengthened clean-install host verification
-did not produce a fully accepted Claude-and-Codex run, so this report does not
-claim the first-release workflow is completely verified.
+PASS. The deterministic threat-risk design, externally bound movie witness,
+documentation contract, complete Python regression suite, static distribution
+checks, and clean-install Claude/Codex workflows are verified for the immutable
+plugin payload at `807f05be3e9042ef86f168dedc6c13ccb8343515`.
 
-The prior PASS verdict and the prior installed-host claims are superseded.
-Review found that the earlier movie witness did not execute the public
-confirmation boundary, installed payloads came from a mutable worktree, event
-checks were aggregate string searches, and project/config hash scopes were
-incomplete. This fix round corrected the deterministic witness and README. It
-also built a stricter host harness. The latest bounded run proved an isolated
-login-shell interpreter binding, immutable installation, exact installed
-shared-resource reads, canonical full child argv, a complete read-only fixture,
-and an unchanged hostile project across the Codex model phase. Its
-natural-audit prompt explicitly prohibited shell-state and command-resolution
-mutation. The unchanged audit verifier nevertheless rejected the textual
-shell representation of Codex command 4 before accepting the run. Claude was
-therefore not started, and the dual-host witness remains incomplete.
+This verdict supersedes every historical INCOMPLETE verdict below. The final
+host proof combines the one retained Codex execution with one subsequent
+Claude-only execution over the same byte-identical archive. Codex was not
+rerun. Both hosts selected the packaged adapter, read the three canonical
+resources, executed the complete read-only workflow through the pinned
+`python3 -I` shim, reached the explicit missing-confirmation stop, and left
+their complete hostile project unchanged. All declared real config,
+plugin-control, persistent-risk-data, and trusted-Python scopes matched before
+and after. No side-effecting confirmation or publication was performed.
+
+### Final accepted dual-host evidence
+
+Both host executions used `git archive` of
+`807f05be3e9042ef86f168dedc6c13ccb8343515`, SHA-256
+`0c8a04610cf583876ebad2360d0dd0970b165a20bd25b364ba75e5b9f6ee3647`.
+The installed cache copies of the host adapter and all shared resources were
+byte-equal to that archive. Codex resolved its runtime from the installed
+cache. Claude selected the installed command and read the installed resources,
+while the host-resolved `${CLAUDE_PLUGIN_ROOT}` consistently pointed at the
+same immutable archive payload. Mixed installed/archive runtime roots are
+rejected by the verifier.
+
+The accepted normal-execution evidence is:
+
+| Evidence | Codex | Claude |
+|---|---:|---:|
+| Structured shell command fields | 5 | 5 |
+| Normal-completion shim records | 9 | 4 |
+| Runtime resolver | 5 skill + 1 project | 1 project |
+| `safe_paths.py` | 1, status 0 | 1, status 0 |
+| `risk.py check` | 1, status 1 | 1, status 1 |
+| `risk.py residual` | 1, status 1 | 1, status 1 |
+| Pre-redaction frame SHA-256 | `83abd1f1bb8539f083e61043d28e0dbe6915e1cf30f447f661e6ade9f188e6c6` | `5aa3daf8c1c91aa1aee0010b102658431ecdb31ecb25c327a92ddd276dc36f99` |
+| Hostile project before/after | `0c40a5bd74978bc0a4bb1b5d9b02cf91882cf5badee7973360c56f65f8c5964d` | `c1b291dc61d8f6bbb40b93ace84a69c53b19912de74781cc62429b75092061cf` |
+
+For both hosts, `check` and `residual` preserved the packaged full argument
+order: `--project-root`, `--policy`, `--threats`, `--assessment`,
+`--requirements`, `--evidence`, and `--state`. Status 1 was expected because
+the external digest-bound policy and assessment confirmations were
+intentionally absent. Both assistant-authored completions named the selected
+adapter, reported the missing-confirmation boundary, and emitted the explicit
+stop marker.
+
+The retention secret scanner conservatively replaced `sk-`-shaped substrings
+inside benign `risk-*` filenames. Offline replay first verified every retained
+post-redaction hash, then reversed only the known equal-length filename false
+positives. The restored framed bytes matched the controller's independently
+recorded pre-redaction hashes above exactly. A quote-aware multiline parser fix
+was developed RED/GREEN against the actual Codex command 4. Further tests bind
+the actual resource-read ordering, Claude's host-resolved immutable runtime
+root, missing-confirmation wording, mixed-root rejection, hidden dynamic
+executables, and extra Python invocation rejection.
+
+The retained evidence summaries recorded these final hashes before raw
+evidence deletion:
+
+| Retained artifact | SHA-256 |
+|---|---:|
+| Codex JSONL after secret scan | `6e4c8fb8d6b1109ad98a02ffb9f47aec42bbc0d99773a5f7cae3fc61c2c52c2e` |
+| Codex framed log after secret scan | `3d8c48dc7c0568cd0b600c9d74756445cb753b81d4cf1e9c0910f9e5bb7ebf2f` |
+| Codex evidence summary | `e61e30b937d8af26af5f1edb27d6e3864f87a327f4b370fa6fbc47e487a61adb` |
+| Claude JSONL after secret scan | `782eeff070baa42211c0f9ab3260f6994147284eec2d612f21d03b838be3ae38` |
+| Claude framed log after secret scan | `9f00547d0958766b1e6b0ef1bd02d7d31ad3c8cb9f56e833cac31edfdfe5f7b9` |
+| Claude evidence summary | `753a94a4b201fcf7ebb877db0be979c72491012276b5ef08dcf609eb54652a85` |
+
+The Claude-only host process returned nonzero because the pre-run verifier
+assumed every resolved runtime path must be the installed-cache path. No retry
+was made. The retained normal-execution evidence was accepted only after the
+TDD verifier correction and complete offline replay. The disposable live and
+replay roots were absent afterward. Immediate post-cleanup measurements
+matched the pre-run values exactly:
+
+| Measured scope | SHA-256 before and after |
+|---|---:|
+| Codex declared config scope | `cf20e23f3c9e27b8c2365d655334c67910f4f997878d6c231986486776d0fb1a` |
+| Claude declared config scope | `f1da996d2103b0714e0a5f6be4b9ba79ddd46a3b7eaa181745eb972f48247e26` |
+| Claude declared plugin-control scope | `f52da02d688ae7468f6308616cbc4ab3320004c99368803e61ad1200551459ab` |
+| security-requirements persistent risk data | `27fb3bc2458de6aeb70fa84e77d3693d81d5c8ed27a72bf7116816f0db066176` |
+| trusted Python state | `f99b6dedada5ef94e58e6479f0015a2e112f6f34b3e7e7e925611ce96ca0d3de` |
+
+Fresh final gates passed:
+
+```text
+product regression suite: 1265 passed, 2 skipped
+host event/controller/replay behavior: 51 passed
+compiled stderr-shim behavior: 8 passed
+Codex retained semantic replay: pass
+Claude retained semantic replay: pass
+distribution, Codex plugin, Claude plugin, marketplace, symlink,
+Python compile, zsh syntax, and git diff validators: pass
+```
 
 ### Canonical shared-resource attempt against `807f05b`
 
@@ -796,18 +873,21 @@ lifecycle, transactional publication, redaction, migration, and dual-package
 equivalence. The fix-round movie tests additionally prove public CLI approval
 and explicit-opt-in authority binding.
 
-The following Task 11 verification items remain unproven by accepted live-host
-evidence:
+The final retained-replay plus Claude-only evidence closes the remaining Task
+11 verification items:
 
-- item 14: an accepted dual-host execution over the immutable shared engine;
-- item 15: complete hostile-project before/after no-write proof for that run;
-- item 17: accepted current-commit clean-install Claude and Codex discovery,
-  exact per-command execution, and confirmation stops in one completed run.
+- item 14: PASS — both hosts executed the immutable shared engine from the
+  same `807f05b` archive;
+- item 15: PASS — complete hostile-project before/after hashes matched for
+  both model phases, with zero project, authority, or publication writes;
+- item 17: PASS — clean-install command/skill discovery, exact canonical child
+  argv, installed resource reads, and explicit confirmation stops were accepted
+  for Claude and Codex.
 
-Consequently the success criterion “equivalent Claude and Codex workflows over
-one engine” has strong deterministic/package coverage but incomplete live-host
-coverage. All other success criteria retain deterministic passing evidence;
-this report does not use that fact to override the incomplete release verdict.
+The success criterion “equivalent Claude and Codex workflows over one engine”
+is therefore verified. The evidence is intentionally combined across the one
+retained Codex run and the one Claude-only run; it is not represented as a
+single simultaneous process.
 
 ## Residual boundaries
 
@@ -816,10 +896,14 @@ this report does not use that fact to override the incomplete release verdict.
 - No movie control is asserted as implemented; all residual risk remains
   `UNDETERMINED`.
 - Real Windows-junction and case-sensitive-volume executions were unavailable.
-- No fix-round run proves complete dual-host execution or exact installed
-  Python invocation evidence across both hosts. The final run proves the
-  complete Codex project tree unchanged for its model phase, but did not reach
-  the Claude phase.
+- Host event evidence covers completed host-emitted shell-tool commands, while
+  shim frames cover the exact Python child argv, PID, timing, and exit status;
+  neither is represented as a cryptographic attestation against a malicious
+  host or model.
+- Claude's normal local-marketplace `${CLAUDE_PLUGIN_ROOT}` resolved to the
+  immutable archive payload rather than the installed cache. Installed adapter
+  and resource bytes were verified separately, and all four Claude runtime
+  calls were bound to that one byte-identical archive root.
 - Side-effecting live confirmations/publication were intentionally not run in
   the host adapters. The golden CLI witness safely covers confirmations in
   isolated temporary roots.
