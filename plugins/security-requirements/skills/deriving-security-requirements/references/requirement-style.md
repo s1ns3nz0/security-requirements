@@ -134,11 +134,6 @@ clients the service does ship, may be.
     csf: [PR.DS-01]
     sources: [SC-28, SC-28(1), SC-13, ASVS-6.2.1]
     threat_refs: [T-03]
-    blast_radius_refs: [T-03]
-    blast_radius:
-      coarse_scope: cross_tenant
-      priority_reasons: [shared_or_platform_data]
-      review_required: true
     responsibility: shared
     csp_part: "Operates the KMS infrastructure and the encryption mechanism."
     team_part: "Enables default encryption and supplies a customer-managed key."
