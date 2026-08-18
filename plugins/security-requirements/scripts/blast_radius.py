@@ -7,7 +7,7 @@ writes a derived JSON document.  It does not claim that an inferred path is an
 implemented control or a confirmed incident impact.
 
 Usage:
-    python3 scripts/blast_radius.py --threats threats.yaml --graph blast-graph.yaml \
+    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/blast_radius.py" --threats threats.yaml --graph blast-graph.yaml \
         --out blast-radius.json
 """
 

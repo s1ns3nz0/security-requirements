@@ -139,6 +139,19 @@ scripts/profile_schema.py
 scripts/publish.py
 scripts/rebuild_catalogs.py
 scripts/rebuild_overlay_hipaa.py
+scripts/aws_blast_snapshot.py
+scripts/blast_radius.py
+scripts/build_blast_graph.py
+scripts/kubernetes_attack_paths.py
+scripts/kubernetes_cloud_iam.py
+scripts/kubernetes_detection.py
+scripts/kubernetes_graph.py
+scripts/kubernetes_inputs.py
+scripts/kubernetes_mesh.py
+scripts/kubernetes_requirements.py
+scripts/kubernetes_runtime_snapshot.py
+scripts/kubernetes_supply_chain.py
+scripts/simulate_blast_paths.py
 scripts/render.py
 scripts/risk.py
 scripts/runtime_paths.py
@@ -150,6 +163,7 @@ skills/deriving-security-requirements/SKILL.md
 skills/deriving-security-requirements/references/profile-schema.md
 skills/deriving-security-requirements/references/repository-trust.md
 skills/deriving-security-requirements/references/requirement-style.md
+skills/deriving-security-requirements/references/blast-radius.md
 skills/deriving-security-requirements/references/risk-assessment.md
 skills/deriving-security-requirements/references/threat-modeling.md
 skills/security-requirements-build/SKILL.md
