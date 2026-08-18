@@ -28,8 +28,6 @@ evidence point at it.
 from __future__ import annotations
 
 import argparse
-import copy
-from datetime import date
 import json
 import re
 import sys
@@ -39,12 +37,6 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import profile_schema  # noqa: E402
-import risk as risk_mod  # noqa: E402
-from safe_paths import (  # noqa: E402
-    UnsafePathError,
-    preflight_output_paths,
-    safe_write_text,
-)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CATALOG_DIR = REPO_ROOT / "catalogs" / "nist-800-53r5"
@@ -91,14 +83,8 @@ def _known_data_types() -> set[str]:
     return {t["id"] for t in table["types"]}
 
 
-def cross(
-    controls_doc: dict,
-    responsibility_doc: dict,
-    threats_doc: dict,
-    assessment: dict | None = None,
-    *,
-    today: date | None = None,
-) -> dict:
+def cross(controls_doc: dict, responsibility_doc: dict, threats_doc: dict,
+          blast_radius_doc: dict | None = None) -> dict:
     baseline = set(controls_doc["controls"])
     # None means the derivation did not publish the field -- an older artefact --
     # and an empty set means the profile declared nothing. Collapsing them made
@@ -108,6 +94,19 @@ def cross(
     known_data_types = _known_data_types()
     resp = {entry["control"]: entry for entry in responsibility_doc["controls"]}
     threats = threats_doc.get("threats", []) or []
+    blast_priority = {}
+    blast_results = {}
+    if blast_radius_doc is not None:
+        for result in blast_radius_doc.get("results", []) or []:
+            threat_id = result.get("threat_id")
+            if threat_id:
+                blast_priority[threat_id] = result.get("priority_floor")
+                blast_results[threat_id] = {
+                    "coarse_scope": result.get("coarse_scope"),
+                    "blast_radius": result.get("blast_radius", {}),
+                    "priority_reasons": result.get("priority_reasons", []),
+                    "review_required": result.get("review_required", False),
+                }
     catalog = load_catalog_ids()
 
     # control -> threats that name it
@@ -242,6 +241,8 @@ def cross(
                     for t in threats
                 )
                 priority = "high" if service_specific else "medium"
+                if any(blast_priority.get(threat_id) == "high" for threat_id in matched):
+                    priority = "high"
             else:
                 origin = "baseline_only"
                 priority = "low"
@@ -255,6 +256,8 @@ def cross(
             "unverified": entry.get("unverified", False),
             "services": entry.get("services", []),
             "org_control_declared": entry.get("org_control_declared", False),
+            "blast_radius_refs": matched,
+            "blast_radius": [blast_results[threat_id] for threat_id in matched if threat_id in blast_results],
         })
 
     for threat in threat_only:
@@ -263,11 +266,16 @@ def cross(
             "control": None,
             "responsibility": "team",
             "threat_refs": [threat["id"]],
-            "priority": "high" if threat.get("novelty") == "service_specific" else "medium",
+            "priority": ("high" if threat.get("novelty") == "service_specific" else "medium"),
             "unverified": False,
             "services": [],
             "threat": threat,
+            "blast_radius_refs": [threat["id"]] if threat["id"] in blast_results else [],
+            "blast_radius": [blast_results[threat["id"]]] if threat["id"] in blast_results else [],
         })
+
+        if blast_priority.get(threat["id"]) == "high":
+            items[-1]["priority"] = "high"
 
     # Data types that demand a requirement whatever the threat model found.
     # System-information types reach the output only through this path, having
@@ -284,14 +292,6 @@ def cross(
             "services": [],
             "forced": forced,
         })
-
-    if assessment is not None:
-        for item in items:
-            item.update(
-                risk_mod.derive_risk_links(
-                    item["threat_refs"], assessment, threats_doc, today=today
-                )
-            )
 
     counts = {}
     for item in items:
@@ -447,40 +447,7 @@ def retire(record: dict, reason: str) -> None:
     human.setdefault("retired_reason", reason)
 
 
-def _managed_risk_fields(
-    managed: dict,
-    assessment: dict | None,
-    threats: dict | None,
-    today: date | None,
-) -> tuple[dict, object]:
-    result = copy.deepcopy(managed)
-    if assessment is None:
-        return result, None
-    if threats is None:
-        raise ValueError("threats are required when deriving risk links")
-    links = risk_mod.derive_risk_links(
-        result.get("threat_refs", []), assessment, threats, today=today
-    )
-    result["risk_refs"] = links["risk_refs"]
-    return result, links.get("risk_exposure")
-
-
-def _set_display_exposure(record: dict, exposure: object) -> None:
-    if exposure is None:
-        record.pop("risk_exposure", None)
-    else:
-        record["risk_exposure"] = exposure
-
-
-def apply_merge(
-    draft: list[dict],
-    existing: list[dict],
-    state: dict,
-    assessment: dict | None = None,
-    threats: dict | None = None,
-    *,
-    today: date | None = None,
-) -> dict:
+def apply_merge(draft: list[dict], existing: list[dict], state: dict) -> dict:
     by_id = {r["id"]: r for r in existing}
     seen = set()
     added, proposed, unchanged, updated, reopened = [], [], [], [], []
@@ -497,32 +464,15 @@ def apply_merge(
             )
         if "managed" not in item:
             raise ValueError(f"draft item {slug!r} has no `managed` block")
-        managed, exposure = _managed_risk_fields(
-            item["managed"], assessment, threats, today
-        )
         req_id = issue_id(slug, state)
         seen.add(req_id)
 
         if req_id not in by_id:
-            by_id[req_id] = {"id": req_id, "managed": managed, "human": {}}
-            if assessment is not None:
-                _set_display_exposure(by_id[req_id], exposure)
+            by_id[req_id] = {"id": req_id, "managed": item["managed"], "human": {}}
             added.append(req_id)
             continue
 
         current = by_id[req_id]
-        if assessment is not None:
-            current_managed, current_exposure = _managed_risk_fields(
-                current.get("managed", {}), assessment, threats, today
-            )
-            current["managed"] = current_managed
-            _set_display_exposure(current, current_exposure)
-        else:
-            current_managed = current.get("managed", {})
-            if isinstance(current_managed, dict):
-                for field in ("risk_refs", "risk_exposure"):
-                    if field not in managed and field in current_managed:
-                        managed[field] = copy.deepcopy(current_managed[field])
 
         # A requirement that was retired and now derives again is back in scope.
         # Leaving it retired would drop live work on the floor, so the return is
@@ -535,16 +485,14 @@ def apply_merge(
             human["reinstated_reason"] = "derives again from the current profile"
             reopened.append(req_id)
 
-        if current["managed"] == managed:
-            if assessment is not None:
-                _set_display_exposure(current, exposure)
+        if current["managed"] == item["managed"]:
             unchanged.append(req_id)
             continue
 
         if human:
             # A person has touched this requirement. Propose, do not overwrite.
             current["pending_review"] = {
-                "managed": managed,
+                "managed": item["managed"],
                 "why": item.get("change_reason", "re-derived from an updated profile"),
             }
             proposed.append(req_id)
@@ -552,9 +500,7 @@ def apply_merge(
             # Nobody has touched it, so applying the new text destroys nothing.
             # It is still reported: a silently rewritten requirement counted as
             # "unchanged" is the opposite of what a reviewer needs to see.
-            current["managed"] = managed
-            if assessment is not None:
-                _set_display_exposure(current, exposure)
+            current["managed"] = item["managed"]
             updated.append(req_id)
 
     retired = []
@@ -567,7 +513,7 @@ def apply_merge(
         retired.append(req_id)
 
     return {
-        "requirements": risk_mod.order_requirements(list(by_id.values())),
+        "requirements": sorted(by_id.values(), key=lambda r: r["id"]),
         "added": added,
         "updated": updated,
         "proposed": proposed,
@@ -610,7 +556,8 @@ def main() -> int:
     ap.add_argument("--controls", type=Path)
     ap.add_argument("--responsibility", type=Path)
     ap.add_argument("--threats", type=Path)
-    ap.add_argument("--assessment", type=Path)
+    ap.add_argument("--blast-radius", type=Path,
+                    help="optional blast-radius.json used to raise affected work")
     ap.add_argument("--out", type=Path)
 
     ap.add_argument("--draft", type=Path)
@@ -622,12 +569,6 @@ def main() -> int:
         for name in ("controls", "responsibility", "threats", "out"):
             if getattr(args, name) is None:
                 ap.error(f"--cross requires --{name}")
-
-        try:
-            preflight_output_paths([args.out])
-        except UnsafePathError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 2
 
         # A sentence, not a traceback. Every other input error in this
         # repository names the file and the flag; pointing --controls at the
@@ -653,12 +594,18 @@ def main() -> int:
             return 2
 
         try:
-            assessment = load_yaml(args.assessment, None) if args.assessment else None
+            blast_doc = None
+            if args.blast_radius:
+                if not args.blast_radius.exists():
+                    print(f"error: --blast-radius {args.blast_radius} does not exist.",
+                          file=sys.stderr)
+                    return 2
+                blast_doc = json.loads(args.blast_radius.read_text(encoding="utf-8"))
             result = cross(
                 json.loads(args.controls.read_text(encoding="utf-8")),
                 json.loads(args.responsibility.read_text(encoding="utf-8")),
                 threats_doc,
-                assessment=assessment,
+                blast_doc,
             )
         except ValueError as exc:
             # The --apply path already turns a validation failure into a
@@ -666,39 +613,21 @@ def main() -> int:
             # improved message arrived wrapped in a stack.
             print(f"error: {exc}", file=sys.stderr)
             return 2
-        safe_write_text(
-            args.out, json.dumps(result, indent=2, ensure_ascii=False) + "\n"
-        )
+        args.out.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(render_cross(result))
         return 0
 
     for name in ("draft", "existing", "state"):
         if getattr(args, name) is None:
             ap.error(f"--apply requires --{name}")
-    if args.assessment is not None and args.threats is None:
-        ap.error("--assessment requires --threats for canonical lifecycle linking")
-
-    try:
-        preflight_output_paths([args.existing, args.state])
-    except UnsafePathError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
 
     draft = json.loads(args.draft.read_text(encoding="utf-8"))
     draft_items = draft["requirements"] if isinstance(draft, dict) else draft
     existing = load_yaml(args.existing, {"requirements": []}).get("requirements", [])
     state = load_yaml(args.state, {"issued": {}})
-    assessment = load_yaml(args.assessment, None) if args.assessment else None
-    threats_doc = load_yaml(args.threats, None) if args.assessment else None
 
     try:
-        result = apply_merge(
-            draft_items,
-            existing,
-            state,
-            assessment=assessment,
-            threats=threats_doc,
-        )
+        result = apply_merge(draft_items, existing, state)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -732,17 +661,13 @@ def main() -> int:
               f"{' ...' if len(result['added']) > 3 else ''}", file=sys.stderr)
         return 2
 
-    safe_write_text(
-        args.existing,
+    args.existing.parent.mkdir(parents=True, exist_ok=True)
+    args.existing.write_text(
         yaml.safe_dump({"requirements": result["requirements"]}, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
-        create_parents=True,
     )
-    safe_write_text(
-        args.state,
-        yaml.safe_dump(state, sort_keys=True, allow_unicode=True),
-        encoding="utf-8",
-        create_parents=True,
+    args.state.write_text(
+        yaml.safe_dump(state, sort_keys=True, allow_unicode=True), encoding="utf-8"
     )
 
     print("Merge result\n")

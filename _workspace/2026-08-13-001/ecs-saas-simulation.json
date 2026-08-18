@@ -1,0 +1,358 @@
+{
+  "version": "1",
+  "mode": "graph_reachability_only",
+  "results": [
+    {
+      "threat_id": "T-01",
+      "status": "reachable",
+      "source_nodes": [
+        "api-gateway"
+      ],
+      "path_nodes": [
+        "api-gateway",
+        "alb",
+        "ecs",
+        "dynamodb",
+        "s3"
+      ],
+      "path_edges": [
+        "api-gateway->alb",
+        "alb->ecs",
+        "ecs->dynamodb",
+        "ecs->s3"
+      ],
+      "condition": "review threat T-01 against discovered path from api-gateway",
+      "negative_test_cases": [
+        "deny authenticated_tenant_user before reaching alb",
+        "deny authenticated_tenant_user before reaching dynamodb",
+        "deny authenticated_tenant_user before reaching ecs",
+        "deny authenticated_tenant_user before reaching s3"
+      ],
+      "side_effects": "none; graph traversal only"
+    },
+    {
+      "threat_id": "T-02",
+      "status": "reachable",
+      "source_nodes": [
+        "ecs"
+      ],
+      "path_nodes": [
+        "ecs",
+        "dynamodb",
+        "s3"
+      ],
+      "path_edges": [
+        "ecs->dynamodb",
+        "ecs->s3"
+      ],
+      "condition": "review threat T-02 against discovered path from ecs",
+      "negative_test_cases": [
+        "deny authenticated_tenant_user before reaching dynamodb",
+        "deny authenticated_tenant_user before reaching s3"
+      ],
+      "side_effects": "none; graph traversal only"
+    },
+    {
+      "threat_id": "T-03",
+      "status": "reachable",
+      "source_nodes": [
+        "api-gateway"
+      ],
+      "path_nodes": [
+        "api-gateway",
+        "alb",
+        "ecs",
+        "dynamodb",
+        "s3"
+      ],
+      "path_edges": [
+        "api-gateway->alb",
+        "alb->ecs",
+        "ecs->dynamodb",
+        "ecs->s3"
+      ],
+      "condition": "review threat T-03 against discovered path from api-gateway",
+      "negative_test_cases": [
+        "deny authenticated_tenant_user before reaching alb",
+        "deny authenticated_tenant_user before reaching dynamodb",
+        "deny authenticated_tenant_user before reaching ecs",
+        "deny authenticated_tenant_user before reaching s3"
+      ],
+      "side_effects": "none; graph traversal only"
+    },
+    {
+      "threat_id": "T-04",
+      "status": "reachable",
+      "source_nodes": [
+        "api-gateway"
+      ],
+      "path_nodes": [
+        "api-gateway",
+        "alb",
+        "ecs",
+        "dynamodb",
+        "s3"
+      ],
+      "path_edges": [
+        "api-gateway->alb",
+        "alb->ecs",
+        "ecs->dynamodb",
+        "ecs->s3"
+      ],
+      "condition": "review threat T-04 against discovered path from api-gateway",
+      "negative_test_cases": [
+        "deny tenant_administrator before reaching alb",
+        "deny tenant_administrator before reaching dynamodb",
+        "deny tenant_administrator before reaching ecs",
+        "deny tenant_administrator before reaching s3"
+      ],
+      "side_effects": "none; graph traversal only"
+    },
+    {
+      "threat_id": "T-05",
+      "status": "reachable",
+      "source_nodes": [
+        "api-gateway"
+      ],
+      "path_nodes": [
+        "api-gateway",
+        "alb",
+        "ecs",
+        "dynamodb",
+        "s3"
+      ],
+      "path_edges": [
+        "api-gateway->alb",
+        "alb->ecs",
+        "ecs->dynamodb",
+        "ecs->s3"
+      ],
+      "condition": "review threat T-05 against discovered path from api-gateway",
+      "negative_test_cases": [
+        "deny platform_operator before reaching alb",
+        "deny platform_operator before reaching dynamodb",
+        "deny platform_operator before reaching ecs",
+        "deny platform_operator before reaching s3"
+      ],
+      "side_effects": "none; graph traversal only"
+    },
+    {
+      "threat_id": "T-06",
+      "status": "reachable",
+      "source_nodes": [
+        "eventbridge"
+      ],
+      "path_nodes": [
+        "eventbridge",
+        "codebuild",
+        "cloudformation",
+        "ecr",
+        "ecs",
+        "dynamodb",
+        "s3"
+      ],
+      "path_edges": [
+        "eventbridge->codebuild",
+        "codebuild->cloudformation",
+        "codebuild->ecr",
+        "cloudformation->ecs",
+        "ecs->dynamodb",
+        "ecs->s3"
+      ],
+      "condition": "review threat T-06 against discovered path from eventbridge",
+      "negative_test_cases": [
+        "deny compromised_dependency before reaching cloudformation",
+        "deny compromised_dependency before reaching codebuild",
+        "deny compromised_dependency before reaching dynamodb",
+        "deny compromised_dependency before reaching ecr",
+        "deny compromised_dependency before reaching ecs",
+        "deny compromised_dependency before reaching s3"
+      ],
+      "side_effects": "none; graph traversal only"
+    },
+    {
+      "threat_id": "T-07",
+      "status": "reachable",
+      "source_nodes": [
+        "eventbridge"
+      ],
+      "path_nodes": [
+        "eventbridge",
+        "codebuild",
+        "cloudformation",
+        "ecr",
+        "ecs",
+        "dynamodb",
+        "s3"
+      ],
+      "path_edges": [
+        "eventbridge->codebuild",
+        "codebuild->cloudformation",
+        "codebuild->ecr",
+        "cloudformation->ecs",
+        "ecs->dynamodb",
+        "ecs->s3"
+      ],
+      "condition": "review threat T-07 against discovered path from eventbridge",
+      "negative_test_cases": [
+        "deny anonymous_external before reaching cloudformation",
+        "deny anonymous_external before reaching codebuild",
+        "deny anonymous_external before reaching dynamodb",
+        "deny anonymous_external before reaching ecr",
+        "deny anonymous_external before reaching ecs",
+        "deny anonymous_external before reaching s3"
+      ],
+      "side_effects": "none; graph traversal only"
+    },
+    {
+      "threat_id": "T-08",
+      "status": "reachable",
+      "source_nodes": [
+        "eventbridge"
+      ],
+      "path_nodes": [
+        "eventbridge",
+        "codebuild",
+        "cloudformation",
+        "ecr",
+        "ecs",
+        "dynamodb",
+        "s3"
+      ],
+      "path_edges": [
+        "eventbridge->codebuild",
+        "codebuild->cloudformation",
+        "codebuild->ecr",
+        "cloudformation->ecs",
+        "ecs->dynamodb",
+        "ecs->s3"
+      ],
+      "condition": "review threat T-08 against discovered path from eventbridge",
+      "negative_test_cases": [
+        "deny compromised_dependency before reaching cloudformation",
+        "deny compromised_dependency before reaching codebuild",
+        "deny compromised_dependency before reaching dynamodb",
+        "deny compromised_dependency before reaching ecr",
+        "deny compromised_dependency before reaching ecs",
+        "deny compromised_dependency before reaching s3"
+      ],
+      "side_effects": "none; graph traversal only"
+    },
+    {
+      "threat_id": "T-09",
+      "status": "reachable",
+      "source_nodes": [
+        "lambda"
+      ],
+      "path_nodes": [
+        "lambda",
+        "dynamodb"
+      ],
+      "path_edges": [
+        "lambda->dynamodb"
+      ],
+      "condition": "review threat T-09 against discovered path from lambda",
+      "negative_test_cases": [
+        "deny compromised_dependency before reaching dynamodb"
+      ],
+      "side_effects": "none; graph traversal only"
+    },
+    {
+      "threat_id": "T-10",
+      "status": "reachable",
+      "source_nodes": [
+        "ecs"
+      ],
+      "path_nodes": [
+        "ecs",
+        "dynamodb",
+        "s3"
+      ],
+      "path_edges": [
+        "ecs->dynamodb",
+        "ecs->s3"
+      ],
+      "condition": "review threat T-10 against discovered path from ecs",
+      "negative_test_cases": [
+        "deny insider_staff before reaching dynamodb",
+        "deny insider_staff before reaching s3"
+      ],
+      "side_effects": "none; graph traversal only"
+    },
+    {
+      "threat_id": "T-11",
+      "status": "reachable",
+      "source_nodes": [
+        "codebuild"
+      ],
+      "path_nodes": [
+        "codebuild",
+        "cloudformation",
+        "ecr",
+        "ecs",
+        "dynamodb",
+        "s3"
+      ],
+      "path_edges": [
+        "codebuild->cloudformation",
+        "codebuild->ecr",
+        "cloudformation->ecs",
+        "ecs->dynamodb",
+        "ecs->s3"
+      ],
+      "condition": "review threat T-11 against discovered path from codebuild",
+      "negative_test_cases": [
+        "deny compromised_dependency before reaching cloudformation",
+        "deny compromised_dependency before reaching dynamodb",
+        "deny compromised_dependency before reaching ecr",
+        "deny compromised_dependency before reaching ecs",
+        "deny compromised_dependency before reaching s3"
+      ],
+      "side_effects": "none; graph traversal only"
+    },
+    {
+      "threat_id": "T-12",
+      "status": "reachable",
+      "source_nodes": [
+        "ecs"
+      ],
+      "path_nodes": [
+        "ecs",
+        "dynamodb",
+        "s3"
+      ],
+      "path_edges": [
+        "ecs->dynamodb",
+        "ecs->s3"
+      ],
+      "condition": "review threat T-12 against discovered path from ecs",
+      "negative_test_cases": [
+        "deny authenticated_tenant_user before reaching dynamodb",
+        "deny authenticated_tenant_user before reaching s3"
+      ],
+      "side_effects": "none; graph traversal only"
+    },
+    {
+      "threat_id": "T-13",
+      "status": "reachable",
+      "source_nodes": [
+        "ecs"
+      ],
+      "path_nodes": [
+        "ecs",
+        "dynamodb",
+        "s3"
+      ],
+      "path_edges": [
+        "ecs->dynamodb",
+        "ecs->s3"
+      ],
+      "condition": "review threat T-13 against discovered path from ecs",
+      "negative_test_cases": [
+        "deny platform_operator before reaching dynamodb",
+        "deny platform_operator before reaching s3"
+      ],
+      "side_effects": "none; graph traversal only"
+    }
+  ]
+}

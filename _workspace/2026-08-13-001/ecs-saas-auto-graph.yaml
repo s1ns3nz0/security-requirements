@@ -1,0 +1,805 @@
+version: '1'
+generated_by: build_blast_graph.py
+review_required: true
+nodes:
+- id: api-gateway
+  tenant_scope: all
+  data_scope: record
+  runtime_scope: service
+  control_scope: tenant_operations
+  recovery_scope: platform_recovery
+  responsibility: shared
+  confidence: confirmed
+  evidence:
+  - DEVELOPER_GUIDE.md
+  - README.kr.md
+  - README.md
+  - client/AdminWeb/.env.example
+  - client/AdminWeb/nginx.conf
+  - client/Application/nginx.conf
+  - client/Application/src/services/authConfigService.ts
+  - scripts/cleanup/cleanup.sh
+  - scripts/utils/test-throttling.sh
+  - server/bin/ecs-saas-ref-template.ts
+  - server/cdk.json
+  - server/lib/bootstrap-template/control-plane-stack.ts
+  - server/lib/bootstrap-template/core-appplane-stack.ts
+  - server/lib/cdknag/shared-infra-nag.ts
+  - server/lib/interfaces/custom-api-key.ts
+  - server/lib/provision-scripts/deprovision-tenant.sh
+  - server/lib/provision-scripts/provision-tenant.sh
+  - server/lib/shared-infra/Resources/tenant_authorizer.py
+  - server/lib/shared-infra/api-gateway.ts
+  - server/lib/shared-infra/shared-infra-stack.ts
+- id: alb
+  tenant_scope: all
+  data_scope: record
+  runtime_scope: service
+  control_scope: tenant_operations
+  recovery_scope: platform_recovery
+  responsibility: shared
+  confidence: confirmed
+  evidence:
+  - DEVELOPER_GUIDE.md
+  - README.kr.md
+  - README.md
+  - server/lib/shared-infra/shared-infra-stack.ts
+  - server/lib/tenant-template/services.ts
+- id: cloudfront
+  tenant_scope: all
+  data_scope: record
+  runtime_scope: region
+  control_scope: feature
+  recovery_scope: platform_recovery
+  responsibility: shared
+  confidence: confirmed
+  evidence:
+  - DEVELOPER_GUIDE.md
+  - README.kr.md
+  - README.md
+  - scripts/cleanup/cleanup-cloudfront.sh
+  - scripts/cleanup/cleanup.sh
+  - server/lib/bootstrap-template/control-plane-stack.ts
+  - server/lib/bootstrap-template/core-appplane-stack.ts
+  - server/lib/bootstrap-template/static-site.ts
+  - server/lib/cdknag/shared-infra-nag.ts
+  - server/lib/shared-infra/shared-infra-stack.ts
+  - server/lib/shared-infra/static-site-distro.ts
+- id: cognito
+  tenant_scope: all
+  data_scope: record
+  runtime_scope: service
+  control_scope: feature
+  recovery_scope: platform_recovery
+  responsibility: team
+  confidence: confirmed
+  evidence:
+  - DEVELOPER_GUIDE.md
+  - README.kr.md
+  - README.md
+  - client/AdminWeb/.env.example
+  - client/AdminWeb/package-lock.json
+  - client/AdminWeb/src/App.tsx
+  - client/AdminWeb/src/contexts/AuthContext.tsx
+  - client/AdminWeb/src/pages/Auth/AuthInfo.tsx
+  - client/AdminWeb/src/pages/Tenants/TenantCreate.tsx
+  - client/AdminWeb/src/styles/components/common.css
+  - client/AdminWeb/src/styles/pages/auth.css
+  - client/AdminWeb/src/utils/jwtUtils.ts
+  - client/Application/package-lock.json
+  - client/Application/src/components/Layout/Layout.tsx
+  - client/Application/src/pages/Auth/AuthInfo.tsx
+  - client/Application/src/pages/Error/UnauthorizedPage.tsx
+  - client/Application/src/services/authConfigService.ts
+  - client/Application/src/services/httpClient.ts
+  - client/Application/src/services/orderService.ts
+  - client/Application/src/services/productService.ts
+- id: ecs
+  tenant_scope: subset
+  data_scope: tenant_dataset
+  runtime_scope: cluster
+  control_scope: feature
+  recovery_scope: tenant_recovery
+  responsibility: team
+  confidence: confirmed
+  evidence:
+  - DEVELOPER_GUIDE.md
+  - README.kr.md
+  - README.md
+  - client/AdminWeb/package-lock.json
+  - client/AdminWeb/src/pages/Tenants/TenantCreate.tsx
+  - client/Application/package-lock.json
+  - client/Application/src/pages/Orders/OrderDetail.tsx
+  - client/Application/src/services/authConfigService.ts
+  - images/advanced-tier.png
+  - images/archi-base-infra.png
+  - scripts/cleanup/cleanup-cloudfront.sh
+  - scripts/cleanup/cleanup-cognito.sh
+  - scripts/cleanup/cleanup.sh
+  - scripts/init-install.sh
+  - scripts/install.sh
+  - scripts/sbt-install.sh
+  - scripts/utils/get-adv-network.sh
+  - scripts/utils/update-provision-source.sh
+  - server/.env.example
+  - server/application/yarn.lock
+- id: dynamodb
+  tenant_scope: subset
+  data_scope: tenant_dataset
+  runtime_scope: service
+  control_scope: feature
+  recovery_scope: tenant_recovery
+  responsibility: shared
+  confidence: confirmed
+  evidence:
+  - DEVELOPER_GUIDE.md
+  - README.kr.md
+  - README.md
+  - client/AdminWeb/package-lock.json
+  - client/AdminWeb/src/pages/Tenants/TenantCreate.tsx
+  - client/Application/package-lock.json
+  - client/Application/src/pages/Orders/OrderCreate.tsx
+  - client/Application/src/pages/Orders/OrderDetail.tsx
+  - client/Application/src/pages/Orders/OrderList.tsx
+  - client/Application/src/pages/Products/ProductList.tsx
+  - client/Application/src/pages/Users/UserList.tsx
+  - client/Application/src/styles/components.css
+  - scripts/cleanup/cleanup.sh
+  - scripts/init-install.sh
+  - scripts/install.sh
+  - scripts/resize-cloud9.sh
+  - scripts/tenant/update-tenants.sh
+  - server/application/libs/auth/src/auth-config.ts
+  - server/application/libs/auth/src/credential-vendor.ts
+  - server/application/libs/auth/src/jwt-auth.guard.ts
+- id: lambda
+  tenant_scope: all
+  data_scope: platform_dataset
+  runtime_scope: service
+  control_scope: platform
+  recovery_scope: platform_recovery
+  responsibility: team
+  confidence: confirmed
+  evidence:
+  - DEVELOPER_GUIDE.md
+  - README.md
+  - client/AdminWeb/package-lock.json
+  - client/AdminWeb/src/App.tsx
+  - client/AdminWeb/src/pages/Tenants/TenantList.tsx
+  - client/AdminWeb/src/utils/jwtUtils.ts
+  - client/Application/package-lock.json
+  - client/Application/src/App.tsx
+  - client/Application/src/pages/Orders/OrderCreate.tsx
+  - client/Application/src/pages/Orders/OrderDetail.tsx
+  - client/Application/src/services/authConfigService.ts
+  - client/Application/src/services/httpClient.ts
+  - package.json
+  - scripts/utils/test-throttling.sh
+  - server/application/microservices/order/src/main.ts
+  - server/application/microservices/product/src/main.ts
+  - server/application/microservices/user/src/main.ts
+  - server/application/package-lock.json
+  - server/application/yarn.lock
+  - server/bin/ecs-saas-ref-template.ts
+- id: s3
+  tenant_scope: all
+  data_scope: shared_dataset
+  runtime_scope: region
+  control_scope: platform
+  recovery_scope: platform_recovery
+  responsibility: shared
+  confidence: confirmed
+  evidence:
+  - DEVELOPER_GUIDE.md
+  - README.kr.md
+  - README.md
+  - client/AdminWeb/package-lock.json
+  - client/Application/package-lock.json
+  - images/advanced-tier.png
+  - images/archi-base-infra.png
+  - images/archi-high-level.png
+  - images/basic-tier.png
+  - images/premium-tier.png
+  - images/routing-parallel-albs.png
+  - images/routing-premium-tier.png
+  - images/service-connect.png
+  - images/solution-architecture-tiers.png
+  - scripts/build-application.sh
+  - scripts/cleanup/cleanup.sh
+  - scripts/init-install.sh
+  - scripts/install.sh
+  - scripts/sbt-install.sh
+  - scripts/utils/update-provision-source.sh
+- id: eventbridge
+  tenant_scope: all
+  data_scope: platform_dataset
+  runtime_scope: service
+  control_scope: platform
+  recovery_scope: platform_recovery
+  responsibility: team
+  confidence: confirmed
+  evidence:
+  - README.kr.md
+  - README.md
+  - client/AdminWeb/package-lock.json
+  - client/Application/package-lock.json
+  - scripts/init-install.sh
+  - server/bin/ecs-saas-ref-template.ts
+  - server/lib/cdknag/shared-infra-nag.ts
+  - server/lib/provision-scripts/provision-tenant.sh
+  - server/lib/shared-infra/shared-infra-stack.ts
+  - server/lib/tenant-template/services.ts
+  - server/lib/utilities/helper-functions.ts
+- id: codebuild
+  tenant_scope: all
+  data_scope: platform_dataset
+  runtime_scope: account
+  control_scope: platform
+  recovery_scope: platform_recovery
+  responsibility: team
+  confidence: confirmed
+  evidence:
+  - CODE_OF_CONDUCT.md
+  - CONTRIBUTING.md
+  - README.kr.md
+  - README.md
+  - client/AdminWeb/src/config/environment.ts
+  - client/Application/src/config/environment.ts
+  - scripts/cleanup/cleanup.sh
+  - server/application/.gitignore
+  - server/application/nest-cli.json
+  - server/lib/bootstrap-template/static-site.ts
+  - server/lib/cdknag/control-plane-nag.ts
+  - server/lib/cdknag/core-app-plane-nag.ts
+  - server/lib/cdknag/ecs-saas-pipeline-nag.ts
+  - server/lib/provision-scripts/deprovision-tenant.sh
+  - server/lib/provision-scripts/provision-tenant.sh
+  - server/lib/tenant-template/tenant-template-stack.ts
+  - server/lib/tenant-template/tenant-update-stack.ts
+- id: cloudformation
+  tenant_scope: all
+  data_scope: platform_dataset
+  runtime_scope: account
+  control_scope: platform
+  recovery_scope: platform_recovery
+  responsibility: team
+  confidence: confirmed
+  evidence:
+  - client/AdminWeb/package-lock.json
+  - client/Application/package-lock.json
+  - images/archi-base-infra.png
+  - images/archi-high-level.png
+  - images/routing-parallel-albs.png
+  - images/solution-architecture-tiers.png
+  - scripts/cleanup/cleanup.sh
+  - scripts/install.sh
+  - scripts/sbt-install.sh
+  - scripts/utils/test-throttling.sh
+  - server/application/yarn.lock
+  - server/lib/bootstrap-template/control-plane-stack.ts
+  - server/lib/bootstrap-template/core-appplane-stack.ts
+  - server/lib/provision-scripts/deprovision-tenant.sh
+  - server/lib/provision-scripts/provision-tenant.sh
+  - server/lib/shared-infra/api-gateway.ts
+  - server/lib/shared-infra/shared-infra-stack.ts
+  - server/lib/tenant-template/ecs-dynamodb.ts
+  - server/lib/tenant-template/eni-trunking.ts
+  - server/lib/tenant-template/identity-provider.ts
+- id: ecr
+  tenant_scope: all
+  data_scope: platform_dataset
+  runtime_scope: account
+  control_scope: platform
+  recovery_scope: platform_recovery
+  responsibility: team
+  confidence: confirmed
+  evidence:
+  - CONTRIBUTING.md
+  - README.kr.md
+  - README.md
+  - client/AdminWeb/package-lock.json
+  - client/Application/package-lock.json
+  - client/Application/src/pages/Orders/OrderList.tsx
+  - client/Application/src/pages/Products/ProductList.tsx
+  - images/advanced-tier.png
+  - images/archi-high-level.png
+  - images/premium-tier.png
+  - images/service-connect.png
+  - scripts/build-application.sh
+  - scripts/cleanup/cleanup-secrets.sh
+  - scripts/cleanup/cleanup.sh
+  - server/application/libs/auth/src/jwt.strategy.ts
+  - server/application/libs/client-factory/src/client-factory.service.ts
+  - server/application/yarn.lock
+  - server/cdk.json
+  - server/lib/bootstrap-template/static-site.ts
+  - server/lib/shared-infra/Resources/tenant_authorizer.py
+edges:
+- from: api-gateway
+  to: alb
+  confidence: inferred
+  evidence:
+  - DEVELOPER_GUIDE.md
+  - README.kr.md
+  - README.md
+  - client/AdminWeb/.env.example
+  - client/AdminWeb/nginx.conf
+  - client/Application/nginx.conf
+  - client/Application/src/services/authConfigService.ts
+  - scripts/cleanup/cleanup.sh
+  - scripts/utils/test-throttling.sh
+  - server/bin/ecs-saas-ref-template.ts
+- from: alb
+  to: ecs
+  confidence: inferred
+  evidence:
+  - DEVELOPER_GUIDE.md
+  - README.kr.md
+  - README.md
+  - client/AdminWeb/package-lock.json
+  - client/AdminWeb/src/pages/Tenants/TenantCreate.tsx
+  - client/Application/package-lock.json
+  - client/Application/src/pages/Orders/OrderDetail.tsx
+  - client/Application/src/services/authConfigService.ts
+  - images/advanced-tier.png
+  - images/archi-base-infra.png
+- from: ecs
+  to: dynamodb
+  confidence: inferred
+  evidence:
+  - DEVELOPER_GUIDE.md
+  - README.kr.md
+  - README.md
+  - client/AdminWeb/package-lock.json
+  - client/AdminWeb/src/pages/Tenants/TenantCreate.tsx
+  - client/Application/package-lock.json
+  - client/Application/src/pages/Orders/OrderCreate.tsx
+  - client/Application/src/pages/Orders/OrderDetail.tsx
+  - client/Application/src/pages/Orders/OrderList.tsx
+  - client/Application/src/pages/Products/ProductList.tsx
+- from: lambda
+  to: dynamodb
+  confidence: inferred
+  evidence:
+  - DEVELOPER_GUIDE.md
+  - README.kr.md
+  - README.md
+  - client/AdminWeb/package-lock.json
+  - client/AdminWeb/src/App.tsx
+  - client/AdminWeb/src/pages/Tenants/TenantCreate.tsx
+  - client/AdminWeb/src/pages/Tenants/TenantList.tsx
+  - client/AdminWeb/src/utils/jwtUtils.ts
+  - client/Application/package-lock.json
+  - client/Application/src/App.tsx
+- from: cloudfront
+  to: s3
+  confidence: inferred
+  evidence:
+  - DEVELOPER_GUIDE.md
+  - README.kr.md
+  - README.md
+  - client/AdminWeb/package-lock.json
+  - client/Application/package-lock.json
+  - images/advanced-tier.png
+  - images/archi-base-infra.png
+  - images/archi-high-level.png
+  - images/basic-tier.png
+  - images/premium-tier.png
+- from: eventbridge
+  to: codebuild
+  confidence: inferred
+  evidence:
+  - CODE_OF_CONDUCT.md
+  - CONTRIBUTING.md
+  - README.kr.md
+  - README.md
+  - client/AdminWeb/package-lock.json
+  - client/AdminWeb/src/config/environment.ts
+  - client/Application/package-lock.json
+  - client/Application/src/config/environment.ts
+  - scripts/cleanup/cleanup.sh
+  - scripts/init-install.sh
+- from: codebuild
+  to: cloudformation
+  confidence: inferred
+  evidence:
+  - CODE_OF_CONDUCT.md
+  - CONTRIBUTING.md
+  - README.kr.md
+  - README.md
+  - client/AdminWeb/package-lock.json
+  - client/AdminWeb/src/config/environment.ts
+  - client/Application/package-lock.json
+  - client/Application/src/config/environment.ts
+  - images/archi-base-infra.png
+  - images/archi-high-level.png
+- from: cloudformation
+  to: ecs
+  confidence: inferred
+  evidence:
+  - DEVELOPER_GUIDE.md
+  - README.kr.md
+  - README.md
+  - client/AdminWeb/package-lock.json
+  - client/AdminWeb/src/pages/Tenants/TenantCreate.tsx
+  - client/Application/package-lock.json
+  - client/Application/src/pages/Orders/OrderDetail.tsx
+  - client/Application/src/services/authConfigService.ts
+  - images/advanced-tier.png
+  - images/archi-base-infra.png
+- from: codebuild
+  to: ecr
+  confidence: inferred
+  evidence:
+  - CODE_OF_CONDUCT.md
+  - CONTRIBUTING.md
+  - README.kr.md
+  - README.md
+  - client/AdminWeb/package-lock.json
+  - client/AdminWeb/src/config/environment.ts
+  - client/Application/package-lock.json
+  - client/Application/src/config/environment.ts
+  - client/Application/src/pages/Orders/OrderList.tsx
+  - client/Application/src/pages/Products/ProductList.tsx
+- from: ecs
+  to: s3
+  confidence: inferred
+  evidence:
+  - DEVELOPER_GUIDE.md
+  - README.kr.md
+  - README.md
+  - client/AdminWeb/package-lock.json
+  - client/AdminWeb/src/pages/Tenants/TenantCreate.tsx
+  - client/Application/package-lock.json
+  - client/Application/src/pages/Orders/OrderDetail.tsx
+  - client/Application/src/services/authConfigService.ts
+  - images/advanced-tier.png
+  - images/archi-base-infra.png
+threat_paths:
+  T-01:
+    sources:
+    - api-gateway
+    basis:
+    - auto-discovery:DEVELOPER_GUIDE.md
+    - auto-discovery:README.kr.md
+    - auto-discovery:README.md
+    - auto-discovery:client/AdminWeb/.env.example
+    - auto-discovery:client/AdminWeb/nginx.conf
+    - auto-discovery:client/Application/nginx.conf
+    - auto-discovery:client/Application/src/services/authConfigService.ts
+    - auto-discovery:scripts/cleanup/cleanup.sh
+    - auto-discovery:scripts/utils/test-throttling.sh
+    - auto-discovery:server/bin/ecs-saas-ref-template.ts
+    - auto-discovery:server/cdk.json
+    - auto-discovery:server/lib/bootstrap-template/control-plane-stack.ts
+    - auto-discovery:server/lib/bootstrap-template/core-appplane-stack.ts
+    - auto-discovery:server/lib/cdknag/shared-infra-nag.ts
+    - auto-discovery:server/lib/interfaces/custom-api-key.ts
+    - auto-discovery:server/lib/provision-scripts/deprovision-tenant.sh
+    - auto-discovery:server/lib/provision-scripts/provision-tenant.sh
+    - auto-discovery:server/lib/shared-infra/Resources/tenant_authorizer.py
+    - auto-discovery:server/lib/shared-infra/api-gateway.ts
+    - auto-discovery:server/lib/shared-infra/shared-infra-stack.ts
+    condition: review threat T-01 against discovered path from api-gateway
+    validation_status: unreviewed
+    required_checks:
+    - review_auto_discovered_nodes
+    - confirm_edge_connectivity
+  T-02:
+    sources:
+    - ecs
+    basis:
+    - auto-discovery:DEVELOPER_GUIDE.md
+    - auto-discovery:README.kr.md
+    - auto-discovery:README.md
+    - auto-discovery:client/AdminWeb/package-lock.json
+    - auto-discovery:client/AdminWeb/src/pages/Tenants/TenantCreate.tsx
+    - auto-discovery:client/Application/package-lock.json
+    - auto-discovery:client/Application/src/pages/Orders/OrderDetail.tsx
+    - auto-discovery:client/Application/src/services/authConfigService.ts
+    - auto-discovery:images/advanced-tier.png
+    - auto-discovery:images/archi-base-infra.png
+    - auto-discovery:scripts/cleanup/cleanup-cloudfront.sh
+    - auto-discovery:scripts/cleanup/cleanup-cognito.sh
+    - auto-discovery:scripts/cleanup/cleanup.sh
+    - auto-discovery:scripts/init-install.sh
+    - auto-discovery:scripts/install.sh
+    - auto-discovery:scripts/sbt-install.sh
+    - auto-discovery:scripts/utils/get-adv-network.sh
+    - auto-discovery:scripts/utils/update-provision-source.sh
+    - auto-discovery:server/.env.example
+    - auto-discovery:server/application/yarn.lock
+    condition: review threat T-02 against discovered path from ecs
+    validation_status: unreviewed
+    required_checks:
+    - review_auto_discovered_nodes
+    - confirm_edge_connectivity
+  T-03:
+    sources:
+    - api-gateway
+    basis:
+    - auto-discovery:DEVELOPER_GUIDE.md
+    - auto-discovery:README.kr.md
+    - auto-discovery:README.md
+    - auto-discovery:client/AdminWeb/.env.example
+    - auto-discovery:client/AdminWeb/nginx.conf
+    - auto-discovery:client/Application/nginx.conf
+    - auto-discovery:client/Application/src/services/authConfigService.ts
+    - auto-discovery:scripts/cleanup/cleanup.sh
+    - auto-discovery:scripts/utils/test-throttling.sh
+    - auto-discovery:server/bin/ecs-saas-ref-template.ts
+    - auto-discovery:server/cdk.json
+    - auto-discovery:server/lib/bootstrap-template/control-plane-stack.ts
+    - auto-discovery:server/lib/bootstrap-template/core-appplane-stack.ts
+    - auto-discovery:server/lib/cdknag/shared-infra-nag.ts
+    - auto-discovery:server/lib/interfaces/custom-api-key.ts
+    - auto-discovery:server/lib/provision-scripts/deprovision-tenant.sh
+    - auto-discovery:server/lib/provision-scripts/provision-tenant.sh
+    - auto-discovery:server/lib/shared-infra/Resources/tenant_authorizer.py
+    - auto-discovery:server/lib/shared-infra/api-gateway.ts
+    - auto-discovery:server/lib/shared-infra/shared-infra-stack.ts
+    condition: review threat T-03 against discovered path from api-gateway
+    validation_status: unreviewed
+    required_checks:
+    - review_auto_discovered_nodes
+    - confirm_edge_connectivity
+  T-04:
+    sources:
+    - api-gateway
+    basis:
+    - auto-discovery:DEVELOPER_GUIDE.md
+    - auto-discovery:README.kr.md
+    - auto-discovery:README.md
+    - auto-discovery:client/AdminWeb/.env.example
+    - auto-discovery:client/AdminWeb/nginx.conf
+    - auto-discovery:client/Application/nginx.conf
+    - auto-discovery:client/Application/src/services/authConfigService.ts
+    - auto-discovery:scripts/cleanup/cleanup.sh
+    - auto-discovery:scripts/utils/test-throttling.sh
+    - auto-discovery:server/bin/ecs-saas-ref-template.ts
+    - auto-discovery:server/cdk.json
+    - auto-discovery:server/lib/bootstrap-template/control-plane-stack.ts
+    - auto-discovery:server/lib/bootstrap-template/core-appplane-stack.ts
+    - auto-discovery:server/lib/cdknag/shared-infra-nag.ts
+    - auto-discovery:server/lib/interfaces/custom-api-key.ts
+    - auto-discovery:server/lib/provision-scripts/deprovision-tenant.sh
+    - auto-discovery:server/lib/provision-scripts/provision-tenant.sh
+    - auto-discovery:server/lib/shared-infra/Resources/tenant_authorizer.py
+    - auto-discovery:server/lib/shared-infra/api-gateway.ts
+    - auto-discovery:server/lib/shared-infra/shared-infra-stack.ts
+    condition: review threat T-04 against discovered path from api-gateway
+    validation_status: unreviewed
+    required_checks:
+    - review_auto_discovered_nodes
+    - confirm_edge_connectivity
+  T-05:
+    sources:
+    - api-gateway
+    basis:
+    - auto-discovery:DEVELOPER_GUIDE.md
+    - auto-discovery:README.kr.md
+    - auto-discovery:README.md
+    - auto-discovery:client/AdminWeb/.env.example
+    - auto-discovery:client/AdminWeb/nginx.conf
+    - auto-discovery:client/Application/nginx.conf
+    - auto-discovery:client/Application/src/services/authConfigService.ts
+    - auto-discovery:scripts/cleanup/cleanup.sh
+    - auto-discovery:scripts/utils/test-throttling.sh
+    - auto-discovery:server/bin/ecs-saas-ref-template.ts
+    - auto-discovery:server/cdk.json
+    - auto-discovery:server/lib/bootstrap-template/control-plane-stack.ts
+    - auto-discovery:server/lib/bootstrap-template/core-appplane-stack.ts
+    - auto-discovery:server/lib/cdknag/shared-infra-nag.ts
+    - auto-discovery:server/lib/interfaces/custom-api-key.ts
+    - auto-discovery:server/lib/provision-scripts/deprovision-tenant.sh
+    - auto-discovery:server/lib/provision-scripts/provision-tenant.sh
+    - auto-discovery:server/lib/shared-infra/Resources/tenant_authorizer.py
+    - auto-discovery:server/lib/shared-infra/api-gateway.ts
+    - auto-discovery:server/lib/shared-infra/shared-infra-stack.ts
+    condition: review threat T-05 against discovered path from api-gateway
+    validation_status: unreviewed
+    required_checks:
+    - review_auto_discovered_nodes
+    - confirm_edge_connectivity
+  T-06:
+    sources:
+    - eventbridge
+    basis:
+    - auto-discovery:README.kr.md
+    - auto-discovery:README.md
+    - auto-discovery:client/AdminWeb/package-lock.json
+    - auto-discovery:client/Application/package-lock.json
+    - auto-discovery:scripts/init-install.sh
+    - auto-discovery:server/bin/ecs-saas-ref-template.ts
+    - auto-discovery:server/lib/cdknag/shared-infra-nag.ts
+    - auto-discovery:server/lib/provision-scripts/provision-tenant.sh
+    - auto-discovery:server/lib/shared-infra/shared-infra-stack.ts
+    - auto-discovery:server/lib/tenant-template/services.ts
+    - auto-discovery:server/lib/utilities/helper-functions.ts
+    condition: review threat T-06 against discovered path from eventbridge
+    validation_status: unreviewed
+    required_checks:
+    - review_auto_discovered_nodes
+    - confirm_edge_connectivity
+  T-07:
+    sources:
+    - eventbridge
+    basis:
+    - auto-discovery:README.kr.md
+    - auto-discovery:README.md
+    - auto-discovery:client/AdminWeb/package-lock.json
+    - auto-discovery:client/Application/package-lock.json
+    - auto-discovery:scripts/init-install.sh
+    - auto-discovery:server/bin/ecs-saas-ref-template.ts
+    - auto-discovery:server/lib/cdknag/shared-infra-nag.ts
+    - auto-discovery:server/lib/provision-scripts/provision-tenant.sh
+    - auto-discovery:server/lib/shared-infra/shared-infra-stack.ts
+    - auto-discovery:server/lib/tenant-template/services.ts
+    - auto-discovery:server/lib/utilities/helper-functions.ts
+    condition: review threat T-07 against discovered path from eventbridge
+    validation_status: unreviewed
+    required_checks:
+    - review_auto_discovered_nodes
+    - confirm_edge_connectivity
+  T-08:
+    sources:
+    - eventbridge
+    basis:
+    - auto-discovery:README.kr.md
+    - auto-discovery:README.md
+    - auto-discovery:client/AdminWeb/package-lock.json
+    - auto-discovery:client/Application/package-lock.json
+    - auto-discovery:scripts/init-install.sh
+    - auto-discovery:server/bin/ecs-saas-ref-template.ts
+    - auto-discovery:server/lib/cdknag/shared-infra-nag.ts
+    - auto-discovery:server/lib/provision-scripts/provision-tenant.sh
+    - auto-discovery:server/lib/shared-infra/shared-infra-stack.ts
+    - auto-discovery:server/lib/tenant-template/services.ts
+    - auto-discovery:server/lib/utilities/helper-functions.ts
+    condition: review threat T-08 against discovered path from eventbridge
+    validation_status: unreviewed
+    required_checks:
+    - review_auto_discovered_nodes
+    - confirm_edge_connectivity
+  T-09:
+    sources:
+    - lambda
+    basis:
+    - auto-discovery:DEVELOPER_GUIDE.md
+    - auto-discovery:README.md
+    - auto-discovery:client/AdminWeb/package-lock.json
+    - auto-discovery:client/AdminWeb/src/App.tsx
+    - auto-discovery:client/AdminWeb/src/pages/Tenants/TenantList.tsx
+    - auto-discovery:client/AdminWeb/src/utils/jwtUtils.ts
+    - auto-discovery:client/Application/package-lock.json
+    - auto-discovery:client/Application/src/App.tsx
+    - auto-discovery:client/Application/src/pages/Orders/OrderCreate.tsx
+    - auto-discovery:client/Application/src/pages/Orders/OrderDetail.tsx
+    - auto-discovery:client/Application/src/services/authConfigService.ts
+    - auto-discovery:client/Application/src/services/httpClient.ts
+    - auto-discovery:package.json
+    - auto-discovery:scripts/utils/test-throttling.sh
+    - auto-discovery:server/application/microservices/order/src/main.ts
+    - auto-discovery:server/application/microservices/product/src/main.ts
+    - auto-discovery:server/application/microservices/user/src/main.ts
+    - auto-discovery:server/application/package-lock.json
+    - auto-discovery:server/application/yarn.lock
+    - auto-discovery:server/bin/ecs-saas-ref-template.ts
+    condition: review threat T-09 against discovered path from lambda
+    validation_status: unreviewed
+    required_checks:
+    - review_auto_discovered_nodes
+    - confirm_edge_connectivity
+  T-10:
+    sources:
+    - ecs
+    basis:
+    - auto-discovery:DEVELOPER_GUIDE.md
+    - auto-discovery:README.kr.md
+    - auto-discovery:README.md
+    - auto-discovery:client/AdminWeb/package-lock.json
+    - auto-discovery:client/AdminWeb/src/pages/Tenants/TenantCreate.tsx
+    - auto-discovery:client/Application/package-lock.json
+    - auto-discovery:client/Application/src/pages/Orders/OrderDetail.tsx
+    - auto-discovery:client/Application/src/services/authConfigService.ts
+    - auto-discovery:images/advanced-tier.png
+    - auto-discovery:images/archi-base-infra.png
+    - auto-discovery:scripts/cleanup/cleanup-cloudfront.sh
+    - auto-discovery:scripts/cleanup/cleanup-cognito.sh
+    - auto-discovery:scripts/cleanup/cleanup.sh
+    - auto-discovery:scripts/init-install.sh
+    - auto-discovery:scripts/install.sh
+    - auto-discovery:scripts/sbt-install.sh
+    - auto-discovery:scripts/utils/get-adv-network.sh
+    - auto-discovery:scripts/utils/update-provision-source.sh
+    - auto-discovery:server/.env.example
+    - auto-discovery:server/application/yarn.lock
+    condition: review threat T-10 against discovered path from ecs
+    validation_status: unreviewed
+    required_checks:
+    - review_auto_discovered_nodes
+    - confirm_edge_connectivity
+  T-11:
+    sources:
+    - codebuild
+    basis:
+    - auto-discovery:CODE_OF_CONDUCT.md
+    - auto-discovery:CONTRIBUTING.md
+    - auto-discovery:README.kr.md
+    - auto-discovery:README.md
+    - auto-discovery:client/AdminWeb/src/config/environment.ts
+    - auto-discovery:client/Application/src/config/environment.ts
+    - auto-discovery:scripts/cleanup/cleanup.sh
+    - auto-discovery:server/application/.gitignore
+    - auto-discovery:server/application/nest-cli.json
+    - auto-discovery:server/lib/bootstrap-template/static-site.ts
+    - auto-discovery:server/lib/cdknag/control-plane-nag.ts
+    - auto-discovery:server/lib/cdknag/core-app-plane-nag.ts
+    - auto-discovery:server/lib/cdknag/ecs-saas-pipeline-nag.ts
+    - auto-discovery:server/lib/provision-scripts/deprovision-tenant.sh
+    - auto-discovery:server/lib/provision-scripts/provision-tenant.sh
+    - auto-discovery:server/lib/tenant-template/tenant-template-stack.ts
+    - auto-discovery:server/lib/tenant-template/tenant-update-stack.ts
+    condition: review threat T-11 against discovered path from codebuild
+    validation_status: unreviewed
+    required_checks:
+    - review_auto_discovered_nodes
+    - confirm_edge_connectivity
+  T-12:
+    sources:
+    - ecs
+    basis:
+    - auto-discovery:DEVELOPER_GUIDE.md
+    - auto-discovery:README.kr.md
+    - auto-discovery:README.md
+    - auto-discovery:client/AdminWeb/package-lock.json
+    - auto-discovery:client/AdminWeb/src/pages/Tenants/TenantCreate.tsx
+    - auto-discovery:client/Application/package-lock.json
+    - auto-discovery:client/Application/src/pages/Orders/OrderDetail.tsx
+    - auto-discovery:client/Application/src/services/authConfigService.ts
+    - auto-discovery:images/advanced-tier.png
+    - auto-discovery:images/archi-base-infra.png
+    - auto-discovery:scripts/cleanup/cleanup-cloudfront.sh
+    - auto-discovery:scripts/cleanup/cleanup-cognito.sh
+    - auto-discovery:scripts/cleanup/cleanup.sh
+    - auto-discovery:scripts/init-install.sh
+    - auto-discovery:scripts/install.sh
+    - auto-discovery:scripts/sbt-install.sh
+    - auto-discovery:scripts/utils/get-adv-network.sh
+    - auto-discovery:scripts/utils/update-provision-source.sh
+    - auto-discovery:server/.env.example
+    - auto-discovery:server/application/yarn.lock
+    condition: review threat T-12 against discovered path from ecs
+    validation_status: unreviewed
+    required_checks:
+    - review_auto_discovered_nodes
+    - confirm_edge_connectivity
+  T-13:
+    sources:
+    - ecs
+    basis:
+    - auto-discovery:DEVELOPER_GUIDE.md
+    - auto-discovery:README.kr.md
+    - auto-discovery:README.md
+    - auto-discovery:client/AdminWeb/package-lock.json
+    - auto-discovery:client/AdminWeb/src/pages/Tenants/TenantCreate.tsx
+    - auto-discovery:client/Application/package-lock.json
+    - auto-discovery:client/Application/src/pages/Orders/OrderDetail.tsx
+    - auto-discovery:client/Application/src/services/authConfigService.ts
+    - auto-discovery:images/advanced-tier.png
+    - auto-discovery:images/archi-base-infra.png
+    - auto-discovery:scripts/cleanup/cleanup-cloudfront.sh
+    - auto-discovery:scripts/cleanup/cleanup-cognito.sh
+    - auto-discovery:scripts/cleanup/cleanup.sh
+    - auto-discovery:scripts/init-install.sh
+    - auto-discovery:scripts/install.sh
+    - auto-discovery:scripts/sbt-install.sh
+    - auto-discovery:scripts/utils/get-adv-network.sh
+    - auto-discovery:scripts/utils/update-provision-source.sh
+    - auto-discovery:server/.env.example
+    - auto-discovery:server/application/yarn.lock
+    condition: review threat T-13 against discovered path from ecs
+    validation_status: unreviewed
+    required_checks:
+    - review_auto_discovered_nodes
+    - confirm_edge_connectivity

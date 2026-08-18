@@ -1,0 +1,205 @@
+version: "0.1.0"
+profile: ecs-saas
+
+boundaries:
+  - id: TB-1
+    from: anonymous public site
+    to: CloudFront and public web assets
+    note: "public landing/application entry point"
+
+  - id: TB-2
+    from: tenant user or tenant administrator
+    to: Cognito and API Gateway tenant API
+    note: "identity, tenant claims, and route authorization"
+
+  - id: TB-3
+    from: API Gateway authorizer
+    to: ALB and ECS application services
+    note: "tenantPath and authenticated request context cross into the application plane"
+
+  - id: TB-4
+    from: ECS task role
+    to: tenant DynamoDB tables
+    note: "tenant-scoped data access through ABAC LeadingKeys policy"
+
+  - id: TB-5
+    from: platform operator or tenant administrator
+    to: tenant management API and control plane
+    note: "tenant onboarding, offboarding, and administrative actions"
+
+  - id: TB-6
+    from: control plane EventBridge event
+    to: CodeBuild, CloudFormation, and provisioning scripts
+    note: "tenant lifecycle creates or removes infrastructure"
+
+  - id: TB-7
+    from: provisioning custom resource Lambda
+    to: tenant mapping DynamoDB table
+    note: "shared custom resource writes control-plane tenant state"
+
+  - id: TB-8
+    from: tenant application and control plane
+    to: CloudWatch and S3 access logs
+    note: "operational and audit data leaves application execution paths"
+
+  - id: TB-9
+    from: AWS account operator or CI/CD pipeline
+    to: ECR, CDK, and CloudFormation deployment artifacts
+    note: "deployment authority creates shared and tenant infrastructure"
+
+threats:
+  - id: T-01
+    boundary: TB-2
+    category: STRIDE:E
+    novelty: service_specific
+    persona: authenticated_tenant_user
+    scenario: >-
+      A tenant user modifies or forges the tenant claim or tenantPath value,
+      and the API Gateway or downstream service accepts the caller as a member
+      of another tenant.
+    affected_assets: [tenant_identity, tenant_mapping, customer_data]
+    related_controls: [AC-3, AC-4]
+
+  - id: T-02
+    boundary: TB-4
+    category: STRIDE:I
+    novelty: service_specific
+    persona: authenticated_tenant_user
+    scenario: >-
+      A task role or application query omits the tenant-scoped LeadingKeys
+      condition, allowing a valid tenant user to read or modify another
+      tenant's DynamoDB items.
+    affected_assets: [transaction_history, customer_data]
+    related_controls: [AC-3, AC-4, SC-4]
+
+  - id: T-03
+    boundary: TB-3
+    category: STRIDE:E
+    novelty: service_specific
+    persona: authenticated_tenant_user
+    scenario: >-
+      The API authorizer derives tenantPath correctly but a downstream ALB,
+      reverse proxy, or service trusts a client-supplied header instead of the
+      authorizer-derived value, allowing cross-tenant routing.
+    affected_assets: [tenant_routing, customer_data]
+    related_controls: [AC-3, AC-4]
+
+  - id: T-04
+    boundary: TB-5
+    category: STRIDE:E
+    novelty: service_specific
+    persona: tenant_administrator
+    scenario: >-
+      A tenant administrator reaches a platform-level tenant-management action
+      such as onboarding, offboarding, tier changes, or another tenant's user
+      management endpoint.
+    affected_assets: [tenant_lifecycle, tenant_mapping, platform_configuration]
+    related_controls: [AC-3, AC-6]
+
+  - id: T-05
+    boundary: TB-5
+    category: STRIDE:T
+    novelty: service_specific
+    persona: platform_operator
+    scenario: >-
+      A destructive offboarding request removes a tenant's infrastructure or
+      data before retention, export, approval, or deletion conditions have
+      been satisfied.
+    affected_assets: [tenant_data, backups, tenant_infrastructure]
+    related_controls: [CP-9, CM-3]
+
+  - id: T-06
+    boundary: TB-6
+    category: STRIDE:T
+    novelty: service_specific
+    persona: compromised_dependency
+    scenario: >-
+      A forged or replayed tenant lifecycle event causes provisioning or
+      deprovisioning to run for the wrong tenant, wrong tier, or an already
+      completed lifecycle state.
+    affected_assets: [tenant_infrastructure, tenant_mapping]
+    related_controls: []
+
+  - id: T-07
+    boundary: TB-6
+    category: STRIDE:D
+    novelty: service_specific
+    persona: anonymous_external
+    scenario: >-
+      Repeated tenant onboarding requests trigger expensive ECS, CloudFormation,
+      CodeBuild, and Cognito provisioning work until account quotas or control
+      plane capacity are exhausted.
+    affected_assets: [control_plane, aws_account_capacity]
+    related_controls: [SC-5]
+
+  - id: T-08
+    boundary: TB-6
+    category: STRIDE:T
+    novelty: service_specific
+    persona: compromised_dependency
+    scenario: >-
+      A provisioning script accepts an unvalidated tenantId, tier, tenantName,
+      or source-version value and deploys resources or retrieves source
+      artifacts outside the intended tenant scope.
+    affected_assets: [tenant_infrastructure, source_artifacts, tenant_mapping]
+    related_controls: [SI-10, AC-6]
+
+  - id: T-09
+    boundary: TB-7
+    category: STRIDE:T
+    novelty: service_specific
+    persona: compromised_dependency
+    scenario: >-
+      The shared custom resource Lambda has broad read-write access to the
+      tenant mapping table, so a compromise can rewrite mappings for multiple
+      tenants and redirect routing or lifecycle operations.
+    affected_assets: [tenant_mapping, tenant_routing]
+    related_controls: [AC-6]
+
+  - id: T-10
+    boundary: TB-8
+    category: STRIDE:I
+    novelty: service_specific
+    persona: insider_staff
+    scenario: >-
+      Tenant identifiers, email addresses, authorization context, or customer
+      data appear in shared application or access logs and become readable by
+      operators who do not administer that tenant.
+    affected_assets: [app_logs, audit_logs, basic_contact]
+    related_controls: [AU-3, AU-9]
+
+  - id: T-11
+    boundary: TB-9
+    category: STRIDE:E
+    novelty: service_specific
+    persona: compromised_dependency
+    scenario: >-
+      A deployment role or CodeBuild project can modify shared infrastructure,
+      tenant templates, or source artifacts beyond the resources required for
+      its pipeline stage.
+    affected_assets: [deployment_pipeline, tenant_templates, aws_account_resources]
+    related_controls: [AC-6, CM-3, SA-10]
+
+  - id: T-12
+    boundary: TB-4
+    category: STRIDE:D
+    novelty: service_specific
+    persona: authenticated_tenant_user
+    scenario: >-
+      A pooled tenant or shared ECS service consumes shared CPU, memory,
+      connection pools, or DynamoDB capacity and degrades availability for
+      other tenants without tier-specific quotas or throttling.
+    affected_assets: [tenant_application, shared_compute, shared_data_capacity]
+    related_controls: [SC-5]
+
+  - id: T-13
+    boundary: TB-4
+    category: STRIDE:T
+    novelty: service_specific
+    persona: platform_operator
+    scenario: >-
+      A tenant table configured with RemovalPolicy.DESTROY or an incomplete
+      offboarding workflow deletes customer data without a verified export,
+      retention check, or recovery point.
+    affected_assets: [transaction_history, backups]
+    related_controls: [CP-9]

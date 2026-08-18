@@ -1,0 +1,1864 @@
+{
+  "version": "1",
+  "dimensions": {
+    "tenant_scope": [
+      "one",
+      "subset",
+      "all"
+    ],
+    "data_scope": [
+      "record",
+      "tenant_dataset",
+      "shared_dataset",
+      "platform_dataset"
+    ],
+    "runtime_scope": [
+      "task",
+      "service",
+      "cluster",
+      "account",
+      "region"
+    ],
+    "control_scope": [
+      "feature",
+      "tenant_operations",
+      "control_plane",
+      "platform"
+    ],
+    "recovery_scope": [
+      "local",
+      "tenant_recovery",
+      "platform_recovery",
+      "regional_recovery"
+    ]
+  },
+  "coarse_scopes": [
+    "contained",
+    "tenant",
+    "cross_tenant",
+    "platform",
+    "account_region"
+  ],
+  "results": [
+    {
+      "threat_id": "T-01",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "shared_dataset",
+        "runtime_scope": "region",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "alb",
+        "api-gateway",
+        "dynamodb",
+        "ecs",
+        "s3"
+      ],
+      "affected_assets": [
+        {
+          "id": "alb",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "record",
+            "runtime_scope": "service",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "api-gateway",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "record",
+            "runtime_scope": "service",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "dynamodb",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "ecs",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "cluster",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "s3",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "shared_dataset",
+            "runtime_scope": "region",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "auto-discovery:DEVELOPER_GUIDE.md",
+        "auto-discovery:README.kr.md",
+        "auto-discovery:README.md",
+        "auto-discovery:client/AdminWeb/.env.example",
+        "auto-discovery:client/AdminWeb/nginx.conf",
+        "auto-discovery:client/Application/nginx.conf",
+        "auto-discovery:client/Application/src/services/authConfigService.ts",
+        "auto-discovery:scripts/cleanup/cleanup.sh",
+        "auto-discovery:scripts/utils/test-throttling.sh",
+        "auto-discovery:server/bin/ecs-saas-ref-template.ts",
+        "auto-discovery:server/cdk.json",
+        "auto-discovery:server/lib/bootstrap-template/control-plane-stack.ts",
+        "auto-discovery:server/lib/bootstrap-template/core-appplane-stack.ts",
+        "auto-discovery:server/lib/cdknag/shared-infra-nag.ts",
+        "auto-discovery:server/lib/interfaces/custom-api-key.ts",
+        "auto-discovery:server/lib/provision-scripts/deprovision-tenant.sh",
+        "auto-discovery:server/lib/provision-scripts/provision-tenant.sh",
+        "auto-discovery:server/lib/shared-infra/Resources/tenant_authorizer.py",
+        "auto-discovery:server/lib/shared-infra/api-gateway.ts",
+        "auto-discovery:server/lib/shared-infra/shared-infra-stack.ts",
+        "edge:alb->ecs",
+        "edge:api-gateway->alb",
+        "edge:ecs->dynamodb",
+        "edge:ecs->s3",
+        "node:alb",
+        "node:api-gateway",
+        "node:dynamodb",
+        "node:ecs",
+        "node:s3"
+      ],
+      "condition": "review threat T-01 against discovered path from api-gateway",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "confirm_edge_connectivity",
+          "review_auto_discovered_nodes"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-02",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "shared_dataset",
+        "runtime_scope": "region",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "dynamodb",
+        "ecs",
+        "s3"
+      ],
+      "affected_assets": [
+        {
+          "id": "dynamodb",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "ecs",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "cluster",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "s3",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "shared_dataset",
+            "runtime_scope": "region",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "auto-discovery:DEVELOPER_GUIDE.md",
+        "auto-discovery:README.kr.md",
+        "auto-discovery:README.md",
+        "auto-discovery:client/AdminWeb/package-lock.json",
+        "auto-discovery:client/AdminWeb/src/pages/Tenants/TenantCreate.tsx",
+        "auto-discovery:client/Application/package-lock.json",
+        "auto-discovery:client/Application/src/pages/Orders/OrderDetail.tsx",
+        "auto-discovery:client/Application/src/services/authConfigService.ts",
+        "auto-discovery:images/advanced-tier.png",
+        "auto-discovery:images/archi-base-infra.png",
+        "auto-discovery:scripts/cleanup/cleanup-cloudfront.sh",
+        "auto-discovery:scripts/cleanup/cleanup-cognito.sh",
+        "auto-discovery:scripts/cleanup/cleanup.sh",
+        "auto-discovery:scripts/init-install.sh",
+        "auto-discovery:scripts/install.sh",
+        "auto-discovery:scripts/sbt-install.sh",
+        "auto-discovery:scripts/utils/get-adv-network.sh",
+        "auto-discovery:scripts/utils/update-provision-source.sh",
+        "auto-discovery:server/.env.example",
+        "auto-discovery:server/application/yarn.lock",
+        "edge:ecs->dynamodb",
+        "edge:ecs->s3",
+        "node:dynamodb",
+        "node:ecs",
+        "node:s3"
+      ],
+      "condition": "review threat T-02 against discovered path from ecs",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "confirm_edge_connectivity",
+          "review_auto_discovered_nodes"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-03",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "shared_dataset",
+        "runtime_scope": "region",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "alb",
+        "api-gateway",
+        "dynamodb",
+        "ecs",
+        "s3"
+      ],
+      "affected_assets": [
+        {
+          "id": "alb",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "record",
+            "runtime_scope": "service",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "api-gateway",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "record",
+            "runtime_scope": "service",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "dynamodb",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "ecs",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "cluster",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "s3",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "shared_dataset",
+            "runtime_scope": "region",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "auto-discovery:DEVELOPER_GUIDE.md",
+        "auto-discovery:README.kr.md",
+        "auto-discovery:README.md",
+        "auto-discovery:client/AdminWeb/.env.example",
+        "auto-discovery:client/AdminWeb/nginx.conf",
+        "auto-discovery:client/Application/nginx.conf",
+        "auto-discovery:client/Application/src/services/authConfigService.ts",
+        "auto-discovery:scripts/cleanup/cleanup.sh",
+        "auto-discovery:scripts/utils/test-throttling.sh",
+        "auto-discovery:server/bin/ecs-saas-ref-template.ts",
+        "auto-discovery:server/cdk.json",
+        "auto-discovery:server/lib/bootstrap-template/control-plane-stack.ts",
+        "auto-discovery:server/lib/bootstrap-template/core-appplane-stack.ts",
+        "auto-discovery:server/lib/cdknag/shared-infra-nag.ts",
+        "auto-discovery:server/lib/interfaces/custom-api-key.ts",
+        "auto-discovery:server/lib/provision-scripts/deprovision-tenant.sh",
+        "auto-discovery:server/lib/provision-scripts/provision-tenant.sh",
+        "auto-discovery:server/lib/shared-infra/Resources/tenant_authorizer.py",
+        "auto-discovery:server/lib/shared-infra/api-gateway.ts",
+        "auto-discovery:server/lib/shared-infra/shared-infra-stack.ts",
+        "edge:alb->ecs",
+        "edge:api-gateway->alb",
+        "edge:ecs->dynamodb",
+        "edge:ecs->s3",
+        "node:alb",
+        "node:api-gateway",
+        "node:dynamodb",
+        "node:ecs",
+        "node:s3"
+      ],
+      "condition": "review threat T-03 against discovered path from api-gateway",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "confirm_edge_connectivity",
+          "review_auto_discovered_nodes"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-04",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "shared_dataset",
+        "runtime_scope": "region",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "alb",
+        "api-gateway",
+        "dynamodb",
+        "ecs",
+        "s3"
+      ],
+      "affected_assets": [
+        {
+          "id": "alb",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "record",
+            "runtime_scope": "service",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "api-gateway",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "record",
+            "runtime_scope": "service",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "dynamodb",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "ecs",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "cluster",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "s3",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "shared_dataset",
+            "runtime_scope": "region",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "auto-discovery:DEVELOPER_GUIDE.md",
+        "auto-discovery:README.kr.md",
+        "auto-discovery:README.md",
+        "auto-discovery:client/AdminWeb/.env.example",
+        "auto-discovery:client/AdminWeb/nginx.conf",
+        "auto-discovery:client/Application/nginx.conf",
+        "auto-discovery:client/Application/src/services/authConfigService.ts",
+        "auto-discovery:scripts/cleanup/cleanup.sh",
+        "auto-discovery:scripts/utils/test-throttling.sh",
+        "auto-discovery:server/bin/ecs-saas-ref-template.ts",
+        "auto-discovery:server/cdk.json",
+        "auto-discovery:server/lib/bootstrap-template/control-plane-stack.ts",
+        "auto-discovery:server/lib/bootstrap-template/core-appplane-stack.ts",
+        "auto-discovery:server/lib/cdknag/shared-infra-nag.ts",
+        "auto-discovery:server/lib/interfaces/custom-api-key.ts",
+        "auto-discovery:server/lib/provision-scripts/deprovision-tenant.sh",
+        "auto-discovery:server/lib/provision-scripts/provision-tenant.sh",
+        "auto-discovery:server/lib/shared-infra/Resources/tenant_authorizer.py",
+        "auto-discovery:server/lib/shared-infra/api-gateway.ts",
+        "auto-discovery:server/lib/shared-infra/shared-infra-stack.ts",
+        "edge:alb->ecs",
+        "edge:api-gateway->alb",
+        "edge:ecs->dynamodb",
+        "edge:ecs->s3",
+        "node:alb",
+        "node:api-gateway",
+        "node:dynamodb",
+        "node:ecs",
+        "node:s3"
+      ],
+      "condition": "review threat T-04 against discovered path from api-gateway",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "confirm_edge_connectivity",
+          "review_auto_discovered_nodes"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-05",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "shared_dataset",
+        "runtime_scope": "region",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "alb",
+        "api-gateway",
+        "dynamodb",
+        "ecs",
+        "s3"
+      ],
+      "affected_assets": [
+        {
+          "id": "alb",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "record",
+            "runtime_scope": "service",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "api-gateway",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "record",
+            "runtime_scope": "service",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "dynamodb",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "ecs",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "cluster",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "s3",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "shared_dataset",
+            "runtime_scope": "region",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "auto-discovery:DEVELOPER_GUIDE.md",
+        "auto-discovery:README.kr.md",
+        "auto-discovery:README.md",
+        "auto-discovery:client/AdminWeb/.env.example",
+        "auto-discovery:client/AdminWeb/nginx.conf",
+        "auto-discovery:client/Application/nginx.conf",
+        "auto-discovery:client/Application/src/services/authConfigService.ts",
+        "auto-discovery:scripts/cleanup/cleanup.sh",
+        "auto-discovery:scripts/utils/test-throttling.sh",
+        "auto-discovery:server/bin/ecs-saas-ref-template.ts",
+        "auto-discovery:server/cdk.json",
+        "auto-discovery:server/lib/bootstrap-template/control-plane-stack.ts",
+        "auto-discovery:server/lib/bootstrap-template/core-appplane-stack.ts",
+        "auto-discovery:server/lib/cdknag/shared-infra-nag.ts",
+        "auto-discovery:server/lib/interfaces/custom-api-key.ts",
+        "auto-discovery:server/lib/provision-scripts/deprovision-tenant.sh",
+        "auto-discovery:server/lib/provision-scripts/provision-tenant.sh",
+        "auto-discovery:server/lib/shared-infra/Resources/tenant_authorizer.py",
+        "auto-discovery:server/lib/shared-infra/api-gateway.ts",
+        "auto-discovery:server/lib/shared-infra/shared-infra-stack.ts",
+        "edge:alb->ecs",
+        "edge:api-gateway->alb",
+        "edge:ecs->dynamodb",
+        "edge:ecs->s3",
+        "node:alb",
+        "node:api-gateway",
+        "node:dynamodb",
+        "node:ecs",
+        "node:s3"
+      ],
+      "condition": "review threat T-05 against discovered path from api-gateway",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "confirm_edge_connectivity",
+          "review_auto_discovered_nodes"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-06",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "platform_dataset",
+        "runtime_scope": "region",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "cloudformation",
+        "codebuild",
+        "dynamodb",
+        "ecr",
+        "ecs",
+        "eventbridge",
+        "s3"
+      ],
+      "affected_assets": [
+        {
+          "id": "cloudformation",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "codebuild",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "dynamodb",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "ecr",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "ecs",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "cluster",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "eventbridge",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "service",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "s3",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "shared_dataset",
+            "runtime_scope": "region",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "auto-discovery:README.kr.md",
+        "auto-discovery:README.md",
+        "auto-discovery:client/AdminWeb/package-lock.json",
+        "auto-discovery:client/Application/package-lock.json",
+        "auto-discovery:scripts/init-install.sh",
+        "auto-discovery:server/bin/ecs-saas-ref-template.ts",
+        "auto-discovery:server/lib/cdknag/shared-infra-nag.ts",
+        "auto-discovery:server/lib/provision-scripts/provision-tenant.sh",
+        "auto-discovery:server/lib/shared-infra/shared-infra-stack.ts",
+        "auto-discovery:server/lib/tenant-template/services.ts",
+        "auto-discovery:server/lib/utilities/helper-functions.ts",
+        "edge:cloudformation->ecs",
+        "edge:codebuild->cloudformation",
+        "edge:codebuild->ecr",
+        "edge:ecs->dynamodb",
+        "edge:ecs->s3",
+        "edge:eventbridge->codebuild",
+        "node:cloudformation",
+        "node:codebuild",
+        "node:dynamodb",
+        "node:ecr",
+        "node:ecs",
+        "node:eventbridge",
+        "node:s3"
+      ],
+      "condition": "review threat T-06 against discovered path from eventbridge",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "confirm_edge_connectivity",
+          "review_auto_discovered_nodes"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-07",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "platform_dataset",
+        "runtime_scope": "region",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "cloudformation",
+        "codebuild",
+        "dynamodb",
+        "ecr",
+        "ecs",
+        "eventbridge",
+        "s3"
+      ],
+      "affected_assets": [
+        {
+          "id": "cloudformation",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "codebuild",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "dynamodb",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "ecr",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "ecs",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "cluster",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "eventbridge",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "service",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "s3",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "shared_dataset",
+            "runtime_scope": "region",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "auto-discovery:README.kr.md",
+        "auto-discovery:README.md",
+        "auto-discovery:client/AdminWeb/package-lock.json",
+        "auto-discovery:client/Application/package-lock.json",
+        "auto-discovery:scripts/init-install.sh",
+        "auto-discovery:server/bin/ecs-saas-ref-template.ts",
+        "auto-discovery:server/lib/cdknag/shared-infra-nag.ts",
+        "auto-discovery:server/lib/provision-scripts/provision-tenant.sh",
+        "auto-discovery:server/lib/shared-infra/shared-infra-stack.ts",
+        "auto-discovery:server/lib/tenant-template/services.ts",
+        "auto-discovery:server/lib/utilities/helper-functions.ts",
+        "edge:cloudformation->ecs",
+        "edge:codebuild->cloudformation",
+        "edge:codebuild->ecr",
+        "edge:ecs->dynamodb",
+        "edge:ecs->s3",
+        "edge:eventbridge->codebuild",
+        "node:cloudformation",
+        "node:codebuild",
+        "node:dynamodb",
+        "node:ecr",
+        "node:ecs",
+        "node:eventbridge",
+        "node:s3"
+      ],
+      "condition": "review threat T-07 against discovered path from eventbridge",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "confirm_edge_connectivity",
+          "review_auto_discovered_nodes"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-08",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "platform_dataset",
+        "runtime_scope": "region",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "cloudformation",
+        "codebuild",
+        "dynamodb",
+        "ecr",
+        "ecs",
+        "eventbridge",
+        "s3"
+      ],
+      "affected_assets": [
+        {
+          "id": "cloudformation",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "codebuild",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "dynamodb",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "ecr",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "ecs",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "cluster",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "eventbridge",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "service",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "s3",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "shared_dataset",
+            "runtime_scope": "region",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "auto-discovery:README.kr.md",
+        "auto-discovery:README.md",
+        "auto-discovery:client/AdminWeb/package-lock.json",
+        "auto-discovery:client/Application/package-lock.json",
+        "auto-discovery:scripts/init-install.sh",
+        "auto-discovery:server/bin/ecs-saas-ref-template.ts",
+        "auto-discovery:server/lib/cdknag/shared-infra-nag.ts",
+        "auto-discovery:server/lib/provision-scripts/provision-tenant.sh",
+        "auto-discovery:server/lib/shared-infra/shared-infra-stack.ts",
+        "auto-discovery:server/lib/tenant-template/services.ts",
+        "auto-discovery:server/lib/utilities/helper-functions.ts",
+        "edge:cloudformation->ecs",
+        "edge:codebuild->cloudformation",
+        "edge:codebuild->ecr",
+        "edge:ecs->dynamodb",
+        "edge:ecs->s3",
+        "edge:eventbridge->codebuild",
+        "node:cloudformation",
+        "node:codebuild",
+        "node:dynamodb",
+        "node:ecr",
+        "node:ecs",
+        "node:eventbridge",
+        "node:s3"
+      ],
+      "condition": "review threat T-08 against discovered path from eventbridge",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "confirm_edge_connectivity",
+          "review_auto_discovered_nodes"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-09",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "platform_dataset",
+        "runtime_scope": "service",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "platform",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "dynamodb",
+        "lambda"
+      ],
+      "affected_assets": [
+        {
+          "id": "dynamodb",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "lambda",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "service",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "auto-discovery:DEVELOPER_GUIDE.md",
+        "auto-discovery:README.md",
+        "auto-discovery:client/AdminWeb/package-lock.json",
+        "auto-discovery:client/AdminWeb/src/App.tsx",
+        "auto-discovery:client/AdminWeb/src/pages/Tenants/TenantList.tsx",
+        "auto-discovery:client/AdminWeb/src/utils/jwtUtils.ts",
+        "auto-discovery:client/Application/package-lock.json",
+        "auto-discovery:client/Application/src/App.tsx",
+        "auto-discovery:client/Application/src/pages/Orders/OrderCreate.tsx",
+        "auto-discovery:client/Application/src/pages/Orders/OrderDetail.tsx",
+        "auto-discovery:client/Application/src/services/authConfigService.ts",
+        "auto-discovery:client/Application/src/services/httpClient.ts",
+        "auto-discovery:package.json",
+        "auto-discovery:scripts/utils/test-throttling.sh",
+        "auto-discovery:server/application/microservices/order/src/main.ts",
+        "auto-discovery:server/application/microservices/product/src/main.ts",
+        "auto-discovery:server/application/microservices/user/src/main.ts",
+        "auto-discovery:server/application/package-lock.json",
+        "auto-discovery:server/application/yarn.lock",
+        "auto-discovery:server/bin/ecs-saas-ref-template.ts",
+        "edge:lambda->dynamodb",
+        "node:dynamodb",
+        "node:lambda"
+      ],
+      "condition": "review threat T-09 against discovered path from lambda",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "confirm_edge_connectivity",
+          "review_auto_discovered_nodes"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-10",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "shared_dataset",
+        "runtime_scope": "region",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "dynamodb",
+        "ecs",
+        "s3"
+      ],
+      "affected_assets": [
+        {
+          "id": "dynamodb",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "ecs",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "cluster",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "s3",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "shared_dataset",
+            "runtime_scope": "region",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "auto-discovery:DEVELOPER_GUIDE.md",
+        "auto-discovery:README.kr.md",
+        "auto-discovery:README.md",
+        "auto-discovery:client/AdminWeb/package-lock.json",
+        "auto-discovery:client/AdminWeb/src/pages/Tenants/TenantCreate.tsx",
+        "auto-discovery:client/Application/package-lock.json",
+        "auto-discovery:client/Application/src/pages/Orders/OrderDetail.tsx",
+        "auto-discovery:client/Application/src/services/authConfigService.ts",
+        "auto-discovery:images/advanced-tier.png",
+        "auto-discovery:images/archi-base-infra.png",
+        "auto-discovery:scripts/cleanup/cleanup-cloudfront.sh",
+        "auto-discovery:scripts/cleanup/cleanup-cognito.sh",
+        "auto-discovery:scripts/cleanup/cleanup.sh",
+        "auto-discovery:scripts/init-install.sh",
+        "auto-discovery:scripts/install.sh",
+        "auto-discovery:scripts/sbt-install.sh",
+        "auto-discovery:scripts/utils/get-adv-network.sh",
+        "auto-discovery:scripts/utils/update-provision-source.sh",
+        "auto-discovery:server/.env.example",
+        "auto-discovery:server/application/yarn.lock",
+        "edge:ecs->dynamodb",
+        "edge:ecs->s3",
+        "node:dynamodb",
+        "node:ecs",
+        "node:s3"
+      ],
+      "condition": "review threat T-10 against discovered path from ecs",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "confirm_edge_connectivity",
+          "review_auto_discovered_nodes"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-11",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "platform_dataset",
+        "runtime_scope": "region",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "cloudformation",
+        "codebuild",
+        "dynamodb",
+        "ecr",
+        "ecs",
+        "s3"
+      ],
+      "affected_assets": [
+        {
+          "id": "cloudformation",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "codebuild",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "dynamodb",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "ecr",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "ecs",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "cluster",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "s3",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "shared_dataset",
+            "runtime_scope": "region",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "auto-discovery:CODE_OF_CONDUCT.md",
+        "auto-discovery:CONTRIBUTING.md",
+        "auto-discovery:README.kr.md",
+        "auto-discovery:README.md",
+        "auto-discovery:client/AdminWeb/src/config/environment.ts",
+        "auto-discovery:client/Application/src/config/environment.ts",
+        "auto-discovery:scripts/cleanup/cleanup.sh",
+        "auto-discovery:server/application/.gitignore",
+        "auto-discovery:server/application/nest-cli.json",
+        "auto-discovery:server/lib/bootstrap-template/static-site.ts",
+        "auto-discovery:server/lib/cdknag/control-plane-nag.ts",
+        "auto-discovery:server/lib/cdknag/core-app-plane-nag.ts",
+        "auto-discovery:server/lib/cdknag/ecs-saas-pipeline-nag.ts",
+        "auto-discovery:server/lib/provision-scripts/deprovision-tenant.sh",
+        "auto-discovery:server/lib/provision-scripts/provision-tenant.sh",
+        "auto-discovery:server/lib/tenant-template/tenant-template-stack.ts",
+        "auto-discovery:server/lib/tenant-template/tenant-update-stack.ts",
+        "edge:cloudformation->ecs",
+        "edge:codebuild->cloudformation",
+        "edge:codebuild->ecr",
+        "edge:ecs->dynamodb",
+        "edge:ecs->s3",
+        "node:cloudformation",
+        "node:codebuild",
+        "node:dynamodb",
+        "node:ecr",
+        "node:ecs",
+        "node:s3"
+      ],
+      "condition": "review threat T-11 against discovered path from codebuild",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "confirm_edge_connectivity",
+          "review_auto_discovered_nodes"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-12",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "shared_dataset",
+        "runtime_scope": "region",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "dynamodb",
+        "ecs",
+        "s3"
+      ],
+      "affected_assets": [
+        {
+          "id": "dynamodb",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "ecs",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "cluster",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "s3",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "shared_dataset",
+            "runtime_scope": "region",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "auto-discovery:DEVELOPER_GUIDE.md",
+        "auto-discovery:README.kr.md",
+        "auto-discovery:README.md",
+        "auto-discovery:client/AdminWeb/package-lock.json",
+        "auto-discovery:client/AdminWeb/src/pages/Tenants/TenantCreate.tsx",
+        "auto-discovery:client/Application/package-lock.json",
+        "auto-discovery:client/Application/src/pages/Orders/OrderDetail.tsx",
+        "auto-discovery:client/Application/src/services/authConfigService.ts",
+        "auto-discovery:images/advanced-tier.png",
+        "auto-discovery:images/archi-base-infra.png",
+        "auto-discovery:scripts/cleanup/cleanup-cloudfront.sh",
+        "auto-discovery:scripts/cleanup/cleanup-cognito.sh",
+        "auto-discovery:scripts/cleanup/cleanup.sh",
+        "auto-discovery:scripts/init-install.sh",
+        "auto-discovery:scripts/install.sh",
+        "auto-discovery:scripts/sbt-install.sh",
+        "auto-discovery:scripts/utils/get-adv-network.sh",
+        "auto-discovery:scripts/utils/update-provision-source.sh",
+        "auto-discovery:server/.env.example",
+        "auto-discovery:server/application/yarn.lock",
+        "edge:ecs->dynamodb",
+        "edge:ecs->s3",
+        "node:dynamodb",
+        "node:ecs",
+        "node:s3"
+      ],
+      "condition": "review threat T-12 against discovered path from ecs",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "confirm_edge_connectivity",
+          "review_auto_discovered_nodes"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-13",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "shared_dataset",
+        "runtime_scope": "region",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "dynamodb",
+        "ecs",
+        "s3"
+      ],
+      "affected_assets": [
+        {
+          "id": "dynamodb",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "ecs",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "cluster",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "s3",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "shared_dataset",
+            "runtime_scope": "region",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "auto-discovery:DEVELOPER_GUIDE.md",
+        "auto-discovery:README.kr.md",
+        "auto-discovery:README.md",
+        "auto-discovery:client/AdminWeb/package-lock.json",
+        "auto-discovery:client/AdminWeb/src/pages/Tenants/TenantCreate.tsx",
+        "auto-discovery:client/Application/package-lock.json",
+        "auto-discovery:client/Application/src/pages/Orders/OrderDetail.tsx",
+        "auto-discovery:client/Application/src/services/authConfigService.ts",
+        "auto-discovery:images/advanced-tier.png",
+        "auto-discovery:images/archi-base-infra.png",
+        "auto-discovery:scripts/cleanup/cleanup-cloudfront.sh",
+        "auto-discovery:scripts/cleanup/cleanup-cognito.sh",
+        "auto-discovery:scripts/cleanup/cleanup.sh",
+        "auto-discovery:scripts/init-install.sh",
+        "auto-discovery:scripts/install.sh",
+        "auto-discovery:scripts/sbt-install.sh",
+        "auto-discovery:scripts/utils/get-adv-network.sh",
+        "auto-discovery:scripts/utils/update-provision-source.sh",
+        "auto-discovery:server/.env.example",
+        "auto-discovery:server/application/yarn.lock",
+        "edge:ecs->dynamodb",
+        "edge:ecs->s3",
+        "node:dynamodb",
+        "node:ecs",
+        "node:s3"
+      ],
+      "condition": "review threat T-13 against discovered path from ecs",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "confirm_edge_connectivity",
+          "review_auto_discovered_nodes"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    }
+  ]
+}

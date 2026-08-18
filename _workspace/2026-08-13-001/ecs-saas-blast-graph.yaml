@@ -1,0 +1,223 @@
+version: "1"
+nodes:
+  - id: tenant-entry
+    tenant_scope: subset
+    data_scope: record
+    runtime_scope: service
+    control_scope: feature
+    recovery_scope: tenant_recovery
+    responsibility: shared
+    confidence: confirmed
+  - id: tenant-routing
+    tenant_scope: subset
+    data_scope: tenant_dataset
+    runtime_scope: service
+    control_scope: feature
+    recovery_scope: tenant_recovery
+    responsibility: team
+    confidence: confirmed
+  - id: tenant-service
+    tenant_scope: subset
+    data_scope: tenant_dataset
+    runtime_scope: service
+    control_scope: feature
+    recovery_scope: tenant_recovery
+    responsibility: team
+    confidence: inferred
+  - id: tenant-data
+    tenant_scope: subset
+    data_scope: tenant_dataset
+    runtime_scope: service
+    control_scope: feature
+    recovery_scope: tenant_recovery
+    responsibility: shared
+    confidence: confirmed
+  - id: platform-entry
+    tenant_scope: all
+    data_scope: record
+    runtime_scope: service
+    control_scope: tenant_operations
+    recovery_scope: platform_recovery
+    responsibility: shared
+    confidence: confirmed
+  - id: lifecycle-event
+    tenant_scope: all
+    data_scope: tenant_dataset
+    runtime_scope: service
+    control_scope: platform
+    recovery_scope: platform_recovery
+    responsibility: team
+    confidence: inferred
+  - id: provisioner
+    tenant_scope: all
+    data_scope: platform_dataset
+    runtime_scope: account
+    control_scope: platform
+    recovery_scope: platform_recovery
+    responsibility: team
+    confidence: confirmed
+  - id: tenant-stack
+    tenant_scope: subset
+    data_scope: tenant_dataset
+    runtime_scope: cluster
+    control_scope: tenant_operations
+    recovery_scope: tenant_recovery
+    responsibility: shared
+    confidence: inferred
+  - id: mapping-role
+    tenant_scope: all
+    data_scope: tenant_dataset
+    runtime_scope: task
+    control_scope: platform
+    recovery_scope: platform_recovery
+    responsibility: team
+    confidence: inferred
+  - id: mapping-table
+    tenant_scope: all
+    data_scope: shared_dataset
+    runtime_scope: service
+    control_scope: platform
+    recovery_scope: platform_recovery
+    responsibility: shared
+    confidence: confirmed
+  - id: shared-capacity
+    tenant_scope: all
+    data_scope: record
+    runtime_scope: cluster
+    control_scope: platform
+    recovery_scope: platform_recovery
+    responsibility: shared
+    confidence: confirmed
+  - id: log-emitter
+    tenant_scope: subset
+    data_scope: tenant_dataset
+    runtime_scope: service
+    control_scope: feature
+    recovery_scope: tenant_recovery
+    responsibility: team
+    confidence: inferred
+  - id: shared-logs
+    tenant_scope: all
+    data_scope: shared_dataset
+    runtime_scope: region
+    control_scope: platform
+    recovery_scope: platform_recovery
+    responsibility: shared
+    confidence: confirmed
+  - id: deployment-role
+    tenant_scope: all
+    data_scope: platform_dataset
+    runtime_scope: account
+    control_scope: platform
+    recovery_scope: platform_recovery
+    responsibility: shared
+    confidence: inferred
+  - id: offboard-handler
+    tenant_scope: subset
+    data_scope: tenant_dataset
+    runtime_scope: service
+    control_scope: tenant_operations
+    recovery_scope: tenant_recovery
+    responsibility: team
+    confidence: confirmed
+  - id: tenant-backups
+    tenant_scope: subset
+    data_scope: tenant_dataset
+    runtime_scope: region
+    control_scope: tenant_operations
+    recovery_scope: tenant_recovery
+    responsibility: shared
+    confidence: inferred
+
+edges:
+  - from: tenant-entry
+    to: tenant-routing
+  - from: tenant-routing
+    to: tenant-service
+  - from: tenant-service
+    to: tenant-data
+  - from: platform-entry
+    to: lifecycle-event
+  - from: lifecycle-event
+    to: provisioner
+  - from: provisioner
+    to: tenant-stack
+  - from: mapping-role
+    to: mapping-table
+  - from: log-emitter
+    to: shared-logs
+  - from: deployment-role
+    to: tenant-stack
+  - from: offboard-handler
+    to: tenant-data
+  - from: offboard-handler
+    to: tenant-backups
+  - from: shared-capacity
+    to: tenant-service
+
+threat_paths:
+  T-01:
+    sources: [tenant-entry]
+    basis: ["API Gateway to ALB tenant routing path"]
+    condition: "if tenant identity is accepted from a client-controlled value"
+    required_checks: [verify_tenant_claim_binding, test_cross_tenant_request]
+  T-02:
+    sources: [tenant-service]
+    basis: ["ECS task to tenant DynamoDB access path"]
+    condition: "if the tenant key condition is absent or derived from untrusted input"
+    required_checks: [inspect_dynamodb_policy, test_leading_keys_isolation]
+  T-03:
+    sources: [tenant-entry]
+    basis: ["authorizer-to-integration tenantPath mapping"]
+    condition: "if downstream code trusts a caller-controlled tenantPath"
+    required_checks: [inspect_authorizer_mapping, test_route_tenant_mismatch]
+  T-04:
+    sources: [platform-entry]
+    basis: ["tenant management API boundary"]
+    condition: "if tenant-admin permissions reach platform management operations"
+    required_checks: [review_management_iam, test_persona_authorization]
+  T-05:
+    sources: [offboard-handler]
+    basis: ["tenant deprovisioning path"]
+    condition: "if deletion runs before export, retention, and approval checks"
+    required_checks: [review_offboarding_runbook, review_deletion_change]
+  T-06:
+    sources: [platform-entry]
+    basis: ["EventBridge lifecycle event path"]
+    condition: "if lifecycle events lack origin, tenant, action, or replay validation"
+    required_checks: [test_event_replay, inspect_event_authorization]
+  T-07:
+    sources: [platform-entry]
+    basis: ["onboarding invokes account-level automation"]
+    condition: "if onboarding has no tenant-aware quota or admission control"
+    required_checks: [review_service_quotas, test_onboarding_throttle]
+  T-08:
+    sources: [platform-entry]
+    basis: ["provisioning input reaches deployment tooling"]
+    condition: "if tenant and deployment parameters are not allowlisted"
+    required_checks: [test_provisioning_validation, inspect_subprocess_arguments]
+  T-09:
+    sources: [mapping-role]
+    basis: ["custom resource role to mapping table"]
+    condition: "if the Lambda role has wildcard or unrelated resource permissions"
+    required_checks: [inspect_mapping_role, test_out_of_scope_access]
+  T-10:
+    sources: [log-emitter]
+    basis: ["application and control-plane logs enter shared destinations"]
+    condition: "if logs retain tokens, credentials, or unnecessary customer data"
+    required_checks: [run_log_redaction_tests, inspect_log_schema]
+  T-11:
+    sources: [deployment-role]
+    basis: ["CI/CD role reaches tenant stacks and account resources"]
+    condition: "if a pipeline stage role can modify resources outside its scope"
+    required_checks: [inspect_pipeline_iam, test_out_of_scope_deploy]
+  T-12:
+    sources: [shared-capacity]
+    basis: ["shared ECS service capacity"]
+    condition: "if pooled capacity has no tenant-aware throttling or quotas"
+    required_checks: [review_ecs_capacity, run_noisy_tenant_test]
+  T-13:
+    sources: [offboard-handler]
+    basis: ["destructive offboarding reaches tenant data and backups"]
+    condition: "if removal policy or deprovisioning deletes data without recovery evidence"
+    required_checks: [review_removal_policies, verify_backup_restore]

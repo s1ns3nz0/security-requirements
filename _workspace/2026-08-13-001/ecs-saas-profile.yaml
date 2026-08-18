@@ -1,0 +1,121 @@
+version: 0.1.0
+locale: en
+generated_at: '2026-08-17'
+catalog_versions:
+  nist_800_53: r5
+  csf: '2.0'
+  asvs: '5.0'
+  data_types: 0.2.0
+repo:
+  visibility: public
+  root: aws-saas-reference-architecture-ecs
+inferred:
+  csp: aws
+  deployment_model: paas
+  managed_services:
+  - id: aws-api-gateway
+    evidence: server/lib/shared-infra/api-gateway.ts:103
+  - id: aws-alb
+    evidence: server/lib/shared-infra/shared-infra-stack.ts:121
+  - id: aws-cloudfront
+    evidence: server/lib/shared-infra/static-site-distro.ts
+  - id: aws-cognito
+    evidence: server/lib/tenant-template/identity-provider.ts:1
+  - id: aws-dynamodb
+    evidence: server/lib/tenant-template/ecs-dynamodb.ts:17
+  - id: aws-ecs
+    evidence: server/lib/tenant-template/ecs-cluster.ts
+  - id: aws-lambda
+    evidence: server/lib/shared-infra/shared-infra-stack.ts:281
+  - id: aws-s3
+    evidence: server/lib/bootstrap-template/static-site.ts:31
+  - id: aws-ecr
+    evidence: scripts/build-application.sh
+    curated: false
+  - id: aws-eventbridge
+    evidence: server/lib/bootstrap-template/core-appplane-stack.ts:65
+    curated: false
+  - id: aws-codebuild
+    evidence: server/lib/bootstrap-template/core-appplane-stack.ts:34
+    curated: false
+  stack:
+  - typescript
+  - python
+  - node22
+  - ecs-fargate
+  auth_mechanism: cognito_jwt
+  entrypoints:
+  - HTTPS API Gateway GET /orders
+  - HTTPS API Gateway POST /orders
+  - HTTPS API Gateway GET /products
+  - HTTPS API Gateway POST /products
+  - HTTPS API Gateway tenant management API
+  - HTTPS ALB tenant application API
+  - CloudFront application web UI
+  - CloudFront admin web UI
+  - EventBridge tenant lifecycle events
+  external_integrations:
+  - name: customer_identity_provider
+    purpose: optional_federated_authentication
+    data_sent: UNDETERMINED
+  region_storage: ap-northeast-2
+declared:
+  fixed_interfaces: []
+  data_types:
+  - id: basic_contact
+    modifiers:
+    - customer_owned
+  - id: account_credentials
+  - id: transaction_history
+    modifiers:
+    - customer_owned
+  - id: public_content
+  - id: app_logs
+  - id: audit_logs
+  - id: backups
+  availability:
+    rto: rto_hours
+    rpo: rpo_zero
+    amplifiers:
+    - revenue_direct
+    - single_point_dependency
+  users:
+  - authenticated_tenant_admin
+  - authenticated_tenant_user
+  - platform_operator
+  - service_to_service
+  - anonymous_public_site
+  regulations_declared:
+  - customer_data_processing_agreement
+  - customer_availability_sla
+  - tenant_data_deletion_obligation
+  existing_org_controls:
+  - central_logging
+  - cloud_account_guardrails
+  - dependency_scanning
+  - incident_response_process
+  - access_review_process
+  - backup_recovery_policy
+  user_regions:
+  - KR
+  - JP
+declared_context:
+  customer_regions:
+  - KR
+  - JP
+  data_residency:
+    customer_specific_residency_required: false
+    cross_border_transfer_allowed: true
+    contractual_restrictions: UNDETERMINED
+  backup_region: ap-northeast-2
+  cross_region_backup: UNDETERMINED
+derived:
+  confirmation:
+    status: confirmed
+    confirmed_by: user
+    confirmed_at: '2026-08-17'
+confirmation:
+  status: confirmed
+  confirmed_by: user
+  confirmed_at: '2026-08-17T06:14:49.601818Z'
+  profile_digest: sha256:550dd90abf5cdd98e31a7efaf2303bfcc6f721791721e8361c74e8af9f9ea8ed

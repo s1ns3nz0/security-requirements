@@ -1,0 +1,220 @@
+version: "1"
+requirements:
+  - id: REQ-TENANT-CLAIM-01
+    managed:
+      statement: "The service must derive the tenant identity used for authorization from a verified identity claim or server-side tenant mapping."
+      rationale: "A client-controlled tenantPath can let one tenant address another tenant's data."
+      csf: [PR.AA-03, PR.AA-05]
+      sources: [AC-3, AC-4]
+      threat_refs: [T-01, T-03]
+      blast_radius_refs: [T-01, T-03]
+      responsibility: team
+      team_part: "Validate the authenticated subject and resolve its tenant mapping before dispatching a tenant operation."
+      priority: high
+      verification:
+        method: code_grep
+        target: "tenant claim and tenant mapping resolution"
+        expect: "the storage tenant key is not accepted directly from the request body or path"
+        fallback_manual: "Submit a request with another tenant's identifier and confirm it is rejected."
+  - id: REQ-TENANT-DDB-01
+    managed:
+      statement: "Every tenant-scoped DynamoDB read and write must be constrained by the authenticated tenant key."
+      rationale: "A missing or incorrect LeadingKeys condition creates a direct cross-tenant data access path."
+      csf: [PR.AA-05, PR.DS-01]
+      sources: [AC-3, AC-4, SC-4]
+      threat_refs: [T-02]
+      blast_radius_refs: [T-02]
+      responsibility: team
+      team_part: "Apply tenant-key conditions to all tenant table access paths and test both positive and negative cases."
+      priority: high
+      verification:
+        method: code_grep
+        target: "DynamoDB access policies and repository queries"
+        expect: "all tenant table operations contain an authenticated tenant constraint"
+        fallback_manual: "Attempt a read and write using a different tenant key and record the denial."
+  - id: REQ-PLATFORM-AUTHZ-01
+    managed:
+      statement: "The tenant management API must authorize platform-level actions separately from tenant-user actions."
+      rationale: "Tenant administrators must not gain onboarding, offboarding, or other-tenant management privileges by reaching a control-plane route."
+      csf: [PR.AA-05, PR.AA-06]
+      sources: [AC-3, AC-6]
+      threat_refs: [T-04]
+      blast_radius_refs: [T-04]
+      responsibility: shared
+      csp_part: "Provide identity and policy enforcement primitives."
+      team_part: "Define and enforce distinct platform-operator and tenant-administrator permissions."
+      evidence: ["API Gateway authorizer configuration", "IAM policy review"]
+      priority: high
+      verification:
+        method: config_api
+        target: "API Gateway routes and IAM policies for tenant management"
+        expect: "tenant users cannot invoke platform onboarding, offboarding, or cross-tenant operations"
+        fallback_manual: "Invoke each management operation with tenant-user and platform-operator identities."
+  - id: REQ-LIFECYCLE-AUTH-01
+    managed:
+      statement: "Tenant lifecycle events must be authenticated, authorized, and bound to the requested tenant and isolation tier before provisioning or deprovisioning begins."
+      rationale: "A forged or replayed lifecycle event could provision resources for the wrong tenant or destroy another tenant's environment."
+      csf: [PR.AA-05, DE.CM-01]
+      sources: [AC-3, AC-6, CM-3]
+      threat_refs: [T-06]
+      blast_radius_refs: [T-06]
+      responsibility: team
+      team_part: "Validate event origin, tenant identity, requested action, tier, and replay protection before invoking lifecycle automation."
+      priority: high
+      verification:
+        method: test_case
+        target: "tenant lifecycle event handler"
+        expect: "unauthenticated, mismatched, and replayed events do not change infrastructure state"
+        fallback_manual: "Replay a captured lifecycle event and confirm that no second state change occurs."
+  - id: REQ-PROVISION-INPUT-01
+    managed:
+      statement: "Tenant provisioning inputs must be validated against an allowlist before they are passed to CloudFormation, CodeBuild, or shell commands."
+      rationale: "Unvalidated tenantId, tier, name, or source-version values can alter deployment targets or execute unintended operations."
+      csf: [PR.DS-01, PR.AA-05]
+      sources: [SI-10, AC-6]
+      threat_refs: [T-08]
+      blast_radius_refs: [T-08]
+      responsibility: team
+      team_part: "Enforce type, length, character, enum, and version validation at the lifecycle boundary."
+      priority: high
+      verification:
+        method: test_case
+        target: "provision-tenant input validation"
+        expect: "invalid identifiers, tiers, names, and source versions are rejected before subprocess or deployment calls"
+        fallback_manual: "Supply shell metacharacters and unsupported tiers and retain the rejection evidence."
+  - id: REQ-CAPACITY-ISOLATION-01
+    managed:
+      statement: "Tenant onboarding and request handling must enforce quotas or rate limits that prevent one tenant from exhausting shared provisioning or runtime capacity."
+      rationale: "Repeated onboarding and pooled ECS workloads can degrade service for unrelated tenants."
+      csf: [PR.IR-03, DE.CM-01]
+      sources: [SC-5]
+      threat_refs: [T-07, T-12]
+      blast_radius_refs: [T-07, T-12]
+      responsibility: shared
+      csp_part: "Expose service quotas and throttling controls."
+      team_part: "Configure tenant-aware throttles, quotas, alarms, and admission checks."
+      evidence: ["API throttling configuration", "service quota alarms"]
+      priority: high
+      verification:
+        method: config_api
+        target: "API Gateway throttles, ECS capacity settings, and onboarding workflow"
+        expect: "a single tenant cannot consume all shared request or provisioning capacity"
+        fallback_manual: "Run a controlled burst for one tenant and confirm throttling and alarm behavior."
+  - id: REQ-MAPPING-LAMBDA-01
+    managed:
+      statement: "The tenant-mapping custom resource must have only the actions and resource scope required to read and update the mapping table."
+      rationale: "A broad shared Lambda role could rewrite mappings or access unrelated tenant data after compromise."
+      csf: [PR.AA-05, PR.PS-01]
+      sources: [AC-6]
+      threat_refs: [T-09]
+      blast_radius_refs: [T-09]
+      responsibility: team
+      team_part: "Keep the custom resource role least-privileged and restrict it to the mapping table and lifecycle operations."
+      priority: high
+      verification:
+        method: iac_inspect
+        target: "custom resource Lambda IAM policy"
+        expect: "no wildcard actions or unrelated table, queue, bucket, or role resources are granted"
+        fallback_manual: "Use the role to attempt an update outside the mapping table and record the denial."
+  - id: REQ-LOG-SANITIZATION-01
+    managed:
+      statement: "Application and control-plane logs must exclude authentication secrets, raw tokens, and unnecessary tenant customer data."
+      rationale: "Shared CloudWatch and S3 log destinations increase the impact of accidental disclosure across tenants."
+      csf: [PR.DS-01, DE.CM-03]
+      sources: [AU-3, AU-9, SI-12]
+      threat_refs: [T-10]
+      blast_radius_refs: [T-10]
+      responsibility: team
+      team_part: "Redact sensitive fields at log construction and define a reviewed event schema."
+      priority: high
+      verification:
+        method: test_case
+        target: "application logging tests"
+        expect: "tokens, passwords, and unneeded customer fields are absent from emitted records"
+        fallback_manual: "Exercise login, tenant routing, and error paths and inspect the resulting logs."
+  - id: REQ-AUDIT-IMMUTABILITY-01
+    managed:
+      statement: "Security-relevant tenant lifecycle and administrative events must be recorded in a destination that the recording runtime cannot delete or alter."
+      rationale: "An actor who can rewrite lifecycle evidence can hide unauthorized onboarding, offboarding, or privilege changes."
+      csf: [DE.CM-03, RS.CO-02]
+      sources: [AU-3, AU-9, AU-12]
+      threat_refs: [T-05, T-06, T-11]
+      blast_radius_refs: [T-05, T-06, T-11]
+      responsibility: shared
+      csp_part: "Provide durable, access-controlled log storage."
+      team_part: "Emit complete lifecycle audit events and separate write and administrative permissions."
+      evidence: ["CloudTrail or equivalent audit configuration", "runtime IAM policy"]
+      priority: high
+      verification:
+        method: iac_inspect
+        target: "lifecycle audit destination and runtime IAM policy"
+        expect: "the runtime can append events but cannot delete or rewrite retained audit records"
+        fallback_manual: "Attempt deletion with the runtime role and verify the denial and audit event."
+  - id: REQ-OFFBOARD-RECOVERY-01
+    managed:
+      statement: "Tenant offboarding must preserve the approved export, retention, and recovery evidence before destructive resources are removed."
+      rationale: "RemovalPolicy.DESTROY and incomplete deprovisioning can permanently delete customer data without meeting contractual obligations."
+      csf: [RC.RP-01, RC.RP-03]
+      sources: [CP-9, CP-10, CM-3]
+      threat_refs: [T-05, T-13]
+      blast_radius_refs: [T-05, T-13]
+      responsibility: shared
+      csp_part: "Provide backup and deletion capabilities with documented retention semantics."
+      team_part: "Gate destructive offboarding on export verification, approval, and an auditable retention decision."
+      evidence: ["offboarding runbook", "backup and export records"]
+      priority: high
+      verification:
+        method: manual
+        target: "tenant offboarding runbook and executed change record"
+        expect: "export, retention decision, approval, and recovery evidence precede destructive deletion"
+        fallback_manual: "Review one completed offboarding record end to end."
+  - id: REQ-DEPLOY-SCOPE-01
+    managed:
+      statement: "Deployment identities must be restricted to the stacks, repositories, and environments required by their pipeline stage."
+      rationale: "A compromised CodeBuild or deployment role could modify every tenant environment or shared control-plane resource."
+      csf: [PR.AA-05, PR.PS-01]
+      sources: [AC-6, CM-3, SA-10]
+      threat_refs: [T-11]
+      blast_radius_refs: [T-11]
+      responsibility: shared
+      csp_part: "Provide identity, build, and deployment audit capabilities."
+      team_part: "Use stage-specific roles and resource conditions and review changes before promotion."
+      evidence: ["CodeBuild service role", "CloudFormation deployment role", "pipeline approval record"]
+      priority: high
+      verification:
+        method: iac_inspect
+        target: "CI/CD IAM policies and CloudFormation execution roles"
+        expect: "each role is scoped to its stage and cannot modify unrelated tenant or control-plane resources"
+        fallback_manual: "Attempt an out-of-scope deployment with the stage role and record the denial."
+  - id: REQ-API-ERROR-01
+    managed:
+      statement: "Public API error responses must not disclose stack traces, credentials, tenant identifiers belonging to another tenant, or internal resource names."
+      rationale: "Error payloads cross the public trust boundary and can disclose data useful for tenant targeting or infrastructure compromise."
+      csf: [PR.DS-01, PR.DS-02]
+      sources: [SI-11, SI-12]
+      threat_refs: [T-01, T-10]
+      blast_radius_refs: [T-01, T-10]
+      responsibility: team
+      team_part: "Use stable external error codes and keep diagnostic detail in access-controlled logs."
+      priority: medium
+      verification:
+        method: test_case
+        target: "API Gateway and ECS error response tests"
+        expect: "all tested failure paths return stable public errors without internal diagnostics"
+        fallback_manual: "Trigger validation, authorization, dependency, and timeout failures and inspect responses."
+  - id: REQ-ROUTE-METHOD-01
+    managed:
+      statement: "Every tenant API operation must enforce an explicit route-and-method allowlist before invoking its handler."
+      rationale: "Ambiguous dispatch or method confusion can bypass intended authorization and invoke an unintended tenant operation."
+      csf: [PR.AA-05, PR.PS-01]
+      sources: [AC-3, AC-4, SI-10]
+      threat_refs: [T-03, T-08]
+      blast_radius_refs: [T-03, T-08]
+      responsibility: team
+      team_part: "Define explicit API Gateway and application route mappings and reject unknown methods and paths."
+      priority: medium
+      verification:
+        method: test_case
+        target: "API route and method authorization tests"
+        expect: "unknown paths, methods, and route parameters are rejected before business logic executes"
+        fallback_manual: "Send method override, path traversal, and unknown-route requests and retain responses."

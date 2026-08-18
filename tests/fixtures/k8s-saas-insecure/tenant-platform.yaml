@@ -1,0 +1,87 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-a
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-b
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tenant-api
+  namespace: tenant-a
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::111111111111:role/tenant-platform-admin
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tenant-api
+  namespace: tenant-a
+  labels:
+    app: tenant-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: tenant-api
+  template:
+    metadata:
+      labels:
+        app: tenant-api
+    spec:
+      serviceAccountName: tenant-api
+      containers:
+        - name: api
+          image: example/tenant-api:latest
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tenant-db
+                  key: password
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tenant-api
+  namespace: tenant-a
+spec:
+  selector:
+    app: tenant-api
+  ports:
+    - port: 8080
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tenant-db
+  namespace: tenant-a
+type: Opaque
+data:
+  password: cGFzcw==
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tenant-admin
+rules:
+  - apiGroups: [""]
+    resources: ["secrets", "pods"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tenant-api-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tenant-admin
+subjects:
+  - kind: ServiceAccount
+    name: tenant-api
+    namespace: tenant-a

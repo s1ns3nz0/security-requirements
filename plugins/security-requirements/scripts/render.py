@@ -203,6 +203,8 @@ def render_requirements(doc: dict, titles: dict, meta: dict) -> str:
             sources = managed.get("sources") or []
             if sources:
                 rows.append(("Basis", ", ".join(sources)))
+            if managed.get("blast_radius_refs"):
+                rows.append(("Blast radius", ", ".join(managed["blast_radius_refs"])))
             rows.append(("Priority", managed.get("priority", "low")))
 
             verification = managed.get("verification") or {}

@@ -38,6 +38,10 @@ import publish  # noqa: E402
 import risk  # noqa: E402
 import runtime_paths  # noqa: E402
 import select_baseline as sb  # noqa: E402
+import blast_radius  # noqa: E402
+import build_blast_graph  # noqa: E402
+import simulate_blast_paths  # noqa: E402
+import aws_blast_snapshot  # noqa: E402
 
 GOLDEN = REPO_ROOT / "golden" / "b2b-saas-aws"
 GOLDEN_ROOT = REPO_ROOT / "golden"
@@ -189,6 +193,180 @@ def test_no_undetermined_responsibility_for_any_golden_case():
         derived = sb.run(profile)
         result = classify_resp.classify(profile, derived["controls"])
         assert result["counts"]["undetermined"] == 0, f"{name} has unmapped controls"
+
+
+def test_blast_radius_traverses_graph_and_preserves_confidence():
+    threats = {"threats": [{"id": "T-1"}]}
+    graph = {
+        "nodes": [
+            {"id": "entry", "tenant_scope": "subset", "data_scope": "record",
+             "runtime_scope": "service", "control_scope": "feature",
+             "recovery_scope": "tenant_recovery", "responsibility": "team",
+             "confidence": "confirmed"},
+            {"id": "store", "tenant_scope": "all", "data_scope": "shared_dataset",
+             "runtime_scope": "account", "control_scope": "platform",
+             "recovery_scope": "platform_recovery", "responsibility": "shared",
+             "confidence": "inferred"},
+        ],
+        "edges": [{"from": "entry", "to": "store"}],
+        "threat_paths": {"T-1": {"sources": ["entry"], "basis": ["route review"]}},
+    }
+    result = blast_radius.derive(threats, graph)["results"][0]
+    assert result["blast_radius"]["tenant_scope"] == "all"
+    assert result["blast_radius"]["data_scope"] == "shared_dataset"
+    assert result["priority_floor"] == "high"
+    assert result["confidence"] == "inferred"
+    assert result["responsibility"] == ["shared", "team"]
+
+
+def test_blast_radius_rejects_unknown_graph_references():
+    graph = {"nodes": [], "edges": [], "threat_paths": {"T-1": {"sources": ["missing"]}}}
+    with pytest.raises(blast_radius.GraphError, match="unknown source nodes"):
+        blast_radius.derive({"threats": [{"id": "T-1"}]}, graph)
+
+
+def test_blast_radius_preserves_optional_tenant_sizing_and_renders_review():
+    threats = {"threats": [{"id": "T-1"}]}
+    graph = {
+        "nodes": [{"id": "entry", "tenant_scope": "subset", "data_scope": "record",
+                   "runtime_scope": "service", "control_scope": "feature",
+                   "recovery_scope": "tenant_recovery"}],
+        "edges": [],
+        "threat_paths": {"T-1": {"sources": ["entry"],
+                                   "affected_tenants": {"estimate": 25, "total": 500},
+                                   "review": {"status": "reviewed", "reviewer": "alice",
+                                               "reviewed_at": "2026-08-17"}}},
+    }
+    result = blast_radius.derive(threats, graph)
+    item = result["results"][0]
+    assert item["tenant_scope_detail"]["ratio"] == 0.05
+    assert item["validation"]["status"] == "reviewed"
+    report = blast_radius.render_markdown(result)
+    assert "T-1" in report and "reviewed" in report
+
+
+def test_blast_radius_compare_detects_scope_expansion():
+    previous = {"results": [{"threat_id": "T-1", "blast_radius": {
+        "tenant_scope": "subset", "data_scope": "tenant_dataset", "runtime_scope": "service",
+        "control_scope": "feature", "recovery_scope": "tenant_recovery"},
+        "priority_floor": "medium"}]}
+    current = {"results": [{"threat_id": "T-1", "blast_radius": {
+        "tenant_scope": "all", "data_scope": "shared_dataset", "runtime_scope": "cluster",
+        "control_scope": "platform", "recovery_scope": "platform_recovery"},
+        "priority_floor": "high"}]}
+    result = blast_radius.compare(current, previous)
+    assert result["expanded"] == 1
+    assert result["changes"][0]["expanded_dimensions"] == [
+        "tenant_scope", "data_scope", "runtime_scope", "control_scope", "recovery_scope"
+    ]
+
+
+def test_blast_radius_unknown_scope_is_temporary_high_and_requires_review():
+    result = blast_radius.derive(
+        {"threats": [{"id": "T-1"}]},
+        {"nodes": [{"id": "entry"}], "edges": [],
+         "threat_paths": {"T-1": {"sources": ["entry"]}}},
+    )["results"][0]
+    assert result["priority_floor"] == "high"
+    assert result["review_required"] is True
+    assert "uncertain_scope" in result["priority_reasons"]
+
+
+def test_blast_radius_emits_coarse_scope_and_asset_owners():
+    result = blast_radius.derive(
+        {"threats": [{"id": "T-1"}]},
+        {"nodes": [{"id": "entry", "tenant_scope": "all", "data_scope": "shared_dataset",
+                    "runtime_scope": "service", "control_scope": "platform",
+                    "recovery_scope": "platform_recovery", "responsibility": "team"}],
+         "edges": [], "threat_paths": {"T-1": {"sources": ["entry"]}}},
+    )["results"][0]
+    assert result["coarse_scope"] == "platform"
+    assert result["affected_assets"][0]["responsibility"] == "team"
+
+
+def test_blast_radius_confirmed_review_requires_auditable_metadata():
+    graph = {"nodes": [{"id": "entry"}], "edges": [],
+             "threat_paths": {"T-1": {"sources": ["entry"], "review": {
+                 "status": "confirmed", "reviewer": "alice", "reviewed_at": "2026-08-17",
+                 "evidence": ["architecture-review-42"]}}}}
+    result = blast_radius.derive({"threats": [{"id": "T-1"}]}, graph)["results"][0]
+    assert result["review"]["status"] == "confirmed"
+    assert result["review"]["evidence"] == ["architecture-review-42"]
+
+
+def test_repository_graph_builder_emits_reviewable_evidence(tmp_path):
+    (tmp_path / "infra.ts").write_text("new apigateway.RestApi(); new ecs.FargateService();", encoding="utf-8")
+    profile = {"inferred": {"managed_services": [{"id": "aws-api-gateway"}, {"id": "aws-ecs"}]}}
+    threats = {"threats": [{"id": "T-1", "boundary": "TB-2", "persona": "user"}]}
+    graph = build_blast_graph.build(profile, threats, tmp_path)
+    assert graph["review_required"] is True
+    assert {node["id"] for node in graph["nodes"]} == {"api-gateway", "ecs"}
+    assert graph["threat_paths"]["T-1"]["validation_status"] == "unreviewed"
+
+
+def test_attack_simulation_is_graph_only_and_preserves_path_order():
+    graph = {"nodes": [{"id": "entry"}, {"id": "store"}],
+             "edges": [{"from": "entry", "to": "store"}],
+             "threat_paths": {"T-1": {"sources": ["entry"]}}}
+    result = simulate_blast_paths.simulate(
+        {"threats": [{"id": "T-1", "persona": "user"}]}, graph)["results"][0]
+    assert result["status"] == "reachable"
+    assert result["path_nodes"] == ["entry", "store"]
+    assert result["side_effects"] == "none; graph traversal only"
+
+
+def test_aws_snapshot_is_read_only_and_merges_reviewed_graph(monkeypatch):
+    class Client:
+        def __init__(self, service): self.service = service
+        def get_caller_identity(self): return {"Account": "123"}
+        def list_clusters(self): return {"clusterArns": ["arn:cluster/c1"]}
+        def list_services(self, **kwargs): return {"serviceArns": ["arn:service/s1"]}
+        def list_tables(self): return {"TableNames": ["t1"]}
+        def describe_table(self, **kwargs): return {"Table": {"TableArn": "arn:table/t1"}}
+        def list_functions(self): return {"Functions": []}
+        def get_rest_apis(self): return {"items": []}
+        def list_rules(self): return {"Rules": []}
+        def list_stacks(self): return {"StackSummaries": []}
+        def describe_repositories(self): return {"repositories": []}
+
+    class Session:
+        def __init__(self, **kwargs): pass
+        def client(self, service, **kwargs): return Client(service)
+
+    class Boto:
+        pass
+    Boto.Session = Session
+
+    monkeypatch.setitem(sys.modules, "boto3", Boto)
+    result = aws_blast_snapshot.discover("ap-northeast-2", base_graph={
+        "nodes": [{"id": "reviewed", "confidence": "confirmed"}],
+        "edges": [], "threat_paths": {"T-1": {"sources": ["reviewed"]}},
+    })
+    assert result["read_only"] is True
+    assert result["base_graph"] == "merged"
+    assert "reviewed" in {node["id"] for node in result["nodes"]}
+
+
+def test_blast_radius_expansion_gate_returns_nonzero(tmp_path):
+    threats = tmp_path / "threats.yaml"
+    graph = tmp_path / "graph.yaml"
+    previous = tmp_path / "previous.json"
+    output = tmp_path / "current.json"
+    threats.write_text("threats:\n  - id: T-1\n", encoding="utf-8")
+    graph.write_text(
+        "nodes:\n  - id: entry\n    tenant_scope: all\n    data_scope: shared_dataset\n"
+        "    runtime_scope: service\n    control_scope: platform\n    recovery_scope: platform_recovery\n"
+        "edges: []\nthreat_paths:\n  T-1:\n    sources: [entry]\n", encoding="utf-8")
+    previous.write_text(json.dumps({"results": [{"threat_id": "T-1", "blast_radius": {
+        "tenant_scope": "one", "data_scope": "record", "runtime_scope": "task",
+        "control_scope": "feature", "recovery_scope": "local"}, "priority_floor": "medium"}]}),
+                         encoding="utf-8")
+    result = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "blast_radius.py"),
+                             "--threats", str(threats), "--graph", str(graph),
+                             "--out", str(output), "--previous", str(previous),
+                             "--fail-on-expansion"], capture_output=True, text=True)
+    assert result.returncode == 3
+    assert "scope expanded" in result.stderr
 
 
 def test_ordinary_b2b_saas_lands_on_moderate(derived):
@@ -802,6 +980,16 @@ def test_threat_only_bucket_is_populated(crossed):
 def test_service_specific_threats_raise_priority(crossed):
     item = next(i for i in crossed["items"] if i["control"] == "AC-3")
     assert item["origin"] == "threat_and_baseline"
+    assert item["priority"] == "high"
+
+
+def test_blast_radius_can_raise_a_generic_threat():
+    controls = {"controls": ["AC-3"], "forced_requirements": []}
+    resp = {"controls": [{"control": "AC-3", "responsibility": "team", "services": []}]}
+    threats = {"threats": [{"id": "T-1", "novelty": "generic", "related_controls": ["AC-3"]}]}
+    blast = {"results": [{"threat_id": "T-1", "priority_floor": "high"}]}
+    result = merge.cross(controls, resp, threats, blast)
+    item = next(i for i in result["items"] if i["control"] == "AC-3")
     assert item["priority"] == "high"
 
 

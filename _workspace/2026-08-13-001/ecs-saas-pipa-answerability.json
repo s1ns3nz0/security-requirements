@@ -1,0 +1,3622 @@
+{
+  "overlay": "pipa-isms-p",
+  "depth": {},
+  "framing": null,
+  "scope": "ISMS-P",
+  "name": "ISMS-P — 정보보호 및 개인정보보호 관리체계 인증기준",
+  "version": "2023.11.23",
+  "clause_count": 101,
+  "covered": [
+    {
+      "clause": "1.1.1",
+      "title": "경영진의 참여",
+      "controls": [
+        "PM-2"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PM-2"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "1.1.2",
+      "title": "최고책임자의 지정",
+      "controls": [
+        "PM-2",
+        "PM-19"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "notes": "ISMS-P names two officers; 800-53 separates the security and privacy leadership roles the same way.",
+      "controls_in_baseline": [
+        "PM-2",
+        "PM-19"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "1.1.3",
+      "title": "조직 구성",
+      "controls": [
+        "PM-1",
+        "PM-29"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PM-1",
+        "PM-29"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "1.1.4",
+      "title": "범위 설정",
+      "controls": [
+        "PL-2",
+        "PM-5"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PL-2",
+        "PM-5"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "1.1.5",
+      "title": "정책 수립",
+      "controls": [
+        "PM-1",
+        "PL-1"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PM-1",
+        "PL-1"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "1.1.6",
+      "title": "자원 할당",
+      "controls": [
+        "PM-3",
+        "SA-2"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PM-3",
+        "SA-2"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "1.2.1",
+      "title": "정보자산 식별",
+      "controls": [
+        "CM-8",
+        "PM-5"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "CM-8",
+        "PM-5"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "1.2.2",
+      "title": "현황 및 흐름분석",
+      "controls": [
+        "PM-5",
+        "CM-12"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "notes": "Flow analysis is what the profile's DFD produces; CM-12 is the closest control, being about where information lives.",
+      "controls_in_baseline": [
+        "PM-5",
+        "CM-12"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "1.2.3",
+      "title": "위험 평가",
+      "controls": [
+        "RA-3"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "RA-3"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "1.2.4",
+      "title": "보호대책 선정",
+      "controls": [
+        "PL-10",
+        "PL-11",
+        "RA-7"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "notes": "Baseline selection and tailoring -- the step this tool automates.",
+      "controls_in_baseline": [
+        "PL-10",
+        "PL-11",
+        "RA-7"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "1.3.1",
+      "title": "보호대책 구현",
+      "controls": [
+        "PM-4",
+        "CA-5"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PM-4",
+        "CA-5"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "1.3.2",
+      "title": "보호대책 공유",
+      "controls": [
+        "AT-2",
+        "PM-15"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "AT-2",
+        "PM-15"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "1.3.3",
+      "title": "운영현황 관리",
+      "controls": [
+        "CA-7"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "controls_in_baseline": [
+        "CA-7"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "1.4.1",
+      "title": "법적 요구사항 준수 검토",
+      "controls": [
+        "PM-1",
+        "CA-2"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "notes": "Legal compliance review has no direct 800-53 equivalent; the programme controls are the nearest.",
+      "controls_in_baseline": [
+        "PM-1",
+        "CA-2"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "1.4.2",
+      "title": "관리체계 점검",
+      "controls": [
+        "CA-2",
+        "CA-2(1)",
+        "CA-7"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "CA-2",
+        "CA-2(1)",
+        "CA-7"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "1.4.3",
+      "title": "관리체계 개선",
+      "controls": [
+        "CA-5",
+        "CA-7"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "CA-5",
+        "CA-7"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.1.1",
+      "title": "정책의 유지관리",
+      "controls": [
+        "PL-1",
+        "PM-1"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PL-1",
+        "PM-1"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.1.2",
+      "title": "조직의 유지관리",
+      "controls": [
+        "PM-2"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PM-2"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.1.3",
+      "title": "정보자산 관리",
+      "controls": [
+        "CM-8",
+        "RA-2"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "CM-8",
+        "RA-2"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.2.1",
+      "title": "주요 직무자 지정 및 관리",
+      "controls": [
+        "PS-2",
+        "PS-3"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PS-2",
+        "PS-3"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.2.2",
+      "title": "직무 분리",
+      "controls": [
+        "AC-5"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "AC-5"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.2.3",
+      "title": "보안 서약",
+      "controls": [
+        "PS-6"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PS-6"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.2.4",
+      "title": "인식제고 및 교육훈련",
+      "controls": [
+        "AT-2",
+        "AT-3"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "AT-2",
+        "AT-3"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.2.5",
+      "title": "퇴직 및 직무변경 관리",
+      "controls": [
+        "PS-4",
+        "PS-5"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PS-4",
+        "PS-5"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.2.6",
+      "title": "보안 위반 시 조치",
+      "controls": [
+        "PS-8"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PS-8"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.3.1",
+      "title": "외부자 현황 관리",
+      "controls": [
+        "SA-9",
+        "SR-3"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "SA-9",
+        "SR-3"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.3.2",
+      "title": "외부자 계약 시 보안",
+      "controls": [
+        "SA-4",
+        "SA-9"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "SA-4",
+        "SA-9"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.3.3",
+      "title": "외부자 보안 이행 관리",
+      "controls": [
+        "SA-9",
+        "SR-6"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "SA-9",
+        "SR-6"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.3.4",
+      "title": "외부자 계약 변경 및 만료 시 보안",
+      "controls": [
+        "SA-9",
+        "PS-4"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "SA-9",
+        "PS-4"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.4.2",
+      "title": "출입통제",
+      "controls": [
+        "PE-2",
+        "PE-3",
+        "PE-6",
+        "PE-8"
+      ],
+      "standalone": false,
+      "responsibility_hint": "csp_claimed",
+      "controls_in_baseline": [
+        "PE-2",
+        "PE-3",
+        "PE-6",
+        "PE-8"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.4.4",
+      "title": "보호설비 운영",
+      "controls": [
+        "PE-11",
+        "PE-13",
+        "PE-14",
+        "PE-15"
+      ],
+      "standalone": false,
+      "responsibility_hint": "csp_claimed",
+      "controls_in_baseline": [
+        "PE-11",
+        "PE-13",
+        "PE-14",
+        "PE-15"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.4.5",
+      "title": "보호구역 내 작업",
+      "controls": [
+        "PE-3",
+        "MA-5"
+      ],
+      "standalone": false,
+      "responsibility_hint": "csp_claimed",
+      "controls_in_baseline": [
+        "PE-3",
+        "MA-5"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.4.6",
+      "title": "반출입 기기 통제",
+      "controls": [
+        "PE-16",
+        "MP-5"
+      ],
+      "standalone": false,
+      "responsibility_hint": "csp_claimed",
+      "controls_in_baseline": [
+        "PE-16",
+        "MP-5"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.4.7",
+      "title": "업무환경 보안",
+      "controls": [
+        "PE-5",
+        "MP-2",
+        "AC-11"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "notes": "Clear-desk and workstation hygiene: an endpoint concern, not the service's.",
+      "controls_in_baseline": [
+        "PE-5",
+        "MP-2",
+        "AC-11"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.5.1",
+      "title": "사용자 계정 관리",
+      "controls": [
+        "AC-2"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "AC-2"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.5.2",
+      "title": "사용자 식별",
+      "controls": [
+        "IA-2",
+        "IA-4"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "IA-2",
+        "IA-4"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.5.3",
+      "title": "사용자 인증",
+      "controls": [
+        "IA-2",
+        "IA-2(1)",
+        "IA-2(2)"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "IA-2",
+        "IA-2(1)",
+        "IA-2(2)"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.5.4",
+      "title": "비밀번호 관리",
+      "controls": [
+        "IA-5",
+        "IA-5(1)"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "IA-5",
+        "IA-5(1)"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.5.5",
+      "title": "특수 계정 및 권한 관리",
+      "controls": [
+        "AC-6",
+        "AC-6(1)",
+        "AC-6(5)"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "AC-6",
+        "AC-6(1)",
+        "AC-6(5)"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.5.6",
+      "title": "접근권한 검토",
+      "controls": [
+        "AC-2(3)",
+        "AC-2(4)",
+        "AC-6(7)"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "AC-2(3)",
+        "AC-2(4)",
+        "AC-6(7)"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.6.1",
+      "title": "네트워크 접근",
+      "controls": [
+        "AC-3",
+        "SC-7"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "controls_in_baseline": [
+        "AC-3",
+        "SC-7"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.6.2",
+      "title": "정보시스템 접근",
+      "controls": [
+        "AC-3",
+        "AC-17"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "AC-3",
+        "AC-17"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.6.3",
+      "title": "응용프로그램 접근",
+      "controls": [
+        "AC-3",
+        "AC-6"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "AC-3",
+        "AC-6"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.6.4",
+      "title": "데이터베이스 접근",
+      "controls": [
+        "AC-3",
+        "AC-6",
+        "SC-4"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "AC-3",
+        "AC-6",
+        "SC-4"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.6.5",
+      "title": "무선 네트워크 접근",
+      "controls": [
+        "AC-18",
+        "AC-18(1)"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "AC-18",
+        "AC-18(1)"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.6.6",
+      "title": "원격접근 통제",
+      "controls": [
+        "AC-17",
+        "AC-17(2)",
+        "AC-17(3)"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "AC-17",
+        "AC-17(2)",
+        "AC-17(3)"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.6.7",
+      "title": "인터넷 접속 통제",
+      "controls": [
+        "SC-7",
+        "AC-4"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "controls_in_baseline": [
+        "SC-7",
+        "AC-4"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.7.1",
+      "title": "암호정책 적용",
+      "controls": [
+        "SC-13",
+        "SC-28",
+        "SC-8"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "notes": "The clause most Korean teams are asked about first.",
+      "controls_in_baseline": [
+        "SC-13",
+        "SC-28",
+        "SC-8"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.8.1",
+      "title": "보안 요구사항 정의",
+      "controls": [
+        "SA-4",
+        "SA-8"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "notes": "Defining security requirements before build -- what this tool exists to produce.",
+      "controls_in_baseline": [
+        "SA-4",
+        "SA-8"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.8.2",
+      "title": "보안 요구사항 검토 및 시험",
+      "controls": [
+        "SA-11"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "SA-11"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.8.4",
+      "title": "시험 데이터 보안",
+      "controls": [
+        "PM-25",
+        "SA-15"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "notes": "PM-25 minimises real personal data used in testing, which is this clause's substance.",
+      "controls_in_baseline": [
+        "PM-25",
+        "SA-15"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.8.5",
+      "title": "소스 프로그램 관리",
+      "controls": [
+        "CM-5",
+        "SA-10"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "CM-5",
+        "SA-10"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.8.6",
+      "title": "운영환경 이관",
+      "controls": [
+        "CM-3",
+        "CM-4"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "CM-3",
+        "CM-4"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.9.1",
+      "title": "변경관리",
+      "controls": [
+        "CM-3"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "CM-3"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.9.2",
+      "title": "성능 및 장애관리",
+      "controls": [
+        "SI-4",
+        "AU-5"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "controls_in_baseline": [
+        "SI-4",
+        "AU-5"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.9.3",
+      "title": "백업 및 복구관리",
+      "controls": [
+        "CP-9",
+        "CP-10"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "controls_in_baseline": [
+        "CP-9",
+        "CP-10"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.9.4",
+      "title": "로그 및 접속기록 관리",
+      "controls": [
+        "AU-2",
+        "AU-3",
+        "AU-11",
+        "AU-12"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "notes": "접속기록 retention is set by PIPA's enforcement decree, not by AU-11's organisational choice.",
+      "controls_in_baseline": [
+        "AU-2",
+        "AU-3",
+        "AU-11",
+        "AU-12"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.9.5",
+      "title": "로그 및 접속기록 점검",
+      "controls": [
+        "AU-6"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "AU-6"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.9.6",
+      "title": "시간 동기화",
+      "controls": [
+        "AU-8"
+      ],
+      "standalone": false,
+      "responsibility_hint": "csp_claimed",
+      "controls_in_baseline": [
+        "AU-8"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.9.7",
+      "title": "정보자산의 재사용 및 폐기",
+      "controls": [
+        "MP-6"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "responsibility_note": "MP-6 resolves entirely to the provider because physical media sanitisation is theirs -- but that is only the disk. The team's half is the logical one and it is the half that usually fails: deleting the object is not deleting the snapshot, the backup, the replica, or the search index built from it, and where the team holds the key, destroying the key is the only erasure that covers all of them at once. A certificate of media destruction from the provider evidences none of this.",
+      "controls_in_baseline": [
+        "MP-6"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.10.1",
+      "title": "보안시스템 운영",
+      "controls": [
+        "SI-3",
+        "SI-4"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "controls_in_baseline": [
+        "SI-3",
+        "SI-4"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.10.2",
+      "title": "클라우드 보안",
+      "controls": [
+        "SA-9",
+        "AC-20"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "notes": "Added in the 2023 revision; the shared responsibility split this tool computes is the substance of it.",
+      "controls_in_baseline": [
+        "SA-9",
+        "AC-20"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.10.3",
+      "title": "공개서버 보안",
+      "controls": [
+        "SC-7",
+        "AC-22"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "SC-7",
+        "AC-22"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.10.4",
+      "title": "전자거래 및 핀테크 보안",
+      "controls": [
+        "SC-8",
+        "SC-13",
+        "IA-2"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "SC-8",
+        "SC-13",
+        "IA-2"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.10.5",
+      "title": "정보전송 보안",
+      "controls": [
+        "SC-8",
+        "SC-8(1)",
+        "CA-3"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "controls_in_baseline": [
+        "SC-8",
+        "SC-8(1)",
+        "CA-3"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.10.6",
+      "title": "업무용 단말기기 보안",
+      "controls": [
+        "AC-19",
+        "CM-11"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "AC-19",
+        "CM-11"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.10.7",
+      "title": "보조저장매체 관리",
+      "controls": [
+        "MP-2",
+        "MP-4",
+        "MP-5",
+        "MP-7"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "MP-2",
+        "MP-4",
+        "MP-5",
+        "MP-7"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.10.8",
+      "title": "패치관리",
+      "controls": [
+        "SI-2"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "controls_in_baseline": [
+        "SI-2"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.10.9",
+      "title": "악성코드 통제",
+      "controls": [
+        "SI-3"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "controls_in_baseline": [
+        "SI-3"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.11.1",
+      "title": "사고 예방 및 대응체계 구축",
+      "controls": [
+        "IR-1",
+        "IR-4",
+        "IR-8"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "IR-1",
+        "IR-4",
+        "IR-8"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.11.2",
+      "title": "취약점 점검 및 조치",
+      "controls": [
+        "RA-5"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "controls_in_baseline": [
+        "RA-5"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.11.3",
+      "title": "이상행위 분석 및 모니터링",
+      "controls": [
+        "SI-4",
+        "AU-6"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "controls_in_baseline": [
+        "SI-4",
+        "AU-6"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.11.4",
+      "title": "사고 대응 훈련 및 개선",
+      "controls": [
+        "IR-2",
+        "IR-3"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "IR-2",
+        "IR-3"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.11.5",
+      "title": "사고 대응 및 복구",
+      "controls": [
+        "IR-4",
+        "IR-5",
+        "IR-6"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "IR-4",
+        "IR-5",
+        "IR-6"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.12.1",
+      "title": "재해·재난 대비 안전조치",
+      "controls": [
+        "CP-2",
+        "CP-7"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "controls_in_baseline": [
+        "CP-2",
+        "CP-7"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "2.12.2",
+      "title": "재해 복구 시험 및 개선",
+      "controls": [
+        "CP-4"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "CP-4"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "3.1.1",
+      "title": "개인정보 수집·이용",
+      "controls": [
+        "PT-2",
+        "PT-3",
+        "PT-4"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "PT-2",
+        "PT-3",
+        "PT-4"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "3.1.2",
+      "title": "개인정보 수집 제한",
+      "controls": [
+        "PT-3"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "notes": "Collection minimisation. 800-53 states the purpose limitation; the minimisation duty is PIPA's.",
+      "controls_in_baseline": [
+        "PT-3"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "3.1.4",
+      "title": "민감정보 및 고유식별정보의 처리 제한",
+      "controls": [
+        "PT-7"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "PT-7"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "3.1.7",
+      "title": "마케팅 목적의 개인정보 수집·이용",
+      "controls": [
+        "PT-4"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "PT-4"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "3.2.1",
+      "title": "개인정보 현황관리",
+      "controls": [
+        "PM-5",
+        "CM-12"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "PM-5",
+        "CM-12"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "3.2.2",
+      "title": "개인정보 품질보장",
+      "controls": [
+        "SI-18",
+        "PM-22"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "SI-18",
+        "PM-22"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "3.2.4",
+      "title": "개인정보 목적 외 이용 및 제공",
+      "controls": [
+        "PT-2",
+        "PT-3"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "PT-2",
+        "PT-3"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "3.2.5",
+      "title": "가명정보 처리",
+      "controls": [
+        "SI-19"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "notes": "Pseudonymised processing under the 2020 amendment; SI-19 is de-identification, which is the nearest technical control.",
+      "controls_in_baseline": [
+        "SI-19"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "3.3.1",
+      "title": "개인정보 제3자 제공",
+      "controls": [
+        "PT-2",
+        "PM-21"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "PT-2",
+        "PM-21"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "3.3.2",
+      "title": "개인정보 처리 업무 위탁",
+      "controls": [
+        "SA-9",
+        "PT-2"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "notes": "Processing entrusted to a vendor. The customer_owned modifier marks the mirror case, where we are the processor.",
+      "controls_in_baseline": [
+        "SA-9",
+        "PT-2"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "3.4.1",
+      "title": "개인정보 파기",
+      "controls": [
+        "MP-6",
+        "SI-12"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "MP-6",
+        "SI-12"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "3.4.2",
+      "title": "처리목적 달성 후 보유 시 조치",
+      "controls": [
+        "SI-12"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [
+        "SI-12"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "3.5.1",
+      "title": "개인정보 처리방침 공개",
+      "controls": [
+        "PT-5"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PT-5"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "3.5.2",
+      "title": "정보주체 권리보장",
+      "controls": [
+        "PT-6",
+        "PM-26"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "notes": "Data subject rights: access, correction, deletion, and suspension of processing.",
+      "responsibility_note": "PT-6 and PM-26 are the organisation's notice and complaint handling. Access, correction, deletion, and suspension of processing are capabilities the system must have, and the catalogue has no control for them.",
+      "controls_in_baseline": [
+        "PT-6",
+        "PM-26"
+      ],
+      "controls_absent": []
+    },
+    {
+      "clause": "3.5.3",
+      "title": "정보주체에 대한 통지",
+      "controls": [
+        "PT-5"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PT-5"
+      ],
+      "controls_absent": []
+    }
+  ],
+  "org_only": [
+    {
+      "clause": "1.1.1",
+      "title": "경영진의 참여",
+      "controls": [
+        "PM-2"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PM-2"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "1.1.2",
+      "title": "최고책임자의 지정",
+      "controls": [
+        "PM-2",
+        "PM-19"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "notes": "ISMS-P names two officers; 800-53 separates the security and privacy leadership roles the same way.",
+      "controls_in_baseline": [
+        "PM-2",
+        "PM-19"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "1.1.3",
+      "title": "조직 구성",
+      "controls": [
+        "PM-1",
+        "PM-29"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PM-1",
+        "PM-29"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "1.1.4",
+      "title": "범위 설정",
+      "controls": [
+        "PL-2",
+        "PM-5"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PL-2",
+        "PM-5"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "1.1.5",
+      "title": "정책 수립",
+      "controls": [
+        "PM-1",
+        "PL-1"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PM-1",
+        "PL-1"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "1.1.6",
+      "title": "자원 할당",
+      "controls": [
+        "PM-3",
+        "SA-2"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PM-3",
+        "SA-2"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "1.2.3",
+      "title": "위험 평가",
+      "controls": [
+        "RA-3"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "RA-3"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "1.2.4",
+      "title": "보호대책 선정",
+      "controls": [
+        "PL-10",
+        "PL-11",
+        "RA-7"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "notes": "Baseline selection and tailoring -- the step this tool automates.",
+      "controls_in_baseline": [
+        "PL-10",
+        "PL-11",
+        "RA-7"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "1.3.1",
+      "title": "보호대책 구현",
+      "controls": [
+        "PM-4",
+        "CA-5"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PM-4",
+        "CA-5"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "1.3.2",
+      "title": "보호대책 공유",
+      "controls": [
+        "AT-2",
+        "PM-15"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "AT-2",
+        "PM-15"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "1.4.1",
+      "title": "법적 요구사항 준수 검토",
+      "controls": [
+        "PM-1",
+        "CA-2"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "notes": "Legal compliance review has no direct 800-53 equivalent; the programme controls are the nearest.",
+      "controls_in_baseline": [
+        "PM-1",
+        "CA-2"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "2.1.1",
+      "title": "정책의 유지관리",
+      "controls": [
+        "PL-1",
+        "PM-1"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PL-1",
+        "PM-1"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "2.1.2",
+      "title": "조직의 유지관리",
+      "controls": [
+        "PM-2"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PM-2"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "2.2.1",
+      "title": "주요 직무자 지정 및 관리",
+      "controls": [
+        "PS-2",
+        "PS-3"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PS-2",
+        "PS-3"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "2.2.2",
+      "title": "직무 분리",
+      "controls": [
+        "AC-5"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "AC-5"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "2.2.3",
+      "title": "보안 서약",
+      "controls": [
+        "PS-6"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PS-6"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "2.2.4",
+      "title": "인식제고 및 교육훈련",
+      "controls": [
+        "AT-2",
+        "AT-3"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "AT-2",
+        "AT-3"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "2.2.5",
+      "title": "퇴직 및 직무변경 관리",
+      "controls": [
+        "PS-4",
+        "PS-5"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PS-4",
+        "PS-5"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "2.2.6",
+      "title": "보안 위반 시 조치",
+      "controls": [
+        "PS-8"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "PS-8"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "2.4.2",
+      "title": "출입통제",
+      "controls": [
+        "PE-2",
+        "PE-3",
+        "PE-6",
+        "PE-8"
+      ],
+      "standalone": false,
+      "responsibility_hint": "csp_claimed",
+      "controls_in_baseline": [
+        "PE-2",
+        "PE-3",
+        "PE-6",
+        "PE-8"
+      ],
+      "controls_absent": [],
+      "layer": "csp_claimed"
+    },
+    {
+      "clause": "2.4.4",
+      "title": "보호설비 운영",
+      "controls": [
+        "PE-11",
+        "PE-13",
+        "PE-14",
+        "PE-15"
+      ],
+      "standalone": false,
+      "responsibility_hint": "csp_claimed",
+      "controls_in_baseline": [
+        "PE-11",
+        "PE-13",
+        "PE-14",
+        "PE-15"
+      ],
+      "controls_absent": [],
+      "layer": "csp_claimed"
+    },
+    {
+      "clause": "2.4.5",
+      "title": "보호구역 내 작업",
+      "controls": [
+        "PE-3",
+        "MA-5"
+      ],
+      "standalone": false,
+      "responsibility_hint": "csp_claimed",
+      "controls_in_baseline": [
+        "PE-3",
+        "MA-5"
+      ],
+      "controls_absent": [],
+      "layer": "csp_claimed"
+    },
+    {
+      "clause": "2.4.6",
+      "title": "반출입 기기 통제",
+      "controls": [
+        "PE-16",
+        "MP-5"
+      ],
+      "standalone": false,
+      "responsibility_hint": "csp_claimed",
+      "controls_in_baseline": [
+        "PE-16",
+        "MP-5"
+      ],
+      "controls_absent": [],
+      "layer": "csp_claimed"
+    },
+    {
+      "clause": "2.4.7",
+      "title": "업무환경 보안",
+      "controls": [
+        "PE-5",
+        "MP-2",
+        "AC-11"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "notes": "Clear-desk and workstation hygiene: an endpoint concern, not the service's.",
+      "controls_in_baseline": [
+        "PE-5",
+        "MP-2",
+        "AC-11"
+      ],
+      "controls_absent": [],
+      "layer": "csp_claimed"
+    },
+    {
+      "clause": "2.6.5",
+      "title": "무선 네트워크 접근",
+      "controls": [
+        "AC-18",
+        "AC-18(1)"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "AC-18",
+        "AC-18(1)"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "2.6.6",
+      "title": "원격접근 통제",
+      "controls": [
+        "AC-17",
+        "AC-17(2)",
+        "AC-17(3)"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "AC-17",
+        "AC-17(2)",
+        "AC-17(3)"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "2.9.5",
+      "title": "로그 및 접속기록 점검",
+      "controls": [
+        "AU-6"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "AU-6"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "2.9.6",
+      "title": "시간 동기화",
+      "controls": [
+        "AU-8"
+      ],
+      "standalone": false,
+      "responsibility_hint": "csp_claimed",
+      "controls_in_baseline": [
+        "AU-8"
+      ],
+      "controls_absent": [],
+      "layer": "csp_claimed"
+    },
+    {
+      "clause": "2.9.7",
+      "title": "정보자산의 재사용 및 폐기",
+      "controls": [
+        "MP-6"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "responsibility_note": "MP-6 resolves entirely to the provider because physical media sanitisation is theirs -- but that is only the disk. The team's half is the logical one and it is the half that usually fails: deleting the object is not deleting the snapshot, the backup, the replica, or the search index built from it, and where the team holds the key, destroying the key is the only erasure that covers all of them at once. A certificate of media destruction from the provider evidences none of this.",
+      "controls_in_baseline": [
+        "MP-6"
+      ],
+      "controls_absent": [],
+      "layer": "csp_claimed"
+    },
+    {
+      "clause": "2.10.6",
+      "title": "업무용 단말기기 보안",
+      "controls": [
+        "AC-19",
+        "CM-11"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "AC-19",
+        "CM-11"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "2.10.7",
+      "title": "보조저장매체 관리",
+      "controls": [
+        "MP-2",
+        "MP-4",
+        "MP-5",
+        "MP-7"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "MP-2",
+        "MP-4",
+        "MP-5",
+        "MP-7"
+      ],
+      "controls_absent": [],
+      "layer": "csp_claimed"
+    },
+    {
+      "clause": "2.11.1",
+      "title": "사고 예방 및 대응체계 구축",
+      "controls": [
+        "IR-1",
+        "IR-4",
+        "IR-8"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "IR-1",
+        "IR-4",
+        "IR-8"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "2.11.4",
+      "title": "사고 대응 훈련 및 개선",
+      "controls": [
+        "IR-2",
+        "IR-3"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "IR-2",
+        "IR-3"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "2.12.2",
+      "title": "재해 복구 시험 및 개선",
+      "controls": [
+        "CP-4"
+      ],
+      "standalone": false,
+      "responsibility_hint": "org",
+      "controls_in_baseline": [
+        "CP-4"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "3.5.2",
+      "title": "정보주체 권리보장",
+      "controls": [
+        "PT-6",
+        "PM-26"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "notes": "Data subject rights: access, correction, deletion, and suspension of processing.",
+      "responsibility_note": "PT-6 and PM-26 are the organisation's notice and complaint handling. Access, correction, deletion, and suspension of processing are capabilities the system must have, and the catalogue has no control for them.",
+      "controls_in_baseline": [
+        "PT-6",
+        "PM-26"
+      ],
+      "controls_absent": [],
+      "layer": "org"
+    },
+    {
+      "clause": "2.4.1",
+      "title": "보호구역 지정",
+      "controls": [
+        "PE-3",
+        "PE-19"
+      ],
+      "standalone": false,
+      "responsibility_hint": "csp_claimed",
+      "notes": "Inherited from the provider for a cloud-hosted service; the team's on an embedded product.",
+      "controls_in_baseline": [
+        "PE-3"
+      ],
+      "controls_absent": [
+        "PE-19"
+      ],
+      "layer": "csp_claimed"
+    },
+    {
+      "clause": "2.4.3",
+      "title": "정보시스템 보호",
+      "controls": [
+        "PE-18",
+        "PE-4"
+      ],
+      "standalone": false,
+      "responsibility_hint": "csp_claimed",
+      "controls_in_baseline": [
+        "PE-4"
+      ],
+      "controls_absent": [
+        "PE-18"
+      ],
+      "layer": "csp_claimed"
+    }
+  ],
+  "partial": [
+    {
+      "clause": "2.4.1",
+      "title": "보호구역 지정",
+      "controls": [
+        "PE-3",
+        "PE-19"
+      ],
+      "standalone": false,
+      "responsibility_hint": "csp_claimed",
+      "notes": "Inherited from the provider for a cloud-hosted service; the team's on an embedded product.",
+      "controls_in_baseline": [
+        "PE-3"
+      ],
+      "controls_absent": [
+        "PE-19"
+      ]
+    },
+    {
+      "clause": "2.4.3",
+      "title": "정보시스템 보호",
+      "controls": [
+        "PE-18",
+        "PE-4"
+      ],
+      "standalone": false,
+      "responsibility_hint": "csp_claimed",
+      "controls_in_baseline": [
+        "PE-4"
+      ],
+      "controls_absent": [
+        "PE-18"
+      ]
+    },
+    {
+      "clause": "2.7.2",
+      "title": "암호키 관리",
+      "controls": [
+        "SC-12",
+        "SC-12(1)"
+      ],
+      "standalone": false,
+      "responsibility_hint": "shared",
+      "controls_in_baseline": [
+        "SC-12"
+      ],
+      "controls_absent": [
+        "SC-12(1)"
+      ]
+    }
+  ],
+  "uncovered": [
+    {
+      "clause": "2.8.3",
+      "title": "시험과 운영 환경 분리",
+      "controls": [
+        "CM-4(1)"
+      ],
+      "standalone": false,
+      "responsibility_hint": "team",
+      "controls_in_baseline": [],
+      "controls_absent": [
+        "CM-4(1)"
+      ]
+    }
+  ],
+  "unreachable": [],
+  "standalone": [
+    {
+      "clause": "3.1.3",
+      "title": "주민등록번호 처리 제한",
+      "controls": [],
+      "standalone": true,
+      "responsibility_hint": "team",
+      "notes": "Resident registration number handling is specific to PIPA Article 24-2. No control expresses it."
+    },
+    {
+      "clause": "3.1.5",
+      "title": "개인정보 간접수집",
+      "controls": [],
+      "standalone": true,
+      "responsibility_hint": "team",
+      "notes": "Indirect collection and the duty to notify the data subject have no 800-53 equivalent."
+    },
+    {
+      "clause": "3.1.6",
+      "title": "영상정보처리기기 설치·운영",
+      "controls": [],
+      "standalone": true,
+      "responsibility_hint": "org",
+      "notes": "Fixed visual devices: a Korean statutory regime with no control counterpart."
+    },
+    {
+      "clause": "3.2.3",
+      "title": "이용자 단말기 접근 보호",
+      "controls": [],
+      "standalone": true,
+      "responsibility_hint": "team",
+      "notes": "Mobile application permission handling under the Information and Communications Network Act. No control counterpart."
+    },
+    {
+      "clause": "3.3.3",
+      "title": "영업의 양도 등에 따른 개인정보 이전",
+      "controls": [],
+      "standalone": true,
+      "responsibility_hint": "org",
+      "notes": "Transfer of personal data on sale of a business. Statutory, with no control counterpart."
+    },
+    {
+      "clause": "3.3.4",
+      "title": "개인정보 국외이전",
+      "controls": [],
+      "standalone": true,
+      "responsibility_hint": "org",
+      "notes": "Cross-border transfer. The derivation flags the storage/user region mismatch; the legal test is PIPA's and is not made here."
+    }
+  ],
+  "disclaimer": "Mapping statutory obligations onto technical controls is interpretation, not legal advice. This overlay does not establish ISMS-P compliance and does not substitute for certification by an accredited body.",
+  "answerability": {
+    "trace_linked": [
+      {
+        "clause": "2.5.5",
+        "title": "특수 계정 및 권한 관리",
+        "controls": [
+          "AC-6",
+          "AC-6(1)",
+          "AC-6(5)"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "AC-6",
+          "AC-6(1)",
+          "AC-6(5)"
+        ],
+        "controls_absent": [],
+        "requirements": [
+          "REQ-DEPLOY-SCOPE-01",
+          "REQ-LIFECYCLE-AUTH-01",
+          "REQ-MAPPING-LAMBDA-01",
+          "REQ-PLATFORM-AUTHZ-01",
+          "REQ-PROVISION-INPUT-01"
+        ]
+      },
+      {
+        "clause": "2.6.1",
+        "title": "네트워크 접근",
+        "controls": [
+          "AC-3",
+          "SC-7"
+        ],
+        "standalone": false,
+        "responsibility_hint": "shared",
+        "controls_in_baseline": [
+          "AC-3",
+          "SC-7"
+        ],
+        "controls_absent": [],
+        "requirements": [
+          "REQ-LIFECYCLE-AUTH-01",
+          "REQ-PLATFORM-AUTHZ-01",
+          "REQ-ROUTE-METHOD-01",
+          "REQ-TENANT-CLAIM-01",
+          "REQ-TENANT-DDB-01"
+        ]
+      },
+      {
+        "clause": "2.6.2",
+        "title": "정보시스템 접근",
+        "controls": [
+          "AC-3",
+          "AC-17"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "AC-3",
+          "AC-17"
+        ],
+        "controls_absent": [],
+        "requirements": [
+          "REQ-LIFECYCLE-AUTH-01",
+          "REQ-PLATFORM-AUTHZ-01",
+          "REQ-ROUTE-METHOD-01",
+          "REQ-TENANT-CLAIM-01",
+          "REQ-TENANT-DDB-01"
+        ]
+      },
+      {
+        "clause": "2.6.3",
+        "title": "응용프로그램 접근",
+        "controls": [
+          "AC-3",
+          "AC-6"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "AC-3",
+          "AC-6"
+        ],
+        "controls_absent": [],
+        "requirements": [
+          "REQ-DEPLOY-SCOPE-01",
+          "REQ-LIFECYCLE-AUTH-01",
+          "REQ-MAPPING-LAMBDA-01",
+          "REQ-PLATFORM-AUTHZ-01",
+          "REQ-PROVISION-INPUT-01",
+          "REQ-ROUTE-METHOD-01",
+          "REQ-TENANT-CLAIM-01",
+          "REQ-TENANT-DDB-01"
+        ]
+      },
+      {
+        "clause": "2.6.4",
+        "title": "데이터베이스 접근",
+        "controls": [
+          "AC-3",
+          "AC-6",
+          "SC-4"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "AC-3",
+          "AC-6",
+          "SC-4"
+        ],
+        "controls_absent": [],
+        "requirements": [
+          "REQ-DEPLOY-SCOPE-01",
+          "REQ-LIFECYCLE-AUTH-01",
+          "REQ-MAPPING-LAMBDA-01",
+          "REQ-PLATFORM-AUTHZ-01",
+          "REQ-PROVISION-INPUT-01",
+          "REQ-ROUTE-METHOD-01",
+          "REQ-TENANT-CLAIM-01",
+          "REQ-TENANT-DDB-01"
+        ]
+      },
+      {
+        "clause": "2.6.7",
+        "title": "인터넷 접속 통제",
+        "controls": [
+          "SC-7",
+          "AC-4"
+        ],
+        "standalone": false,
+        "responsibility_hint": "shared",
+        "controls_in_baseline": [
+          "SC-7",
+          "AC-4"
+        ],
+        "controls_absent": [],
+        "requirements": [
+          "REQ-ROUTE-METHOD-01",
+          "REQ-TENANT-CLAIM-01",
+          "REQ-TENANT-DDB-01"
+        ]
+      },
+      {
+        "clause": "2.8.5",
+        "title": "소스 프로그램 관리",
+        "controls": [
+          "CM-5",
+          "SA-10"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "CM-5",
+          "SA-10"
+        ],
+        "controls_absent": [],
+        "requirements": [
+          "REQ-DEPLOY-SCOPE-01"
+        ]
+      },
+      {
+        "clause": "2.8.6",
+        "title": "운영환경 이관",
+        "controls": [
+          "CM-3",
+          "CM-4"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "CM-3",
+          "CM-4"
+        ],
+        "controls_absent": [],
+        "requirements": [
+          "REQ-DEPLOY-SCOPE-01",
+          "REQ-LIFECYCLE-AUTH-01",
+          "REQ-OFFBOARD-RECOVERY-01"
+        ]
+      },
+      {
+        "clause": "2.9.1",
+        "title": "변경관리",
+        "controls": [
+          "CM-3"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "CM-3"
+        ],
+        "controls_absent": [],
+        "requirements": [
+          "REQ-DEPLOY-SCOPE-01",
+          "REQ-LIFECYCLE-AUTH-01",
+          "REQ-OFFBOARD-RECOVERY-01"
+        ]
+      },
+      {
+        "clause": "2.9.3",
+        "title": "백업 및 복구관리",
+        "controls": [
+          "CP-9",
+          "CP-10"
+        ],
+        "standalone": false,
+        "responsibility_hint": "shared",
+        "controls_in_baseline": [
+          "CP-9",
+          "CP-10"
+        ],
+        "controls_absent": [],
+        "requirements": [
+          "REQ-OFFBOARD-RECOVERY-01"
+        ]
+      },
+      {
+        "clause": "2.9.4",
+        "title": "로그 및 접속기록 관리",
+        "controls": [
+          "AU-2",
+          "AU-3",
+          "AU-11",
+          "AU-12"
+        ],
+        "standalone": false,
+        "responsibility_hint": "shared",
+        "notes": "접속기록 retention is set by PIPA's enforcement decree, not by AU-11's organisational choice.",
+        "controls_in_baseline": [
+          "AU-2",
+          "AU-3",
+          "AU-11",
+          "AU-12"
+        ],
+        "controls_absent": [],
+        "requirements": [
+          "REQ-AUDIT-IMMUTABILITY-01",
+          "REQ-LOG-SANITIZATION-01"
+        ]
+      },
+      {
+        "clause": "3.4.1",
+        "title": "개인정보 파기",
+        "controls": [
+          "MP-6",
+          "SI-12"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "MP-6",
+          "SI-12"
+        ],
+        "controls_absent": [],
+        "requirements": [
+          "REQ-API-ERROR-01",
+          "REQ-LOG-SANITIZATION-01"
+        ]
+      },
+      {
+        "clause": "3.4.2",
+        "title": "처리목적 달성 후 보유 시 조치",
+        "controls": [
+          "SI-12"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "SI-12"
+        ],
+        "controls_absent": [],
+        "requirements": [
+          "REQ-API-ERROR-01",
+          "REQ-LOG-SANITIZATION-01"
+        ]
+      }
+    ],
+    "semantically_reviewed": [],
+    "standalone_semantically_reviewed": [],
+    "deferred": [
+      {
+        "clause": "1.1.1",
+        "title": "경영진의 참여",
+        "controls": [
+          "PM-2"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "PM-2"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "1.1.2",
+        "title": "최고책임자의 지정",
+        "controls": [
+          "PM-2",
+          "PM-19"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "notes": "ISMS-P names two officers; 800-53 separates the security and privacy leadership roles the same way.",
+        "controls_in_baseline": [
+          "PM-2",
+          "PM-19"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "1.1.3",
+        "title": "조직 구성",
+        "controls": [
+          "PM-1",
+          "PM-29"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "PM-1",
+          "PM-29"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "1.1.4",
+        "title": "범위 설정",
+        "controls": [
+          "PL-2",
+          "PM-5"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "PL-2",
+          "PM-5"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "1.1.5",
+        "title": "정책 수립",
+        "controls": [
+          "PM-1",
+          "PL-1"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "PM-1",
+          "PL-1"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "1.1.6",
+        "title": "자원 할당",
+        "controls": [
+          "PM-3",
+          "SA-2"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "PM-3",
+          "SA-2"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "1.2.1",
+        "title": "정보자산 식별",
+        "controls": [
+          "CM-8",
+          "PM-5"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "CM-8",
+          "PM-5"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "1.2.2",
+        "title": "현황 및 흐름분석",
+        "controls": [
+          "PM-5",
+          "CM-12"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "notes": "Flow analysis is what the profile's DFD produces; CM-12 is the closest control, being about where information lives.",
+        "controls_in_baseline": [
+          "PM-5",
+          "CM-12"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "1.2.3",
+        "title": "위험 평가",
+        "controls": [
+          "RA-3"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "RA-3"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "1.2.4",
+        "title": "보호대책 선정",
+        "controls": [
+          "PL-10",
+          "PL-11",
+          "RA-7"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "notes": "Baseline selection and tailoring -- the step this tool automates.",
+        "controls_in_baseline": [
+          "PL-10",
+          "PL-11",
+          "RA-7"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "1.3.1",
+        "title": "보호대책 구현",
+        "controls": [
+          "PM-4",
+          "CA-5"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "PM-4",
+          "CA-5"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "1.3.2",
+        "title": "보호대책 공유",
+        "controls": [
+          "AT-2",
+          "PM-15"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "AT-2",
+          "PM-15"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "1.3.3",
+        "title": "운영현황 관리",
+        "controls": [
+          "CA-7"
+        ],
+        "standalone": false,
+        "responsibility_hint": "shared",
+        "controls_in_baseline": [
+          "CA-7"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "1.4.1",
+        "title": "법적 요구사항 준수 검토",
+        "controls": [
+          "PM-1",
+          "CA-2"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "notes": "Legal compliance review has no direct 800-53 equivalent; the programme controls are the nearest.",
+        "controls_in_baseline": [
+          "PM-1",
+          "CA-2"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "1.4.2",
+        "title": "관리체계 점검",
+        "controls": [
+          "CA-2",
+          "CA-2(1)",
+          "CA-7"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "CA-2",
+          "CA-2(1)",
+          "CA-7"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "1.4.3",
+        "title": "관리체계 개선",
+        "controls": [
+          "CA-5",
+          "CA-7"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "CA-5",
+          "CA-7"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.1.1",
+        "title": "정책의 유지관리",
+        "controls": [
+          "PL-1",
+          "PM-1"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "PL-1",
+          "PM-1"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.1.2",
+        "title": "조직의 유지관리",
+        "controls": [
+          "PM-2"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "PM-2"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.1.3",
+        "title": "정보자산 관리",
+        "controls": [
+          "CM-8",
+          "RA-2"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "CM-8",
+          "RA-2"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.2.1",
+        "title": "주요 직무자 지정 및 관리",
+        "controls": [
+          "PS-2",
+          "PS-3"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "PS-2",
+          "PS-3"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.2.2",
+        "title": "직무 분리",
+        "controls": [
+          "AC-5"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "AC-5"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.2.3",
+        "title": "보안 서약",
+        "controls": [
+          "PS-6"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "PS-6"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.2.4",
+        "title": "인식제고 및 교육훈련",
+        "controls": [
+          "AT-2",
+          "AT-3"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "AT-2",
+          "AT-3"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.2.5",
+        "title": "퇴직 및 직무변경 관리",
+        "controls": [
+          "PS-4",
+          "PS-5"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "PS-4",
+          "PS-5"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.2.6",
+        "title": "보안 위반 시 조치",
+        "controls": [
+          "PS-8"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "PS-8"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.3.1",
+        "title": "외부자 현황 관리",
+        "controls": [
+          "SA-9",
+          "SR-3"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "SA-9",
+          "SR-3"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.3.2",
+        "title": "외부자 계약 시 보안",
+        "controls": [
+          "SA-4",
+          "SA-9"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "SA-4",
+          "SA-9"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.3.3",
+        "title": "외부자 보안 이행 관리",
+        "controls": [
+          "SA-9",
+          "SR-6"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "SA-9",
+          "SR-6"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.3.4",
+        "title": "외부자 계약 변경 및 만료 시 보안",
+        "controls": [
+          "SA-9",
+          "PS-4"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "SA-9",
+          "PS-4"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.4.2",
+        "title": "출입통제",
+        "controls": [
+          "PE-2",
+          "PE-3",
+          "PE-6",
+          "PE-8"
+        ],
+        "standalone": false,
+        "responsibility_hint": "csp_claimed",
+        "controls_in_baseline": [
+          "PE-2",
+          "PE-3",
+          "PE-6",
+          "PE-8"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.4.4",
+        "title": "보호설비 운영",
+        "controls": [
+          "PE-11",
+          "PE-13",
+          "PE-14",
+          "PE-15"
+        ],
+        "standalone": false,
+        "responsibility_hint": "csp_claimed",
+        "controls_in_baseline": [
+          "PE-11",
+          "PE-13",
+          "PE-14",
+          "PE-15"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.4.5",
+        "title": "보호구역 내 작업",
+        "controls": [
+          "PE-3",
+          "MA-5"
+        ],
+        "standalone": false,
+        "responsibility_hint": "csp_claimed",
+        "controls_in_baseline": [
+          "PE-3",
+          "MA-5"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.4.6",
+        "title": "반출입 기기 통제",
+        "controls": [
+          "PE-16",
+          "MP-5"
+        ],
+        "standalone": false,
+        "responsibility_hint": "csp_claimed",
+        "controls_in_baseline": [
+          "PE-16",
+          "MP-5"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.4.7",
+        "title": "업무환경 보안",
+        "controls": [
+          "PE-5",
+          "MP-2",
+          "AC-11"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "notes": "Clear-desk and workstation hygiene: an endpoint concern, not the service's.",
+        "controls_in_baseline": [
+          "PE-5",
+          "MP-2",
+          "AC-11"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.5.1",
+        "title": "사용자 계정 관리",
+        "controls": [
+          "AC-2"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "AC-2"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.5.2",
+        "title": "사용자 식별",
+        "controls": [
+          "IA-2",
+          "IA-4"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "IA-2",
+          "IA-4"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.5.3",
+        "title": "사용자 인증",
+        "controls": [
+          "IA-2",
+          "IA-2(1)",
+          "IA-2(2)"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "IA-2",
+          "IA-2(1)",
+          "IA-2(2)"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.5.4",
+        "title": "비밀번호 관리",
+        "controls": [
+          "IA-5",
+          "IA-5(1)"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "IA-5",
+          "IA-5(1)"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.5.6",
+        "title": "접근권한 검토",
+        "controls": [
+          "AC-2(3)",
+          "AC-2(4)",
+          "AC-6(7)"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "AC-2(3)",
+          "AC-2(4)",
+          "AC-6(7)"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.6.5",
+        "title": "무선 네트워크 접근",
+        "controls": [
+          "AC-18",
+          "AC-18(1)"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "AC-18",
+          "AC-18(1)"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.6.6",
+        "title": "원격접근 통제",
+        "controls": [
+          "AC-17",
+          "AC-17(2)",
+          "AC-17(3)"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "AC-17",
+          "AC-17(2)",
+          "AC-17(3)"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.7.1",
+        "title": "암호정책 적용",
+        "controls": [
+          "SC-13",
+          "SC-28",
+          "SC-8"
+        ],
+        "standalone": false,
+        "responsibility_hint": "shared",
+        "notes": "The clause most Korean teams are asked about first.",
+        "controls_in_baseline": [
+          "SC-13",
+          "SC-28",
+          "SC-8"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.8.1",
+        "title": "보안 요구사항 정의",
+        "controls": [
+          "SA-4",
+          "SA-8"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "notes": "Defining security requirements before build -- what this tool exists to produce.",
+        "controls_in_baseline": [
+          "SA-4",
+          "SA-8"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.8.2",
+        "title": "보안 요구사항 검토 및 시험",
+        "controls": [
+          "SA-11"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "SA-11"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.8.4",
+        "title": "시험 데이터 보안",
+        "controls": [
+          "PM-25",
+          "SA-15"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "notes": "PM-25 minimises real personal data used in testing, which is this clause's substance.",
+        "controls_in_baseline": [
+          "PM-25",
+          "SA-15"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.9.2",
+        "title": "성능 및 장애관리",
+        "controls": [
+          "SI-4",
+          "AU-5"
+        ],
+        "standalone": false,
+        "responsibility_hint": "shared",
+        "controls_in_baseline": [
+          "SI-4",
+          "AU-5"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.9.5",
+        "title": "로그 및 접속기록 점검",
+        "controls": [
+          "AU-6"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "AU-6"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.9.6",
+        "title": "시간 동기화",
+        "controls": [
+          "AU-8"
+        ],
+        "standalone": false,
+        "responsibility_hint": "csp_claimed",
+        "controls_in_baseline": [
+          "AU-8"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.9.7",
+        "title": "정보자산의 재사용 및 폐기",
+        "controls": [
+          "MP-6"
+        ],
+        "standalone": false,
+        "responsibility_hint": "shared",
+        "responsibility_note": "MP-6 resolves entirely to the provider because physical media sanitisation is theirs -- but that is only the disk. The team's half is the logical one and it is the half that usually fails: deleting the object is not deleting the snapshot, the backup, the replica, or the search index built from it, and where the team holds the key, destroying the key is the only erasure that covers all of them at once. A certificate of media destruction from the provider evidences none of this.",
+        "controls_in_baseline": [
+          "MP-6"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.10.1",
+        "title": "보안시스템 운영",
+        "controls": [
+          "SI-3",
+          "SI-4"
+        ],
+        "standalone": false,
+        "responsibility_hint": "shared",
+        "controls_in_baseline": [
+          "SI-3",
+          "SI-4"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.10.2",
+        "title": "클라우드 보안",
+        "controls": [
+          "SA-9",
+          "AC-20"
+        ],
+        "standalone": false,
+        "responsibility_hint": "shared",
+        "notes": "Added in the 2023 revision; the shared responsibility split this tool computes is the substance of it.",
+        "controls_in_baseline": [
+          "SA-9",
+          "AC-20"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.10.3",
+        "title": "공개서버 보안",
+        "controls": [
+          "SC-7",
+          "AC-22"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "SC-7",
+          "AC-22"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.10.4",
+        "title": "전자거래 및 핀테크 보안",
+        "controls": [
+          "SC-8",
+          "SC-13",
+          "IA-2"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "SC-8",
+          "SC-13",
+          "IA-2"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.10.5",
+        "title": "정보전송 보안",
+        "controls": [
+          "SC-8",
+          "SC-8(1)",
+          "CA-3"
+        ],
+        "standalone": false,
+        "responsibility_hint": "shared",
+        "controls_in_baseline": [
+          "SC-8",
+          "SC-8(1)",
+          "CA-3"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.10.6",
+        "title": "업무용 단말기기 보안",
+        "controls": [
+          "AC-19",
+          "CM-11"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "AC-19",
+          "CM-11"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.10.7",
+        "title": "보조저장매체 관리",
+        "controls": [
+          "MP-2",
+          "MP-4",
+          "MP-5",
+          "MP-7"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "MP-2",
+          "MP-4",
+          "MP-5",
+          "MP-7"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.10.8",
+        "title": "패치관리",
+        "controls": [
+          "SI-2"
+        ],
+        "standalone": false,
+        "responsibility_hint": "shared",
+        "controls_in_baseline": [
+          "SI-2"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.10.9",
+        "title": "악성코드 통제",
+        "controls": [
+          "SI-3"
+        ],
+        "standalone": false,
+        "responsibility_hint": "shared",
+        "controls_in_baseline": [
+          "SI-3"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.11.1",
+        "title": "사고 예방 및 대응체계 구축",
+        "controls": [
+          "IR-1",
+          "IR-4",
+          "IR-8"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "IR-1",
+          "IR-4",
+          "IR-8"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.11.2",
+        "title": "취약점 점검 및 조치",
+        "controls": [
+          "RA-5"
+        ],
+        "standalone": false,
+        "responsibility_hint": "shared",
+        "controls_in_baseline": [
+          "RA-5"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.11.3",
+        "title": "이상행위 분석 및 모니터링",
+        "controls": [
+          "SI-4",
+          "AU-6"
+        ],
+        "standalone": false,
+        "responsibility_hint": "shared",
+        "controls_in_baseline": [
+          "SI-4",
+          "AU-6"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.11.4",
+        "title": "사고 대응 훈련 및 개선",
+        "controls": [
+          "IR-2",
+          "IR-3"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "IR-2",
+          "IR-3"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.11.5",
+        "title": "사고 대응 및 복구",
+        "controls": [
+          "IR-4",
+          "IR-5",
+          "IR-6"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "IR-4",
+          "IR-5",
+          "IR-6"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.12.1",
+        "title": "재해·재난 대비 안전조치",
+        "controls": [
+          "CP-2",
+          "CP-7"
+        ],
+        "standalone": false,
+        "responsibility_hint": "shared",
+        "controls_in_baseline": [
+          "CP-2",
+          "CP-7"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.12.2",
+        "title": "재해 복구 시험 및 개선",
+        "controls": [
+          "CP-4"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "CP-4"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "3.1.1",
+        "title": "개인정보 수집·이용",
+        "controls": [
+          "PT-2",
+          "PT-3",
+          "PT-4"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "PT-2",
+          "PT-3",
+          "PT-4"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "3.1.2",
+        "title": "개인정보 수집 제한",
+        "controls": [
+          "PT-3"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "notes": "Collection minimisation. 800-53 states the purpose limitation; the minimisation duty is PIPA's.",
+        "controls_in_baseline": [
+          "PT-3"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "3.1.4",
+        "title": "민감정보 및 고유식별정보의 처리 제한",
+        "controls": [
+          "PT-7"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "PT-7"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "3.1.7",
+        "title": "마케팅 목적의 개인정보 수집·이용",
+        "controls": [
+          "PT-4"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "PT-4"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "3.2.1",
+        "title": "개인정보 현황관리",
+        "controls": [
+          "PM-5",
+          "CM-12"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "PM-5",
+          "CM-12"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "3.2.2",
+        "title": "개인정보 품질보장",
+        "controls": [
+          "SI-18",
+          "PM-22"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "SI-18",
+          "PM-22"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "3.2.4",
+        "title": "개인정보 목적 외 이용 및 제공",
+        "controls": [
+          "PT-2",
+          "PT-3"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "PT-2",
+          "PT-3"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "3.2.5",
+        "title": "가명정보 처리",
+        "controls": [
+          "SI-19"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "notes": "Pseudonymised processing under the 2020 amendment; SI-19 is de-identification, which is the nearest technical control.",
+        "controls_in_baseline": [
+          "SI-19"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "3.3.1",
+        "title": "개인정보 제3자 제공",
+        "controls": [
+          "PT-2",
+          "PM-21"
+        ],
+        "standalone": false,
+        "responsibility_hint": "team",
+        "controls_in_baseline": [
+          "PT-2",
+          "PM-21"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "3.3.2",
+        "title": "개인정보 처리 업무 위탁",
+        "controls": [
+          "SA-9",
+          "PT-2"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "notes": "Processing entrusted to a vendor. The customer_owned modifier marks the mirror case, where we are the processor.",
+        "controls_in_baseline": [
+          "SA-9",
+          "PT-2"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "3.5.1",
+        "title": "개인정보 처리방침 공개",
+        "controls": [
+          "PT-5"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "PT-5"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "3.5.2",
+        "title": "정보주체 권리보장",
+        "controls": [
+          "PT-6",
+          "PM-26"
+        ],
+        "standalone": false,
+        "responsibility_hint": "shared",
+        "notes": "Data subject rights: access, correction, deletion, and suspension of processing.",
+        "responsibility_note": "PT-6 and PM-26 are the organisation's notice and complaint handling. Access, correction, deletion, and suspension of processing are capabilities the system must have, and the catalogue has no control for them.",
+        "controls_in_baseline": [
+          "PT-6",
+          "PM-26"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "3.5.3",
+        "title": "정보주체에 대한 통지",
+        "controls": [
+          "PT-5"
+        ],
+        "standalone": false,
+        "responsibility_hint": "org",
+        "controls_in_baseline": [
+          "PT-5"
+        ],
+        "controls_absent": []
+      },
+      {
+        "clause": "2.4.1",
+        "title": "보호구역 지정",
+        "controls": [
+          "PE-3",
+          "PE-19"
+        ],
+        "standalone": false,
+        "responsibility_hint": "csp_claimed",
+        "notes": "Inherited from the provider for a cloud-hosted service; the team's on an embedded product.",
+        "controls_in_baseline": [
+          "PE-3"
+        ],
+        "controls_absent": [
+          "PE-19"
+        ]
+      },
+      {
+        "clause": "2.4.3",
+        "title": "정보시스템 보호",
+        "controls": [
+          "PE-18",
+          "PE-4"
+        ],
+        "standalone": false,
+        "responsibility_hint": "csp_claimed",
+        "controls_in_baseline": [
+          "PE-4"
+        ],
+        "controls_absent": [
+          "PE-18"
+        ]
+      },
+      {
+        "clause": "2.7.2",
+        "title": "암호키 관리",
+        "controls": [
+          "SC-12",
+          "SC-12(1)"
+        ],
+        "standalone": false,
+        "responsibility_hint": "shared",
+        "controls_in_baseline": [
+          "SC-12"
+        ],
+        "controls_absent": [
+          "SC-12(1)"
+        ]
+      }
+    ],
+    "gap": [],
+    "reached": 94,
+    "prioritisation_supplied": true,
+    "requirements_supplied": true
+  }
+}

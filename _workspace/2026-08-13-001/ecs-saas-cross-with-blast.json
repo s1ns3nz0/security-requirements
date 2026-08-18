@@ -1,0 +1,5684 @@
+{
+  "counts": {
+    "baseline_only": 339,
+    "threat_and_baseline": 11,
+    "threat_only": 1,
+    "forced_by_data_type": 3
+  },
+  "items": [
+    {
+      "origin": "baseline_only",
+      "control": "AC-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-2",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-2(1)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-2(2)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-2(3)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-2(4)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-2(5)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-2(13)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "threat_and_baseline",
+      "control": "AC-3",
+      "responsibility": "team",
+      "threat_refs": [
+        "T-01",
+        "T-02",
+        "T-03",
+        "T-04"
+      ],
+      "priority": "high",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-api-gateway",
+          "display_name": "Amazon API Gateway",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "An authoriser must be attached to every route. Routes are open by default, so an unauthenticated route is created by omission rather than by decision -- and omission does not show up in review.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_apigatewayv2_route.authorization_type",
+            "expect": "no route left at NONE unless public access is an explicit requirement"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-cloudfront",
+          "display_name": "Amazon CloudFront",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Use origin access control so the origin bucket is reachable only through the distribution. Otherwise the bucket URL bypasses every control applied at the edge -- the WAF, the geo restriction, the signed URLs.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_cloudfront_origin_access_control",
+            "expect": "present and referenced by the S3 origin, with the bucket policy restricted to it"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-cognito",
+          "display_name": "Amazon Cognito",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Group or claim membership must be checked by the application. A token issued by the pool proves authentication, not authorisation, and the distinction is where most Cognito integrations fail.",
+          "evidence": [],
+          "verification": {
+            "method": "code_grep",
+            "target": "token claim verification",
+            "expect": "tenant and role claims read from a verified token, not from request input"
+          },
+          "note": "For multi-tenant services the tenant identifier must be a claim the user cannot influence -- not a custom attribute the user can write.",
+          "reviewed": true
+        },
+        {
+          "service": "aws-s3",
+          "display_name": "Amazon S3",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Bucket policy, IAM policy, and Block Public Access settings. S3 grants nothing by default, so every access path is one the team created.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_s3_bucket_public_access_block",
+            "expect": "all four flags true unless public serving is an explicit requirement"
+          },
+          "note": "The common failure is not an over-broad policy but a bucket left outside the account-level Block Public Access setting.",
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [
+        "T-01",
+        "T-02",
+        "T-03",
+        "T-04"
+      ],
+      "blast_radius": [
+        {
+          "coarse_scope": "cross_tenant",
+          "blast_radius": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          },
+          "priority_reasons": [
+            "review_required"
+          ],
+          "review_required": true
+        },
+        {
+          "coarse_scope": "cross_tenant",
+          "blast_radius": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          },
+          "priority_reasons": [
+            "review_required"
+          ],
+          "review_required": true
+        },
+        {
+          "coarse_scope": "cross_tenant",
+          "blast_radius": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          },
+          "priority_reasons": [
+            "review_required"
+          ],
+          "review_required": true
+        },
+        {
+          "coarse_scope": "account_region",
+          "blast_radius": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          },
+          "priority_reasons": [
+            "account_or_region_runtime",
+            "all_tenants",
+            "platform_control",
+            "platform_or_regional_recovery",
+            "review_required",
+            "shared_or_platform_data"
+          ],
+          "review_required": true
+        }
+      ]
+    },
+    {
+      "origin": "threat_and_baseline",
+      "control": "AC-4",
+      "responsibility": "team",
+      "threat_refs": [
+        "T-01",
+        "T-02",
+        "T-03"
+      ],
+      "priority": "high",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-api-gateway",
+          "display_name": "Amazon API Gateway",
+          "responsibility": "shared",
+          "csp_part": "Private endpoint and resource policy machinery.",
+          "team_part": "Restrict the API to a VPC endpoint where it should not be reachable from the internet.",
+          "evidence": [],
+          "verification": null,
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-alb",
+          "display_name": "AWS Application Load Balancer",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Listener rules route by host and path. A default rule forwarding unmatched traffic to an internal target group exposes internal routes that were never meant to be reachable from the internet.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_lb_listener_rule and default_action",
+            "expect": "default action is a fixed response, not a forward to an internal target"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-s3",
+          "display_name": "Amazon S3",
+          "responsibility": "shared",
+          "csp_part": "VPC endpoint and endpoint policy machinery.",
+          "team_part": "Constrain which network paths may reach the bucket, and set aws:SourceVpce or aws:SourceIp conditions where data must not leave a controlled path.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_s3_bucket_policy",
+            "expect": "condition keys restricting network origin"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [
+        "T-01",
+        "T-02",
+        "T-03"
+      ],
+      "blast_radius": [
+        {
+          "coarse_scope": "cross_tenant",
+          "blast_radius": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          },
+          "priority_reasons": [
+            "review_required"
+          ],
+          "review_required": true
+        },
+        {
+          "coarse_scope": "cross_tenant",
+          "blast_radius": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          },
+          "priority_reasons": [
+            "review_required"
+          ],
+          "review_required": true
+        },
+        {
+          "coarse_scope": "cross_tenant",
+          "blast_radius": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          },
+          "priority_reasons": [
+            "review_required"
+          ],
+          "review_required": true
+        }
+      ]
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-5",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "threat_and_baseline",
+      "control": "AC-6",
+      "responsibility": "team",
+      "threat_refs": [
+        "T-04",
+        "T-08",
+        "T-09",
+        "T-11"
+      ],
+      "priority": "high",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-dynamodb",
+          "display_name": "Amazon DynamoDB",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Separate read and write policies, and deny dynamodb:Scan on tables holding personal data unless a specific job requires it.",
+          "evidence": [],
+          "verification": null,
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-ecs",
+          "display_name": "Amazon ECS",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Set the task role separately from the execution role. The execution role pulls images and writes logs; the task role is what the application code can use. Merging them hands application code the ability to pull and register images.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_ecs_task_definition.task_role_arn, execution_role_arn",
+            "expect": "two distinct roles"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-lambda",
+          "display_name": "AWS Lambda",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "One execution role per function, scoped to what that function does. A role shared across every function makes each function as privileged as the most privileged one.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_lambda_function.role",
+            "expect": "distinct role per function, no wildcard resource in the attached policy"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-s3",
+          "display_name": "Amazon S3",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Separate read, write, and delete grants. A single role holding s3:* across the bucket defeats the control regardless of who holds it.",
+          "evidence": [],
+          "verification": null,
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [
+        "T-04",
+        "T-08",
+        "T-09",
+        "T-11"
+      ],
+      "blast_radius": [
+        {
+          "coarse_scope": "account_region",
+          "blast_radius": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          },
+          "priority_reasons": [
+            "account_or_region_runtime",
+            "all_tenants",
+            "platform_control",
+            "platform_or_regional_recovery",
+            "review_required",
+            "shared_or_platform_data"
+          ],
+          "review_required": true
+        },
+        {
+          "coarse_scope": "account_region",
+          "blast_radius": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          },
+          "priority_reasons": [
+            "account_or_region_runtime",
+            "all_tenants",
+            "platform_control",
+            "platform_or_regional_recovery",
+            "review_required",
+            "shared_or_platform_data"
+          ],
+          "review_required": true
+        },
+        {
+          "coarse_scope": "platform",
+          "blast_radius": {
+            "tenant_scope": "all",
+            "data_scope": "shared_dataset",
+            "runtime_scope": "service",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          },
+          "priority_reasons": [
+            "all_tenants",
+            "platform_control",
+            "platform_or_regional_recovery",
+            "review_required",
+            "shared_or_platform_data"
+          ],
+          "review_required": true
+        },
+        {
+          "coarse_scope": "account_region",
+          "blast_radius": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          },
+          "priority_reasons": [
+            "account_or_region_runtime",
+            "all_tenants",
+            "platform_control",
+            "platform_or_regional_recovery",
+            "review_required",
+            "shared_or_platform_data"
+          ],
+          "review_required": true
+        }
+      ]
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-6(1)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-6(2)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-6(5)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-6(7)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-6(9)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-6(10)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-7",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-cognito",
+          "display_name": "Amazon Cognito",
+          "responsibility": "shared",
+          "csp_part": "Advanced security features provide adaptive authentication and compromised-credential detection.",
+          "team_part": "Advanced security is off by default and billed separately. Without it the pool has no lockout or risk-based response, which is the control AC-7 asks for.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_cognito_user_pool.user_pool_add_ons.advanced_security_mode",
+            "expect": "ENFORCED, or a documented alternative"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-8",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-11",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-11(1)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-12",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-cognito",
+          "display_name": "Amazon Cognito",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Set refresh token validity and revoke tokens on sign-out. A refresh token valid for the default period outlives any session the user believes they ended.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_cognito_user_pool_client.refresh_token_validity",
+            "expect": "bounded, with enable_token_revocation true"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-14",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-17",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-17(1)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-17(2)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-17(3)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-17(4)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-18",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-18(1)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-18(3)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-19",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-19(5)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-20",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-20(1)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-20(2)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-21",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-api-gateway",
+          "display_name": "Amazon API Gateway",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Where the API is exposed to browsers, constrain CORS to known origins. A wildcard origin combined with credentialed requests removes the browser's cross-origin protection entirely.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_apigatewayv2_api.cors_configuration",
+            "expect": "allow_origins enumerated, not '*', when allow_credentials is true"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-cloudfront",
+          "display_name": "Amazon CloudFront",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Where distribution content is restricted, use signed URLs or signed cookies with short lifetimes, and confirm that the origin cannot be reached without them.",
+          "evidence": [],
+          "verification": null,
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-s3",
+          "display_name": "Amazon S3",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Where objects are shared with third parties, control presigned URL lifetime and the role that signs them. A long-lived presigned URL is an unauthenticated access path that no bucket policy will show.",
+          "evidence": [],
+          "verification": {
+            "method": "code_grep",
+            "target": "getSignedUrl|generate_presigned_url",
+            "expect": "expiry bounded and short"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-22",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AT-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AT-2",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AT-2(2)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AT-2(3)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AT-3",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AT-4",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AU-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AU-2",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-api-gateway",
+          "display_name": "Amazon API Gateway",
+          "responsibility": "shared",
+          "csp_part": "Control-plane changes are recorded in CloudTrail.",
+          "team_part": "Access logging is off by default. Without it there is no record of who called which route, which is the record an incident actually needs.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_apigatewayv2_stage.access_log_settings",
+            "expect": "destination_arn and format including requestId, identity, and route"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-alb",
+          "display_name": "AWS Application Load Balancer",
+          "responsibility": "shared",
+          "csp_part": "Records control-plane changes to the load balancer.",
+          "team_part": "Access logs are off by default and are the only record of requests that never reached the application -- which includes everything a WAF blocked and everything that hit a 4xx at the listener.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_lb.access_logs",
+            "expect": "enabled with a bucket, and a retention policy on that bucket"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-cloudfront",
+          "display_name": "Amazon CloudFront",
+          "responsibility": "shared",
+          "csp_part": "Records control-plane changes to the distribution.",
+          "team_part": "Standard or real-time access logs are off by default. Without them there is no record of what was served to whom from the cache.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_cloudfront_distribution.logging_config",
+            "expect": "bucket and prefix configured"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-cognito",
+          "display_name": "Amazon Cognito",
+          "responsibility": "shared",
+          "csp_part": "CloudTrail records control-plane changes to the pool.",
+          "team_part": "Sign-in events are not delivered anywhere by default. Authentication history is the first thing an incident asks for.",
+          "evidence": [],
+          "verification": null,
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-dynamodb",
+          "display_name": "Amazon DynamoDB",
+          "responsibility": "shared",
+          "csp_part": "CloudTrail records control-plane actions on the table.",
+          "team_part": "Data-plane access is only recorded if streams or CloudTrail data events are enabled. Table modification is visible; item reads are not.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_cloudtrail event_selector",
+            "expect": "data resource of type AWS::DynamoDB::Table where item access must be recorded"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-ecs",
+          "display_name": "Amazon ECS",
+          "responsibility": "shared",
+          "csp_part": "Records control-plane actions and delivers container stdout to the configured log driver.",
+          "team_part": "Configure the log driver and a retention period on the destination log group.",
+          "evidence": [],
+          "verification": null,
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-lambda",
+          "display_name": "AWS Lambda",
+          "responsibility": "shared",
+          "csp_part": "Invocation metrics and control-plane events are recorded by default.",
+          "team_part": "Application-level audit events must be emitted deliberately. Invocation counts show that the function ran, not what it did on behalf of whom.",
+          "evidence": [],
+          "verification": {
+            "method": "code_grep",
+            "target": "audit event emission in handler",
+            "expect": "actor, action, and subject recorded for state-changing operations"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-s3",
+          "display_name": "Amazon S3",
+          "responsibility": "shared",
+          "csp_part": "CloudTrail records management events for the bucket by default.",
+          "team_part": "Data events (GetObject, PutObject) are not recorded unless explicitly enabled, and they are usually the events that matter for an object store.",
+          "evidence": [
+            "CloudTrail data event selector covering the bucket"
+          ],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_cloudtrail event_selector",
+            "expect": "data_resource of type AWS::S3::Object covering this bucket"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "threat_and_baseline",
+      "control": "AU-3",
+      "responsibility": "team",
+      "threat_refs": [
+        "T-10"
+      ],
+      "priority": "high",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [
+        "T-10"
+      ],
+      "blast_radius": [
+        {
+          "coarse_scope": "account_region",
+          "blast_radius": {
+            "tenant_scope": "all",
+            "data_scope": "shared_dataset",
+            "runtime_scope": "region",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          },
+          "priority_reasons": [
+            "account_or_region_runtime",
+            "all_tenants",
+            "platform_control",
+            "platform_or_regional_recovery",
+            "review_required",
+            "shared_or_platform_data"
+          ],
+          "review_required": true
+        }
+      ]
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AU-3(1)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AU-4",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AU-5",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AU-6",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": true,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AU-6(1)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": true,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AU-6(3)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": true,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AU-7",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AU-7(1)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AU-8",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "threat_and_baseline",
+      "control": "AU-9",
+      "responsibility": "shared",
+      "threat_refs": [
+        "T-10"
+      ],
+      "priority": "high",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-s3",
+          "display_name": "Amazon S3",
+          "responsibility": "shared",
+          "csp_part": "Durability of the log store.",
+          "team_part": "Log destination must not be writable by the identities being audited. Writing S3 access logs into the same bucket is self-referential and lets an attacker overwrite their own trail.",
+          "evidence": [],
+          "verification": null,
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [
+        "T-10"
+      ],
+      "blast_radius": [
+        {
+          "coarse_scope": "account_region",
+          "blast_radius": {
+            "tenant_scope": "all",
+            "data_scope": "shared_dataset",
+            "runtime_scope": "region",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          },
+          "priority_reasons": [
+            "account_or_region_runtime",
+            "all_tenants",
+            "platform_control",
+            "platform_or_regional_recovery",
+            "review_required",
+            "shared_or_platform_data"
+          ],
+          "review_required": true
+        }
+      ]
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AU-9(4)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AU-11",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-s3",
+          "display_name": "Amazon S3",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Lifecycle policy for the retention period, and Object Lock where the retention must survive a compromised administrator.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_s3_bucket_lifecycle_configuration",
+            "expect": "expiration matching the declared retention period"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AU-12",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CA-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CA-2",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CA-2(1)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CA-3",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CA-5",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CA-6",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CA-7",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CA-7(1)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CA-7(4)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CA-9",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-2",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-lambda",
+          "display_name": "AWS Lambda",
+          "responsibility": "shared",
+          "csp_part": "Provides the immutable runtime image.",
+          "team_part": "Pin the deployment package and layer versions; do not deploy from a mutable alias.",
+          "evidence": [],
+          "verification": null,
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-2(2)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-2(3)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-2(7)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "threat_and_baseline",
+      "control": "CM-3",
+      "responsibility": "team",
+      "threat_refs": [
+        "T-05",
+        "T-11"
+      ],
+      "priority": "high",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [
+        "T-05",
+        "T-11"
+      ],
+      "blast_radius": [
+        {
+          "coarse_scope": "account_region",
+          "blast_radius": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "region",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "tenant_recovery"
+          },
+          "priority_reasons": [
+            "account_or_region_runtime",
+            "review_required"
+          ],
+          "review_required": true
+        },
+        {
+          "coarse_scope": "account_region",
+          "blast_radius": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          },
+          "priority_reasons": [
+            "account_or_region_runtime",
+            "all_tenants",
+            "platform_control",
+            "platform_or_regional_recovery",
+            "review_required",
+            "shared_or_platform_data"
+          ],
+          "review_required": true
+        }
+      ]
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-3(2)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-3(4)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-4",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-4(2)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-5",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-6",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-7",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-7(1)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-7(2)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-7(5)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-8",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-8(1)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-8(3)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-9",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-10",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-11",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-12",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CM-12(1)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-2",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-2(1)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-2(3)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-2(8)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-3",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-4",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-4(1)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-6",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-6(1)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-6(3)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-7",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-7(1)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-7(2)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-7(3)",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-8",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-8(1)",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-8(2)",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "threat_and_baseline",
+      "control": "CP-9",
+      "responsibility": "shared",
+      "threat_refs": [
+        "T-05",
+        "T-13"
+      ],
+      "priority": "high",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-dynamodb",
+          "display_name": "Amazon DynamoDB",
+          "responsibility": "shared",
+          "csp_part": "Provides point-in-time recovery and on-demand backups.",
+          "team_part": "Point-in-time recovery is off by default and cannot be applied retroactively. It has to be enabled before the data it would have protected exists.",
+          "evidence": [
+            "terraform: aws_dynamodb_table.point_in_time_recovery"
+          ],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_dynamodb_table.point_in_time_recovery",
+            "expect": "enabled = true"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [
+        "T-05",
+        "T-13"
+      ],
+      "blast_radius": [
+        {
+          "coarse_scope": "account_region",
+          "blast_radius": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "region",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "tenant_recovery"
+          },
+          "priority_reasons": [
+            "account_or_region_runtime",
+            "review_required"
+          ],
+          "review_required": true
+        },
+        {
+          "coarse_scope": "account_region",
+          "blast_radius": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "region",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "tenant_recovery"
+          },
+          "priority_reasons": [
+            "account_or_region_runtime",
+            "review_required"
+          ],
+          "review_required": true
+        }
+      ]
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-9(1)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-9(8)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-10",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "CP-10(2)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-2",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-cognito",
+          "display_name": "Amazon Cognito",
+          "responsibility": "shared",
+          "csp_part": "Operates the identity store and the authentication flows.",
+          "team_part": "Choose the flows the application enables. Leaving legacy flows such as USER_PASSWORD_AUTH enabled alongside SRP gives an attacker a weaker path to the same account.",
+          "evidence": [
+            "AWS SOC 2 Type II report"
+          ],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_cognito_user_pool_client.explicit_auth_flows",
+            "expect": "no ALLOW_USER_PASSWORD_AUTH unless required and compensated"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-2(1)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-cognito",
+          "display_name": "Amazon Cognito",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Multi-factor authentication is optional by default. For privileged accounts it must be required at the pool level, not merely offered.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_cognito_user_pool.mfa_configuration",
+            "expect": "ON, or OPTIONAL with enforcement at the application for privileged roles"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-2(2)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-2(8)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-2(12)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-3",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-4",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-4(4)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-5",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-cognito",
+          "display_name": "Amazon Cognito",
+          "responsibility": "shared",
+          "csp_part": "Stores credentials and enforces the configured password policy.",
+          "team_part": "Set the password policy and token lifetimes; the defaults are permissive.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_cognito_user_pool.password_policy",
+            "expect": "minimum length and composition set deliberately"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-ecs",
+          "display_name": "Amazon ECS",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Inject secrets through the `secrets` field so they are resolved at task start. Values placed in `environment` are stored in the task definition and readable by anyone who can describe it.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "container definition environment vs secrets",
+            "expect": "no credential-shaped values under environment"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-5(1)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-5(2)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-5(6)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-6",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-7",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-8",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-8(1)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-8(2)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-8(4)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-11",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-12",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-12(2)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-12(3)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IA-12(5)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IR-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IR-2",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IR-3",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IR-3(2)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IR-4",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IR-4(1)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IR-5",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IR-6",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IR-6(1)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IR-6(3)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IR-7",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IR-7(1)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IR-8",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "MA-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "MA-2",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "MA-3",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "MA-3(1)",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "MA-3(2)",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "MA-3(3)",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "MA-4",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "MA-5",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "MA-6",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "MP-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "MP-2",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "MP-3",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "MP-4",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "MP-5",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "MP-6",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "MP-7",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PE-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PE-2",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PE-3",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PE-4",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PE-5",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PE-6",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PE-6(1)",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PE-8",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PE-9",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PE-10",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PE-11",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PE-12",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PE-13",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PE-13(1)",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PE-14",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PE-15",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PE-16",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PE-17",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PL-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PL-2",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PL-4",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PL-4(1)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PL-8",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PL-10",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PL-11",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PS-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PS-2",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PS-3",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PS-4",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PS-5",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PS-6",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PS-7",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PS-8",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PS-9",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "RA-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "RA-2",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "RA-3",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "RA-3(1)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "RA-5",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "RA-5(2)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "RA-5(5)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "RA-5(11)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "RA-7",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "RA-9",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SA-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SA-2",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SA-3",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SA-4",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SA-4(1)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SA-4(2)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SA-4(9)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SA-4(10)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SA-5",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SA-8",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SA-9",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SA-9(2)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "threat_and_baseline",
+      "control": "SA-10",
+      "responsibility": "team",
+      "threat_refs": [
+        "T-11"
+      ],
+      "priority": "high",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [
+        "T-11"
+      ],
+      "blast_radius": [
+        {
+          "coarse_scope": "account_region",
+          "blast_radius": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          },
+          "priority_reasons": [
+            "account_or_region_runtime",
+            "all_tenants",
+            "platform_control",
+            "platform_or_regional_recovery",
+            "review_required",
+            "shared_or_platform_data"
+          ],
+          "review_required": true
+        }
+      ]
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SA-11",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SA-15",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SA-15(3)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SA-22",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-2",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-ecs",
+          "display_name": "Amazon ECS",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Run the container as a non-root user with a read-only root filesystem. Neither is the default, and both are single fields in the task definition.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "container definition",
+            "expect": "user set to a non-root uid, readonlyRootFilesystem true"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "threat_and_baseline",
+      "control": "SC-4",
+      "responsibility": "team",
+      "threat_refs": [
+        "T-02"
+      ],
+      "priority": "high",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-cloudfront",
+          "display_name": "Amazon CloudFront",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Review the cache key and the forwarded headers. Caching a response that varies by user without including the distinguishing header in the cache key serves one user's content to another -- the classic cache poisoning of personal data.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "cache_policy / origin_request_policy",
+            "expect": "authenticated responses are not cached, or the cache key includes the identity header"
+          },
+          "note": "This is the CloudFront-specific tenant isolation failure. It is invisible to code review because the application behaved correctly; the edge reused the response.",
+          "reviewed": true
+        },
+        {
+          "service": "aws-dynamodb",
+          "display_name": "Amazon DynamoDB",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "For multi-tenant tables, make the tenant identifier the partition key and enforce it with an IAM condition on dynamodb:LeadingKeys. Filtering in application code fails open the first time a query is written without the condition.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "IAM policy for the table",
+            "expect": "dynamodb:LeadingKeys condition bound to the caller's tenant"
+          },
+          "note": "This is the control that catches tenant isolation in a single-table design. A scan without a partition key returns every tenant's items and is syntactically valid.",
+          "reviewed": true
+        },
+        {
+          "service": "aws-s3",
+          "display_name": "Amazon S3",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Prevent residual data exposure across tenants when object keys are reused or predictable. Include the tenant identifier in the key prefix and enforce it in the access policy.",
+          "evidence": [],
+          "verification": null,
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [
+        "T-02"
+      ],
+      "blast_radius": [
+        {
+          "coarse_scope": "cross_tenant",
+          "blast_radius": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          },
+          "priority_reasons": [
+            "review_required"
+          ],
+          "review_required": true
+        }
+      ]
+    },
+    {
+      "origin": "threat_and_baseline",
+      "control": "SC-5",
+      "responsibility": "shared",
+      "threat_refs": [
+        "T-07",
+        "T-12"
+      ],
+      "priority": "high",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-api-gateway",
+          "display_name": "Amazon API Gateway",
+          "responsibility": "shared",
+          "csp_part": "Absorbs volumetric traffic at the edge.",
+          "team_part": "Configure throttling and usage plans. The default account limit protects the account, not the backend behind this API.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_apigatewayv2_stage.default_route_settings",
+            "expect": "throttling_burst_limit and throttling_rate_limit set"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-alb",
+          "display_name": "AWS Application Load Balancer",
+          "responsibility": "shared",
+          "csp_part": "Scales capacity and absorbs network-layer floods.",
+          "team_part": "Attach a web ACL for application-layer protection, and set idle and deregistration timeouts so slow-request attacks do not hold connections.",
+          "evidence": [],
+          "verification": null,
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-cloudfront",
+          "display_name": "Amazon CloudFront",
+          "responsibility": "shared",
+          "csp_part": "Absorbs volumetric attacks at the edge as part of the platform.",
+          "team_part": "Attach a web ACL with rate limiting for application-layer floods.",
+          "evidence": [],
+          "verification": null,
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-lambda",
+          "display_name": "AWS Lambda",
+          "responsibility": "shared",
+          "csp_part": "Scales the execution environment automatically.",
+          "team_part": "Set reserved and maximum concurrency. Unbounded scaling converts a request flood into a bill and exhausts downstream connection pools -- the outage moves to the database rather than being prevented.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_lambda_function.reserved_concurrent_executions",
+            "expect": "a bound is set for functions reaching a database"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [
+        "T-07",
+        "T-12"
+      ],
+      "blast_radius": [
+        {
+          "coarse_scope": "account_region",
+          "blast_radius": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          },
+          "priority_reasons": [
+            "account_or_region_runtime",
+            "all_tenants",
+            "platform_control",
+            "platform_or_regional_recovery",
+            "review_required",
+            "shared_or_platform_data"
+          ],
+          "review_required": true
+        },
+        {
+          "coarse_scope": "platform",
+          "blast_radius": {
+            "tenant_scope": "all",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "cluster",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          },
+          "priority_reasons": [
+            "all_tenants",
+            "platform_control",
+            "platform_or_regional_recovery",
+            "review_required"
+          ],
+          "review_required": true
+        }
+      ]
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-7",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-alb",
+          "display_name": "AWS Application Load Balancer",
+          "responsibility": "shared",
+          "csp_part": "Enforces the attached security groups at the load balancer.",
+          "team_part": "Targets must accept traffic only from the load balancer security group. A target security group open to the VPC CIDR lets any workload in the VPC reach the application directly, past every listener rule.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "target security group ingress",
+            "expect": "source is the load balancer security group, not a CIDR range"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-ecs",
+          "display_name": "Amazon ECS",
+          "responsibility": "shared",
+          "csp_part": "Security group enforcement at the task elastic network interface.",
+          "team_part": "Place tasks in private subnets. assign_public_ip on a task in a public subnet exposes the container directly, and it is a common default in quick-start configurations.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_ecs_service.network_configuration",
+            "expect": "assign_public_ip = false with private subnets"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-lambda",
+          "display_name": "AWS Lambda",
+          "responsibility": "shared",
+          "csp_part": "Network isolation of the execution environment.",
+          "team_part": "A function outside a VPC has unrestricted egress. Where the function handles regulated data, place it in a VPC and control outbound routes, or the data flow leaves the boundary without passing any inspection point.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_lambda_function.vpc_config",
+            "expect": "vpc_config present with security groups restricting egress, where required"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-7(3)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-7(4)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-7(5)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-7(7)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-7(8)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-8",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-api-gateway",
+          "display_name": "Amazon API Gateway",
+          "responsibility": "shared",
+          "csp_part": "TLS termination on the managed endpoint.",
+          "team_part": "Set a minimum TLS version on the custom domain. The default security policy on a custom domain may permit versions the requirement excludes.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_apigatewayv2_domain_name.domain_name_configuration.security_policy",
+            "expect": "TLS 1.2 or higher"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-alb",
+          "display_name": "AWS Application Load Balancer",
+          "responsibility": "shared",
+          "csp_part": "Terminates TLS and manages the listener certificate lifecycle through ACM.",
+          "team_part": "Redirect HTTP to HTTPS, and use a current SSL policy. The default policy on an older listener may still permit TLS versions the requirement excludes, and it does not change when AWS publishes a newer one.",
+          "evidence": [
+            "AWS SOC 2 Type II report",
+            "terraform: aws_lb_listener.ssl_policy"
+          ],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_lb_listener",
+            "expect": "port 80 listener redirects to HTTPS; ssl_policy permits TLS 1.2 and above only"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-cloudfront",
+          "display_name": "Amazon CloudFront",
+          "responsibility": "shared",
+          "csp_part": "Terminates TLS at the edge and manages the edge certificates.",
+          "team_part": "Redirect or reject plain HTTP at the viewer, and require TLS to the origin. A distribution that terminates TLS at the edge and speaks HTTP to the origin leaves the second hop in cleartext, which is the hop nobody looks at.",
+          "evidence": [
+            "AWS SOC 2 Type II report"
+          ],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_cloudfront_distribution",
+            "expect": "viewer_protocol_policy is redirect-to-https or https-only; origin_protocol_policy is https-only"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-s3",
+          "display_name": "Amazon S3",
+          "responsibility": "shared",
+          "csp_part": "TLS termination on the S3 endpoint.",
+          "team_part": "Deny non-TLS access explicitly. S3 accepts HTTP unless the bucket policy refuses it with aws:SecureTransport.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_s3_bucket_policy",
+            "expect": "Deny when aws:SecureTransport is false"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-8(1)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-cloudfront",
+          "display_name": "Amazon CloudFront",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Set minimum_protocol_version to a TLS version the requirement permits.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_cloudfront_distribution.viewer_certificate.minimum_protocol_version",
+            "expect": "TLSv1.2 or higher"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-10",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-12",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-13",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-15",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-17",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-18",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-20",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-21",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-22",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-23",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-alb",
+          "display_name": "AWS Application Load Balancer",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Where the load balancer terminates TLS, the application must read the client address from X-Forwarded-For rather than the socket, and must not trust that header on any path the load balancer does not front.",
+          "evidence": [],
+          "verification": null,
+          "note": "Getting this wrong makes every rate limit and audit record attribute the action to the load balancer instead of the caller.",
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-28",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-dynamodb",
+          "display_name": "Amazon DynamoDB",
+          "responsibility": "shared",
+          "csp_part": "Encrypts all tables at rest; encryption cannot be disabled.",
+          "team_part": "Choose the key. The default is an AWS-owned key, which gives the organisation no key custody and no ability to revoke access by disabling the key.",
+          "evidence": [
+            "AWS SOC 2 Type II report",
+            "terraform: aws_dynamodb_table.server_side_encryption"
+          ],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_dynamodb_table.server_side_encryption",
+            "expect": "enabled with a customer-managed kms_key_arn where key custody is required"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-lambda",
+          "display_name": "AWS Lambda",
+          "responsibility": "shared",
+          "csp_part": "Encrypts environment variables at rest with a service-managed key by default.",
+          "team_part": "Supply a customer-managed key where key custody is required. Secrets belong in a secret store rather than environment variables regardless -- environment variables are visible to anyone who can read the function configuration.",
+          "evidence": [
+            "AWS SOC 2 Type II report",
+            "terraform: aws_lambda_function.kms_key_arn"
+          ],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_lambda_function",
+            "expect": "kms_key_arn set; no credential-shaped values in environment.variables"
+          },
+          "note": null,
+          "reviewed": true
+        },
+        {
+          "service": "aws-s3",
+          "display_name": "Amazon S3",
+          "responsibility": "shared",
+          "csp_part": "Operates the storage substrate and the SSE key infrastructure.",
+          "team_part": "Enable default bucket encryption and choose the key type. A bucket with no default encryption policy silently accepts unencrypted objects.",
+          "evidence": [
+            "AWS SOC 2 Type II report (control area: logical access, encryption)",
+            "terraform: aws_s3_bucket_server_side_encryption_configuration present"
+          ],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_s3_bucket_server_side_encryption_configuration",
+            "expect": "apply_server_side_encryption_by_default is set"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-28(1)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-s3",
+          "display_name": "Amazon S3",
+          "responsibility": "shared",
+          "csp_part": "Provides SSE-S3, SSE-KMS, and DSSE-KMS mechanisms.",
+          "team_part": "Select a customer-managed KMS key where the control requires key separation from the storage service. SSE-S3 uses provider-managed keys and does not give the organisation key custody.",
+          "evidence": [
+            "terraform: sse_algorithm and kms_master_key_id"
+          ],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_s3_bucket_server_side_encryption_configuration",
+            "expect": "sse_algorithm = aws:kms with a customer-managed key arn"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-39",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-ecs",
+          "display_name": "Amazon ECS",
+          "responsibility": "csp_claimed",
+          "csp_part": "On Fargate, each task runs in its own isolation boundary with no shared kernel between tasks.",
+          "team_part": null,
+          "evidence": [
+            "AWS SOC 2 Type II report",
+            "AWS Fargate security overview"
+          ],
+          "verification": null,
+          "note": "On the EC2 launch type this is not inherited -- tasks on the same instance share a kernel -- so the entry does not apply and the control returns to the team through the deployment model layer. Stating that only in prose, as this file first did, let the classifier claim provider isolation for a deployment where it does not exist.",
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-2",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-ecs",
+          "display_name": "Amazon ECS",
+          "responsibility": "shared",
+          "csp_part": "On Fargate, patches the host and the container runtime.",
+          "team_part": "Rebuild and redeploy the container image to pick up base image and dependency patches. A long-running task keeps whatever it started with, and nothing forces a redeploy.",
+          "evidence": [
+            "AWS shared responsibility model, container services"
+          ],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "task definition image tag",
+            "expect": "an immutable digest or a version tag, not :latest"
+          },
+          "note": "On the EC2 launch type the container instances are yours and the provider patches neither host nor runtime, so this entry does not apply and the deployment model layer assigns the control to the team.",
+          "reviewed": true
+        },
+        {
+          "service": "aws-lambda",
+          "display_name": "AWS Lambda",
+          "responsibility": "shared",
+          "csp_part": "Patches the operating system and language runtime.",
+          "team_part": "Update the runtime version before it reaches end of support, and patch the dependencies bundled into the deployment package or layer. The provider does not patch what you shipped.",
+          "evidence": [
+            "AWS shared responsibility model, compute services"
+          ],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_lambda_function.runtime",
+            "expect": "a runtime version still receiving security updates"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-2(2)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-3",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-4",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-4(2)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-4(4)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-4(5)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-5",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-7",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-7(1)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-7(7)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-8",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-8(2)",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "threat_and_baseline",
+      "control": "SI-10",
+      "responsibility": "team",
+      "threat_refs": [
+        "T-08"
+      ],
+      "priority": "high",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-api-gateway",
+          "display_name": "Amazon API Gateway",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Attach request validators or a schema to each route. Validation performed only in the handler leaves the parsing surface exposed.",
+          "evidence": [],
+          "verification": null,
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [
+        "T-08"
+      ],
+      "blast_radius": [
+        {
+          "coarse_scope": "account_region",
+          "blast_radius": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          },
+          "priority_reasons": [
+            "account_or_region_runtime",
+            "all_tenants",
+            "platform_control",
+            "platform_or_regional_recovery",
+            "review_required",
+            "shared_or_platform_data"
+          ],
+          "review_required": true
+        }
+      ]
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-11",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-api-gateway",
+          "display_name": "Amazon API Gateway",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Map backend errors to responses that do not disclose stack traces, internal hostnames, or SQL fragments. Gateway responses are templated and are easy to leave at their verbose defaults.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_api_gateway_gateway_response",
+            "expect": "error responses do not interpolate backend error text"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-12",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-dynamodb",
+          "display_name": "Amazon DynamoDB",
+          "responsibility": "team",
+          "csp_part": null,
+          "team_part": "Set time-to-live on items subject to a retention limit. Without it, personal data persists until someone deletes it by hand, which is to say indefinitely.",
+          "evidence": [],
+          "verification": {
+            "method": "iac_inspect",
+            "target": "aws_dynamodb_table.ttl",
+            "expect": "enabled with an attribute_name, for tables holding personal data"
+          },
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-16",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [
+        {
+          "service": "aws-lambda",
+          "display_name": "AWS Lambda",
+          "responsibility": "csp_claimed",
+          "csp_part": "Firecracker microVM isolation between invocations and tenants.",
+          "team_part": null,
+          "evidence": [
+            "AWS SOC 2 Type II report",
+            "AWS Lambda security whitepaper (isolation model)"
+          ],
+          "verification": null,
+          "note": null,
+          "reviewed": true
+        }
+      ],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SR-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SR-2",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SR-2(1)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SR-3",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SR-5",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SR-6",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SR-8",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SR-10",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SR-11",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SR-11(1)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SR-11(2)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SR-12",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AC-3(14)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AT-3(5)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "AU-3(3)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IR-2(3)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "IR-8(1)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PE-8(3)",
+      "responsibility": "csp_claimed",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PL-9",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-3",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-4",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-5(1)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-6",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-7",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-8",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-9",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-10",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-11",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-13",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-14",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-17",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-18",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-19",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-20",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-20(1)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-21",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-22",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-24",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-25",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-26",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-27",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-28",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-31",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PT-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PT-2",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PT-3",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PT-4",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PT-5",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PT-5(2)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PT-6",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PT-6(1)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PT-6(2)",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PT-7",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PT-7(1)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PT-7(2)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PT-8",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "RA-8",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SA-8(33)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SC-7(24)",
+      "responsibility": "shared",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-12(1)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-12(2)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-12(3)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-18",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-18(4)",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "SI-19",
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-1",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-2",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-5",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-12",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-15",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-16",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-23",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-29",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-30",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "baseline_only",
+      "control": "PM-32",
+      "responsibility": "org",
+      "threat_refs": [],
+      "priority": "low",
+      "unverified": false,
+      "services": [],
+      "org_control_declared": false,
+      "blast_radius_refs": [],
+      "blast_radius": []
+    },
+    {
+      "origin": "threat_only",
+      "control": null,
+      "responsibility": "team",
+      "threat_refs": [
+        "T-06"
+      ],
+      "priority": "high",
+      "unverified": false,
+      "services": [],
+      "threat": {
+        "id": "T-06",
+        "boundary": "TB-6",
+        "category": "STRIDE:T",
+        "novelty": "service_specific",
+        "persona": "compromised_dependency",
+        "scenario": "A forged or replayed tenant lifecycle event causes provisioning or deprovisioning to run for the wrong tenant, wrong tier, or an already completed lifecycle state.",
+        "affected_assets": [
+          "tenant_infrastructure",
+          "tenant_mapping"
+        ],
+        "related_controls": []
+      },
+      "blast_radius_refs": [
+        "T-06"
+      ],
+      "blast_radius": [
+        {
+          "coarse_scope": "account_region",
+          "blast_radius": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          },
+          "priority_reasons": [
+            "account_or_region_runtime",
+            "all_tenants",
+            "platform_control",
+            "platform_or_regional_recovery",
+            "review_required",
+            "shared_or_platform_data"
+          ],
+          "review_required": true
+        }
+      ]
+    },
+    {
+      "origin": "forced_by_data_type",
+      "control": null,
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "high",
+      "unverified": false,
+      "services": [],
+      "forced": {
+        "id": "data_processor_obligations",
+        "sources": [
+          {
+            "data_type": "basic_contact",
+            "label": "member email, name, contact details [belongs to a customer; we hold it on their behalf]",
+            "note": "Holding data for someone else does not change how sensitive that data is,\nso no level moves. It changes who is harmed by its loss and what is owed\nwhen that happens: a processing agreement, deletion on the owner's\ninstruction, and notification to the owner rather than only to a\nregulator. None of that is reachable from a control catalogue keyed on\n\"we hold data of type X\".\n\nIt also displaces the jurisdiction question. Regulatory triggers are gated\non the regions of *our* users; for data held on a customer's behalf the\nrelevant jurisdiction is that customer's, which this profile does not ask\nabout. Treat any regulatory conclusion as covering our own position only."
+          },
+          {
+            "data_type": "transaction_history",
+            "label": "transaction, order, and settlement records [belongs to a customer; we hold it on their behalf]",
+            "note": "Holding data for someone else does not change how sensitive that data is,\nso no level moves. It changes who is harmed by its loss and what is owed\nwhen that happens: a processing agreement, deletion on the owner's\ninstruction, and notification to the owner rather than only to a\nregulator. None of that is reachable from a control catalogue keyed on\n\"we hold data of type X\".\n\nIt also displaces the jurisdiction question. Regulatory triggers are gated\non the regions of *our* users; for data held on a customer's behalf the\nrelevant jurisdiction is that customer's, which this profile does not ask\nabout. Treat any regulatory conclusion as covering our own position only."
+          }
+        ],
+        "from_data_types": [
+          "basic_contact",
+          "transaction_history"
+        ],
+        "label": "member email, name, contact details [belongs to a customer; we hold it on their behalf]; transaction, order, and settlement records [belongs to a customer; we hold it on their behalf]",
+        "note": "Holding data for someone else does not change how sensitive that data is,\nso no level moves. It changes who is harmed by its loss and what is owed\nwhen that happens: a processing agreement, deletion on the owner's\ninstruction, and notification to the owner rather than only to a\nregulator. None of that is reachable from a control catalogue keyed on\n\"we hold data of type X\".\n\nIt also displaces the jurisdiction question. Regulatory triggers are gated\non the regions of *our* users; for data held on a customer's behalf the\nrelevant jurisdiction is that customer's, which this profile does not ask\nabout. Treat any regulatory conclusion as covering our own position only."
+      }
+    },
+    {
+      "origin": "forced_by_data_type",
+      "control": null,
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "high",
+      "unverified": false,
+      "services": [],
+      "forced": {
+        "id": "credential_storage",
+        "sources": [
+          {
+            "data_type": "account_credentials",
+            "label": "password hashes, session tokens, recovery codes",
+            "note": "Theft yields full account takeover and propagates to every other data type. Excluded from the high water mark: FIPS 199 categorises a system by the business information it holds, and credentials are system information present in almost every service. Counting them would put every consumer-facing application on the High baseline, which is a result no team acts on."
+          }
+        ],
+        "from_data_types": [
+          "account_credentials"
+        ],
+        "label": "password hashes, session tokens, recovery codes",
+        "note": "Theft yields full account takeover and propagates to every other data type. Excluded from the high water mark: FIPS 199 categorises a system by the business information it holds, and credentials are system information present in almost every service. Counting them would put every consumer-facing application on the High baseline, which is a result no team acts on."
+      }
+    },
+    {
+      "origin": "forced_by_data_type",
+      "control": null,
+      "responsibility": "team",
+      "threat_refs": [],
+      "priority": "high",
+      "unverified": false,
+      "services": [],
+      "forced": {
+        "id": "log_sanitization",
+        "sources": [
+          {
+            "data_type": "app_logs",
+            "label": "application logs",
+            "note": "Warning: personal data and tokens leaking into logs is among the most\ncommon real incidents. Selecting this forces a log sanitisation requirement."
+          }
+        ],
+        "from_data_types": [
+          "app_logs"
+        ],
+        "label": "application logs",
+        "note": "Warning: personal data and tokens leaking into logs is among the most\ncommon real incidents. Selecting this forces a log sanitisation requirement."
+      }
+    }
+  ],
+  "problems": [],
+  "outside_baseline": []
+}

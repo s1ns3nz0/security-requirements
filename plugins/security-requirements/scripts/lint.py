@@ -16,9 +16,9 @@ atomic, states a property rather than an implementation.
 
 Usage
 -----
-    python3 -I "<absolute plugin root>/scripts/lint.py" .security-requirements/requirements.yaml
-    python3 -I "<absolute plugin root>/scripts/lint.py" requirements.yaml --threats threats.yaml
-    python3 -I "<absolute plugin root>/scripts/lint.py" requirements.yaml --strict   # warnings fail too
+    python3 scripts/lint.py .security-requirements/requirements.yaml
+    python3 scripts/lint.py requirements.yaml --threats threats.yaml
+    python3 scripts/lint.py requirements.yaml --strict   # warnings fail too
 """
 
 from __future__ import annotations
@@ -27,15 +27,12 @@ import argparse
 import json
 import re
 import sys
-from datetime import date
 from pathlib import Path
 
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import profile_schema  # noqa: E402
-import risk as risk_mod  # noqa: E402
-from runtime_paths import isolated_script_command  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CATALOG_DIR = REPO_ROOT / "catalogs" / "nist-800-53r5"
@@ -49,7 +46,8 @@ ID_RE = re.compile(r"^REQ-[A-Z0-9]+(?:-[A-Z0-9]+)*-\d{2}$")
 # checks.
 MANAGED_KEYS = {
     # The record shape, from references/requirement-style.md.
-    "statement", "rationale", "csf", "sources", "threat_refs", "risk_refs", "responsibility",
+    "statement", "rationale", "csf", "sources", "threat_refs", "blast_radius_refs",
+    "blast_radius", "responsibility",
     "csp_part", "team_part", "evidence", "verification", "priority",
     # Carried through the pipeline rather than written by hand. `unverified`
     # comes from the responsibility split -- a service whose curation nobody has
@@ -75,7 +73,14 @@ ASVS_RE = re.compile(r"^ASVS-V\d+(?:\.\d+)*$")
 # How a requirement may be checked. A closed set, because "verify it somehow"
 # is not a verification method and the downstream automation planned for v2
 # dispatches on this value.
-VERIFICATION_METHODS = risk_mod.EVIDENCE_METHODS
+VERIFICATION_METHODS = {
+    "iac_inspect",    # read infrastructure-as-code or the resolved plan
+    "config_api",     # query the running configuration through a provider API
+    "code_grep",      # locate a construct in the source
+    "test_case",      # an automated test asserts the property
+    "artifact_review", # read a document, report, or agreement
+    "manual",         # a person checks and records the result
+}
 
 # Terms that make a requirement undecidable when they carry the obligation.
 VAGUE = {
@@ -169,10 +174,7 @@ class Finding:
 
 def load_catalog_ids() -> set[str]:
     if not CATALOG_DIR.exists():
-        raise SystemExit(
-            "catalog not built; run "
-            + isolated_script_command("rebuild_catalogs.py")
-        )
+        raise SystemExit("catalog not built; run scripts/rebuild_catalogs.py")
     ids = set()
     for path in CATALOG_DIR.glob("*.jsonl"):
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -560,129 +562,7 @@ def check_statement(req_id: str, statement: str, locale: str) -> list[Finding]:
     return findings
 
 
-def _assessment_risk_ids(assessment: object) -> set[str]:
-    if isinstance(assessment, dict):
-        records = assessment.get("assessments", [])
-        if isinstance(records, list):
-            return {
-                record.get("threat_id")
-                for record in records
-                if isinstance(record, dict) and record.get("threat_id")
-            }
-    return set()
-
-
-def _residual_evidence_refs(assessment: object) -> list[tuple[str, object]]:
-    if not isinstance(assessment, dict):
-        return []
-    records = assessment.get("assessments", [])
-    if not isinstance(records, list):
-        return []
-    result: list[tuple[str, object]] = []
-    for record in records:
-        if not isinstance(record, dict):
-            continue
-        threat_id = record.get("threat_id", "<unknown risk>")
-        residual = record.get("residual")
-        if not isinstance(residual, dict):
-            continue
-        proposed = residual.get("proposed", residual)
-        if not isinstance(proposed, dict):
-            continue
-        containers = [proposed]
-        containers.extend(
-            value
-            for name in ("likelihood", "impact")
-            if isinstance((value := proposed.get(name)), dict)
-        )
-        for container in containers:
-            if "evidence_refs" in container:
-                result.append((threat_id, container.get("evidence_refs")))
-    return result
-
-
-def _check_risk_and_evidence_refs(
-    doc: dict,
-    assessment: dict | None,
-    evidence: dict | None,
-    evaluation_date: date,
-) -> list[Finding]:
-    findings: list[Finding] = []
-    known_risks = _assessment_risk_ids(assessment)
-    for requirement in doc.get("requirements", []) or []:
-        if not isinstance(requirement, dict):
-            continue
-        requirement_id = requirement.get("id", "<no id>")
-        managed = requirement.get("managed") or {}
-        refs = managed.get("risk_refs")
-        if refs is None:
-            continue
-        if not isinstance(refs, list):
-            findings.append(Finding(
-                "ERROR", requirement_id, "risk-ref-format",
-                "risk_refs must be a list",
-            ))
-            continue
-        for reference in refs:
-            if reference not in known_risks:
-                findings.append(Finding(
-                    "ERROR", requirement_id, "risk-ref-unknown",
-                    f"{reference!r} is not a risk assessment",
-                ))
-
-    evidence_records: dict[str, dict] = {}
-    current_evidence: set[str] = set()
-    if isinstance(evidence, dict):
-        records = evidence.get("evidence", [])
-        if isinstance(records, list):
-            for record in records:
-                if isinstance(record, dict) and isinstance(record.get("id"), str):
-                    evidence_records[record["id"]] = record
-        for problem in risk_mod.validate_evidence(evidence, doc, evaluation_date):
-            if "references unknown requirement:" in problem:
-                rule = "evidence-requirement-unknown"
-            elif " is stale because " in problem:
-                rule = "evidence-stale"
-            else:
-                rule = "evidence-invalid"
-            label = problem.split(" ", 1)[0] if problem else "<evidence>"
-            findings.append(Finding("ERROR", label, rule, problem))
-        for evidence_id, record in evidence_records.items():
-            if not risk_mod.validate_evidence(
-                {"evidence": [record]}, doc, evaluation_date
-            ):
-                current_evidence.add(evidence_id)
-
-    for threat_id, refs in _residual_evidence_refs(assessment):
-        if not isinstance(refs, list):
-            findings.append(Finding(
-                "ERROR", threat_id, "evidence-ref-format",
-                "evidence_refs must be a list",
-            ))
-            continue
-        for reference in refs:
-            if reference not in evidence_records:
-                findings.append(Finding(
-                    "ERROR", threat_id, "evidence-ref-unknown",
-                    f"{reference!r} is not an implementation evidence record",
-                ))
-            elif reference not in current_evidence:
-                findings.append(Finding(
-                    "ERROR", threat_id, "evidence-ref-stale",
-                    f"{reference!r} is not current passing evidence",
-                ))
-    return findings
-
-
-def lint(
-    doc: dict,
-    locale: str,
-    threats: dict | None,
-    *,
-    assessment: dict | None = None,
-    evidence: dict | None = None,
-    today: date | None = None,
-) -> list[Finding]:
+def lint(doc: dict, locale: str, threats: dict | None) -> list[Finding]:
     catalog = load_catalog_ids()
     bundled = bundled_families()
     known = known_families()
@@ -862,10 +742,6 @@ def lint(
             findings += check_sources(threat.get("id", "<threat>"),
                                       threat.get("related_controls", []) or [], catalog, bundled, known)
 
-    findings += _check_risk_and_evidence_refs(
-        doc, assessment, evidence, today or date.today()
-    )
-
     return findings
 
 
@@ -873,8 +749,6 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("requirements", type=Path)
     ap.add_argument("--threats", type=Path)
-    ap.add_argument("--assessment", type=Path)
-    ap.add_argument("--evidence", type=Path)
     ap.add_argument("--locale", default="en")
     ap.add_argument("--strict", action="store_true", help="treat warnings as failures")
     args = ap.parse_args()
@@ -894,16 +768,7 @@ def main() -> int:
     if args.threats and args.threats.exists():
         threats = yaml.safe_load(args.threats.read_text(encoding="utf-8"))
 
-    assessment = None
-    if args.assessment and args.assessment.exists():
-        assessment = yaml.safe_load(args.assessment.read_text(encoding="utf-8"))
-    evidence = None
-    if args.evidence and args.evidence.exists():
-        evidence = yaml.safe_load(args.evidence.read_text(encoding="utf-8"))
-
-    findings = lint(
-        doc, args.locale, threats, assessment=assessment, evidence=evidence
-    )
+    findings = lint(doc, args.locale, threats)
     errors = [f for f in findings if f.level == "ERROR"]
     warnings = [f for f in findings if f.level == "WARN"]
 

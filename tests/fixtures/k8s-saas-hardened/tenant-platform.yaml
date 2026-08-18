@@ -1,0 +1,134 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-a
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-b
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tenant-api
+  namespace: tenant-a
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::111111111111:role/tenant-a-read-only
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tenant-api
+  namespace: tenant-a
+  labels:
+    app: tenant-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: tenant-api
+  template:
+    metadata:
+      labels:
+        app: tenant-api
+    spec:
+      serviceAccountName: tenant-api
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: example/tenant-api:1.0.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tenant-db
+                  key: password
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tenant-api
+  namespace: tenant-a
+spec:
+  selector:
+    app: tenant-api
+  ports:
+    - port: 8080
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tenant-db
+  namespace: tenant-a
+type: Opaque
+data:
+  password: cGFzcw==
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tenant-api-read
+  namespace: tenant-a
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tenant-api-read
+  namespace: tenant-a
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tenant-api-read
+subjects:
+  - kind: ServiceAccount
+    name: tenant-api
+    namespace: tenant-a
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tenant-a-default-deny
+  namespace: tenant-a
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: tenant-a-quota
+  namespace: tenant-a
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    limits.cpu: "4"
+    limits.memory: 8Gi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: tenant-a-defaults
+  namespace: tenant-a
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi

@@ -1,0 +1,1321 @@
+{
+  "version": "1",
+  "dimensions": {
+    "tenant_scope": [
+      "one",
+      "subset",
+      "all"
+    ],
+    "data_scope": [
+      "record",
+      "tenant_dataset",
+      "shared_dataset",
+      "platform_dataset"
+    ],
+    "runtime_scope": [
+      "task",
+      "service",
+      "cluster",
+      "account",
+      "region"
+    ],
+    "control_scope": [
+      "feature",
+      "tenant_operations",
+      "control_plane",
+      "platform"
+    ],
+    "recovery_scope": [
+      "local",
+      "tenant_recovery",
+      "platform_recovery",
+      "regional_recovery"
+    ]
+  },
+  "coarse_scopes": [
+    "contained",
+    "tenant",
+    "cross_tenant",
+    "platform",
+    "account_region"
+  ],
+  "results": [
+    {
+      "threat_id": "T-01",
+      "blast_radius": {
+        "tenant_scope": "subset",
+        "data_scope": "tenant_dataset",
+        "runtime_scope": "service",
+        "control_scope": "feature",
+        "recovery_scope": "tenant_recovery"
+      },
+      "coarse_scope": "cross_tenant",
+      "tenant_scope_detail": {
+        "value": "subset",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "tenant-data",
+        "tenant-entry",
+        "tenant-routing",
+        "tenant-service"
+      ],
+      "affected_assets": [
+        {
+          "id": "tenant-data",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "tenant-entry",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "record",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "tenant-routing",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "tenant-service",
+          "responsibility": "team",
+          "confidence": "inferred",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "API Gateway to ALB tenant routing path",
+        "edge:tenant-entry->tenant-routing",
+        "edge:tenant-routing->tenant-service",
+        "edge:tenant-service->tenant-data",
+        "node:tenant-data",
+        "node:tenant-entry",
+        "node:tenant-routing",
+        "node:tenant-service"
+      ],
+      "condition": "if tenant identity is accepted from a client-controlled value",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "test_cross_tenant_request",
+          "verify_tenant_claim_binding"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "medium",
+      "priority_reasons": [
+        "review_required"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-02",
+      "blast_radius": {
+        "tenant_scope": "subset",
+        "data_scope": "tenant_dataset",
+        "runtime_scope": "service",
+        "control_scope": "feature",
+        "recovery_scope": "tenant_recovery"
+      },
+      "coarse_scope": "cross_tenant",
+      "tenant_scope_detail": {
+        "value": "subset",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "tenant-data",
+        "tenant-service"
+      ],
+      "affected_assets": [
+        {
+          "id": "tenant-data",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "tenant-service",
+          "responsibility": "team",
+          "confidence": "inferred",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "ECS task to tenant DynamoDB access path",
+        "edge:tenant-service->tenant-data",
+        "node:tenant-data",
+        "node:tenant-service"
+      ],
+      "condition": "if the tenant key condition is absent or derived from untrusted input",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "inspect_dynamodb_policy",
+          "test_leading_keys_isolation"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "medium",
+      "priority_reasons": [
+        "review_required"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-03",
+      "blast_radius": {
+        "tenant_scope": "subset",
+        "data_scope": "tenant_dataset",
+        "runtime_scope": "service",
+        "control_scope": "feature",
+        "recovery_scope": "tenant_recovery"
+      },
+      "coarse_scope": "cross_tenant",
+      "tenant_scope_detail": {
+        "value": "subset",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "tenant-data",
+        "tenant-entry",
+        "tenant-routing",
+        "tenant-service"
+      ],
+      "affected_assets": [
+        {
+          "id": "tenant-data",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "tenant-entry",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "record",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "tenant-routing",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "tenant-service",
+          "responsibility": "team",
+          "confidence": "inferred",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "authorizer-to-integration tenantPath mapping",
+        "edge:tenant-entry->tenant-routing",
+        "edge:tenant-routing->tenant-service",
+        "edge:tenant-service->tenant-data",
+        "node:tenant-data",
+        "node:tenant-entry",
+        "node:tenant-routing",
+        "node:tenant-service"
+      ],
+      "condition": "if downstream code trusts a caller-controlled tenantPath",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "inspect_authorizer_mapping",
+          "test_route_tenant_mismatch"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "medium",
+      "priority_reasons": [
+        "review_required"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-04",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "platform_dataset",
+        "runtime_scope": "account",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "lifecycle-event",
+        "platform-entry",
+        "provisioner",
+        "tenant-stack"
+      ],
+      "affected_assets": [
+        {
+          "id": "lifecycle-event",
+          "responsibility": "team",
+          "confidence": "inferred",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "platform-entry",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "record",
+            "runtime_scope": "service",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "provisioner",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "tenant-stack",
+          "responsibility": "shared",
+          "confidence": "inferred",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "cluster",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "tenant_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "edge:lifecycle-event->provisioner",
+        "edge:platform-entry->lifecycle-event",
+        "edge:provisioner->tenant-stack",
+        "node:lifecycle-event",
+        "node:platform-entry",
+        "node:provisioner",
+        "node:tenant-stack",
+        "tenant management API boundary"
+      ],
+      "condition": "if tenant-admin permissions reach platform management operations",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "review_management_iam",
+          "test_persona_authorization"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-05",
+      "blast_radius": {
+        "tenant_scope": "subset",
+        "data_scope": "tenant_dataset",
+        "runtime_scope": "region",
+        "control_scope": "tenant_operations",
+        "recovery_scope": "tenant_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "subset",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "offboard-handler",
+        "tenant-backups",
+        "tenant-data"
+      ],
+      "affected_assets": [
+        {
+          "id": "offboard-handler",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "tenant-backups",
+          "responsibility": "shared",
+          "confidence": "inferred",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "region",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "tenant-data",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "edge:offboard-handler->tenant-backups",
+        "edge:offboard-handler->tenant-data",
+        "node:offboard-handler",
+        "node:tenant-backups",
+        "node:tenant-data",
+        "tenant deprovisioning path"
+      ],
+      "condition": "if deletion runs before export, retention, and approval checks",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "review_deletion_change",
+          "review_offboarding_runbook"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "review_required"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-06",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "platform_dataset",
+        "runtime_scope": "account",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "lifecycle-event",
+        "platform-entry",
+        "provisioner",
+        "tenant-stack"
+      ],
+      "affected_assets": [
+        {
+          "id": "lifecycle-event",
+          "responsibility": "team",
+          "confidence": "inferred",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "platform-entry",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "record",
+            "runtime_scope": "service",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "provisioner",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "tenant-stack",
+          "responsibility": "shared",
+          "confidence": "inferred",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "cluster",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "tenant_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "EventBridge lifecycle event path",
+        "edge:lifecycle-event->provisioner",
+        "edge:platform-entry->lifecycle-event",
+        "edge:provisioner->tenant-stack",
+        "node:lifecycle-event",
+        "node:platform-entry",
+        "node:provisioner",
+        "node:tenant-stack"
+      ],
+      "condition": "if lifecycle events lack origin, tenant, action, or replay validation",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "inspect_event_authorization",
+          "test_event_replay"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-07",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "platform_dataset",
+        "runtime_scope": "account",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "lifecycle-event",
+        "platform-entry",
+        "provisioner",
+        "tenant-stack"
+      ],
+      "affected_assets": [
+        {
+          "id": "lifecycle-event",
+          "responsibility": "team",
+          "confidence": "inferred",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "platform-entry",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "record",
+            "runtime_scope": "service",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "provisioner",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "tenant-stack",
+          "responsibility": "shared",
+          "confidence": "inferred",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "cluster",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "tenant_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "edge:lifecycle-event->provisioner",
+        "edge:platform-entry->lifecycle-event",
+        "edge:provisioner->tenant-stack",
+        "node:lifecycle-event",
+        "node:platform-entry",
+        "node:provisioner",
+        "node:tenant-stack",
+        "onboarding invokes account-level automation"
+      ],
+      "condition": "if onboarding has no tenant-aware quota or admission control",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "review_service_quotas",
+          "test_onboarding_throttle"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-08",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "platform_dataset",
+        "runtime_scope": "account",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "lifecycle-event",
+        "platform-entry",
+        "provisioner",
+        "tenant-stack"
+      ],
+      "affected_assets": [
+        {
+          "id": "lifecycle-event",
+          "responsibility": "team",
+          "confidence": "inferred",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "platform-entry",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "record",
+            "runtime_scope": "service",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "provisioner",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "tenant-stack",
+          "responsibility": "shared",
+          "confidence": "inferred",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "cluster",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "tenant_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "edge:lifecycle-event->provisioner",
+        "edge:platform-entry->lifecycle-event",
+        "edge:provisioner->tenant-stack",
+        "node:lifecycle-event",
+        "node:platform-entry",
+        "node:provisioner",
+        "node:tenant-stack",
+        "provisioning input reaches deployment tooling"
+      ],
+      "condition": "if tenant and deployment parameters are not allowlisted",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "inspect_subprocess_arguments",
+          "test_provisioning_validation"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-09",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "shared_dataset",
+        "runtime_scope": "service",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "platform",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "mapping-role",
+        "mapping-table"
+      ],
+      "affected_assets": [
+        {
+          "id": "mapping-role",
+          "responsibility": "team",
+          "confidence": "inferred",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "task",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "mapping-table",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "shared_dataset",
+            "runtime_scope": "service",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "custom resource role to mapping table",
+        "edge:mapping-role->mapping-table",
+        "node:mapping-role",
+        "node:mapping-table"
+      ],
+      "condition": "if the Lambda role has wildcard or unrelated resource permissions",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "inspect_mapping_role",
+          "test_out_of_scope_access"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-10",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "shared_dataset",
+        "runtime_scope": "region",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "log-emitter",
+        "shared-logs"
+      ],
+      "affected_assets": [
+        {
+          "id": "log-emitter",
+          "responsibility": "team",
+          "confidence": "inferred",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "shared-logs",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "shared_dataset",
+            "runtime_scope": "region",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "application and control-plane logs enter shared destinations",
+        "edge:log-emitter->shared-logs",
+        "node:log-emitter",
+        "node:shared-logs"
+      ],
+      "condition": "if logs retain tokens, credentials, or unnecessary customer data",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "inspect_log_schema",
+          "run_log_redaction_tests"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-11",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "platform_dataset",
+        "runtime_scope": "account",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "deployment-role",
+        "tenant-stack"
+      ],
+      "affected_assets": [
+        {
+          "id": "deployment-role",
+          "responsibility": "shared",
+          "confidence": "inferred",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "platform_dataset",
+            "runtime_scope": "account",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "tenant-stack",
+          "responsibility": "shared",
+          "confidence": "inferred",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "cluster",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "tenant_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "CI/CD role reaches tenant stacks and account resources",
+        "edge:deployment-role->tenant-stack",
+        "node:deployment-role",
+        "node:tenant-stack"
+      ],
+      "condition": "if a pipeline stage role can modify resources outside its scope",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "inspect_pipeline_iam",
+          "test_out_of_scope_deploy"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required",
+        "shared_or_platform_data"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-12",
+      "blast_radius": {
+        "tenant_scope": "all",
+        "data_scope": "tenant_dataset",
+        "runtime_scope": "cluster",
+        "control_scope": "platform",
+        "recovery_scope": "platform_recovery"
+      },
+      "coarse_scope": "platform",
+      "tenant_scope_detail": {
+        "value": "all",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "shared-capacity",
+        "tenant-data",
+        "tenant-service"
+      ],
+      "affected_assets": [
+        {
+          "id": "shared-capacity",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "all",
+            "data_scope": "record",
+            "runtime_scope": "cluster",
+            "control_scope": "platform",
+            "recovery_scope": "platform_recovery"
+          }
+        },
+        {
+          "id": "tenant-data",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "tenant-service",
+          "responsibility": "team",
+          "confidence": "inferred",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "edge:shared-capacity->tenant-service",
+        "edge:tenant-service->tenant-data",
+        "node:shared-capacity",
+        "node:tenant-data",
+        "node:tenant-service",
+        "shared ECS service capacity"
+      ],
+      "condition": "if pooled capacity has no tenant-aware throttling or quotas",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "review_ecs_capacity",
+          "run_noisy_tenant_test"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "all_tenants",
+        "platform_control",
+        "platform_or_regional_recovery",
+        "review_required"
+      ],
+      "review_required": true
+    },
+    {
+      "threat_id": "T-13",
+      "blast_radius": {
+        "tenant_scope": "subset",
+        "data_scope": "tenant_dataset",
+        "runtime_scope": "region",
+        "control_scope": "tenant_operations",
+        "recovery_scope": "tenant_recovery"
+      },
+      "coarse_scope": "account_region",
+      "tenant_scope_detail": {
+        "value": "subset",
+        "estimate": null,
+        "total": null,
+        "ratio": null
+      },
+      "affected_nodes": [
+        "offboard-handler",
+        "tenant-backups",
+        "tenant-data"
+      ],
+      "affected_assets": [
+        {
+          "id": "offboard-handler",
+          "responsibility": "team",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "tenant-backups",
+          "responsibility": "shared",
+          "confidence": "inferred",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "region",
+            "control_scope": "tenant_operations",
+            "recovery_scope": "tenant_recovery"
+          }
+        },
+        {
+          "id": "tenant-data",
+          "responsibility": "shared",
+          "confidence": "confirmed",
+          "scope": {
+            "tenant_scope": "subset",
+            "data_scope": "tenant_dataset",
+            "runtime_scope": "service",
+            "control_scope": "feature",
+            "recovery_scope": "tenant_recovery"
+          }
+        }
+      ],
+      "responsibility": [
+        "shared",
+        "team"
+      ],
+      "confidence": "inferred",
+      "basis": [
+        "destructive offboarding reaches tenant data and backups",
+        "edge:offboard-handler->tenant-backups",
+        "edge:offboard-handler->tenant-data",
+        "node:offboard-handler",
+        "node:tenant-backups",
+        "node:tenant-data"
+      ],
+      "condition": "if removal policy or deprovisioning deletes data without recovery evidence",
+      "validation": {
+        "status": "unreviewed",
+        "required_checks": [
+          "review_removal_policies",
+          "verify_backup_restore"
+        ]
+      },
+      "review": {
+        "status": "unreviewed",
+        "reviewer": null,
+        "reviewed_at": null,
+        "evidence": [],
+        "expires_at": null
+      },
+      "priority_floor": "high",
+      "priority_reasons": [
+        "account_or_region_runtime",
+        "review_required"
+      ],
+      "review_required": true
+    }
+  ]
+}
