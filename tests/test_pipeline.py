@@ -361,7 +361,7 @@ def test_blast_radius_expansion_gate_returns_nonzero(tmp_path):
         "tenant_scope": "one", "data_scope": "record", "runtime_scope": "task",
         "control_scope": "feature", "recovery_scope": "local"}, "priority_floor": "medium"}]}),
                          encoding="utf-8")
-    result = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "blast_radius.py"),
+    result = subprocess.run([sys.executable, str(PLUGIN_ROOT / "scripts" / "blast_radius.py"),
                              "--threats", str(threats), "--graph", str(graph),
                              "--out", str(output), "--previous", str(previous),
                              "--fail-on-expansion"], capture_output=True, text=True)
