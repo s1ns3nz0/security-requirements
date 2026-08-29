@@ -13,6 +13,36 @@ import tempfile
 import yaml
 
 
+ADVERSARIAL_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "adversarial-checkout"
+# Shipped under a neutral name, materialised under its real one. Keeping a real
+# .env out of the tracked tree means local credential guards and repository
+# scanners have nothing to trip over, while the tree under scan still carries
+# the filename lint.py keys on.
+_MATERIALISED_NAMES = {"env.fixture": ".env"}
+
+
+def materialise_adversarial_fixture(destination: Path) -> Path:
+    """Assemble the adversarial repository fixture inside a temporary tree.
+
+    Tests write artifacts. Building the fixture in ``tmp_path`` rather than
+    pointing them at ``tests/fixtures/`` means a run cannot leave anything
+    behind in the repository, and one test cannot see another's writes.
+    """
+
+    root = destination / "adversarial-checkout"
+    for source in sorted(ADVERSARIAL_FIXTURE.rglob("*")):
+        if not source.is_file():
+            continue
+        relative = source.relative_to(ADVERSARIAL_FIXTURE)
+        name = _MATERIALISED_NAMES.get(relative.name, relative.name)
+        target = root / relative.parent / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(source.read_bytes())
+    if not (root / ".env").is_file():
+        raise AssertionError("adversarial fixture did not materialise its .env")
+    return root
+
+
 def consequence(id: str, criterion: str) -> dict:
     return {
         "id": id,
