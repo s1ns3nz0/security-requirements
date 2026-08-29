@@ -125,6 +125,9 @@ responsibility/services/aws-s3.yaml
 responsibility/services/aws-sqs.yaml
 responsibility/services/azure-blob.yaml
 responsibility/services/gcp-gke.yaml
+risk/appetite/conservative.yaml
+risk/appetite/standard.yaml
+risk/appetite/tolerant.yaml
 risk/default-policy.yaml
 scripts/apply_overlay.py
 scripts/axis_coverage.py
