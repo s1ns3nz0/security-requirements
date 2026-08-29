@@ -48,6 +48,18 @@ SNAPSHOT_FIELDS = (
     "evidence_refs",
 )
 ASSESSMENT_STATUSES = {"CONFIRMED", "UNDETERMINED", "PROPOSED", "STALE"}
+# The CIA axis a consequence lands on. Long form, matching what the golden
+# fixtures and tests/risk_helpers.py already write. Deliberately not named
+# AXES: overlays/soc2/meta.yaml uses the same key name for a different
+# vocabulary, and every `axis` parameter elsewhere in this module names the
+# likelihood/impact scoring dimension instead.
+CONSEQUENCE_AXES = {"confidentiality", "integrity", "availability"}
+# Authored long form in, report short form out. The report contract (plan §4.2)
+# keys the cia block by letter; the documents on disk spell the axis out.
+CIA_OUTPUT_KEYS = {"confidentiality": "c", "integrity": "i", "availability": "a"}
+# Evidence provenance, a separate axis from ASSESSMENT_STATUSES above.
+# CONFIRMED + inferred is a legal record.
+EVIDENCE_STATUSES = {"observed", "inferred", "unverified"}
 LIFELIHOOD_EVIDENCE_FIELDS = (
     "exposure",
     "access_required",
@@ -153,28 +165,40 @@ def _require_rationale(value: Any, label: str) -> None:
         raise RiskValidationError(f"{label} rationale is required")
 
 
-def calculate_inherent(policy: dict, proposed: dict) -> dict:
-    """Calculate inherent risk from criterion IDs and explicit consequences."""
+def impact_floor(policy: dict, level: str) -> int:
+    """Resolve a FIPS 199 impact level to its bounded consequence floor."""
 
-    if not isinstance(proposed, Mapping):
-        raise RiskValidationError("assessment proposal must be a mapping")
-    likelihood_data = proposed.get("likelihood")
-    if not isinstance(likelihood_data, Mapping):
-        raise RiskValidationError("likelihood proposal is required")
-    _require_rationale(likelihood_data.get("rationale"), "likelihood")
+    floors = policy.get("impact_floor")
+    if not isinstance(floors, Mapping):
+        raise RiskValidationError("policy impact_floor is required")
     try:
-        likelihood_criterion = likelihood_data["criterion"]
-    except KeyError as exc:
-        raise RiskValidationError("likelihood criterion is required") from exc
-    likelihood = criterion_score(policy, "likelihood", likelihood_criterion)
+        value = floors[level]
+    except (KeyError, TypeError) as exc:
+        raise RiskValidationError(f"unknown impact level: {level}") from exc
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 5:
+        raise RiskValidationError(f"impact floor for {level} is invalid")
+    return value
 
-    consequences = proposed.get("consequences")
-    if not isinstance(consequences, Sequence) or isinstance(consequences, (str, bytes)):
-        raise RiskValidationError("at least one consequence is required")
-    if not consequences:
-        raise RiskValidationError("at least one consequence is required")
 
-    impacts: list[int] = []
+def _profile_impact_level(profile_impact: Mapping, axis: str) -> str | None:
+    """Read one axis level out of the derived FIPS 199 impact block."""
+
+    entry = profile_impact.get(axis)
+    if isinstance(entry, Mapping):
+        entry = entry.get("level")
+    return entry if isinstance(entry, str) and entry else None
+
+
+def _scored_consequences(
+    policy: dict, consequences: Sequence, profile_impact: Mapping | None = None
+) -> list[dict]:
+    """Validate and score every consequence exactly once.
+
+    The single walk behind both the overall impact and the per-axis CIA block,
+    so there is one scorer rather than two that can drift apart.
+    """
+
+    rows: list[dict] = []
     consequence_ids: set[str] = set()
     for item in consequences:
         if not isinstance(item, Mapping):
@@ -190,7 +214,94 @@ def calculate_inherent(policy: dict, proposed: dict) -> dict:
             criterion = item["criterion"]
         except KeyError as exc:
             raise RiskValidationError("consequence criterion is required") from exc
-        impacts.append(criterion_score(policy, "impact", criterion))
+        score = criterion_score(policy, "impact", criterion)
+        # A consequence written before the field existed carries no axis; its
+        # absence stays legal, an unrecognised value never does.
+        axis = item.get("axis")
+        if axis is not None and axis not in CONSEQUENCE_AXES:
+            raise RiskValidationError(f"unknown consequence axis: {axis}")
+        if profile_impact is not None and axis is not None:
+            level = _profile_impact_level(profile_impact, axis)
+            if level is not None:
+                floor = impact_floor(policy, level)
+                if score < floor:
+                    raise RiskValidationError(
+                        f"consequence {consequence_id} {axis} score {score} is below "
+                        f"the {level} floor {floor}"
+                    )
+                if score > floor:
+                    _require_rationale(
+                        item.get("raise_reason"), "raise above the floor"
+                    )
+        rows.append({"id": consequence_id, "axis": axis, "score": score})
+    return rows
+
+
+def _require_consequences(proposed: dict) -> Sequence:
+    if not isinstance(proposed, Mapping):
+        raise RiskValidationError("assessment proposal must be a mapping")
+    consequences = proposed.get("consequences")
+    if not isinstance(consequences, Sequence) or isinstance(consequences, (str, bytes)):
+        raise RiskValidationError("at least one consequence is required")
+    if not consequences:
+        raise RiskValidationError("at least one consequence is required")
+    return consequences
+
+
+def cia_scores(
+    policy: dict, proposed: dict, *, profile_impact: Mapping | None = None
+) -> dict:
+    """Derive the per-axis CIA block from axis-tagged consequences.
+
+    A sibling of the ``calculated`` block, not a member of it — see plan §4.2,
+    where ``cia`` and ``calculated`` sit side by side on the finding. Keeping
+    it out of ``calculate_inherent``'s return is what lets the stored
+    ``calculated`` contract stay at four keys.
+
+    Input axes are long form; output keys are the short form the report
+    contract uses. Axes with no consequence are absent rather than zero.
+    """
+
+    scored = _scored_consequences(
+        policy, _require_consequences(proposed), profile_impact
+    )
+    block: dict = {}
+    for row in scored:
+        if row["axis"] is None:
+            continue
+        key = CIA_OUTPUT_KEYS[row["axis"]]
+        block[key] = max(block.get(key, 0), row["score"])
+    return block
+
+
+def calculate_inherent(
+    policy: dict, proposed: dict, *, profile_impact: Mapping | None = None
+) -> dict:
+    """Calculate inherent risk from criterion IDs and explicit consequences.
+
+    ``profile_impact`` is the derived FIPS 199 block ``select_baseline.py``
+    emits. When supplied, each axis-tagged consequence is held to the policy's
+    ``impact_floor``: below it is rejected rather than clamped, and above it
+    requires a written ``raise_reason``. Omitted, the arithmetic is unchanged.
+    """
+
+    if not isinstance(proposed, Mapping):
+        raise RiskValidationError("assessment proposal must be a mapping")
+    likelihood_data = proposed.get("likelihood")
+    if not isinstance(likelihood_data, Mapping):
+        raise RiskValidationError("likelihood proposal is required")
+    _require_rationale(likelihood_data.get("rationale"), "likelihood")
+    try:
+        likelihood_criterion = likelihood_data["criterion"]
+    except KeyError as exc:
+        raise RiskValidationError("likelihood criterion is required") from exc
+    likelihood = criterion_score(policy, "likelihood", likelihood_criterion)
+
+    scored = _scored_consequences(
+        policy, _require_consequences(proposed), profile_impact
+    )
+    impacts = [row["score"] for row in scored]
+    consequence_ids = {row["id"] for row in scored}
 
     impact_data = proposed.get("impact")
     if not isinstance(impact_data, Mapping):
@@ -199,7 +310,7 @@ def calculate_inherent(policy: dict, proposed: dict) -> dict:
     if selected_from not in consequence_ids:
         raise RiskValidationError("impact selected_from must identify a consequence")
     selected_index = next(
-        index for index, item in enumerate(consequences) if item["id"] == selected_from
+        index for index, row in enumerate(scored) if row["id"] == selected_from
     )
     impact = max(impacts)
     if impacts[selected_index] != impact:
@@ -667,6 +778,11 @@ def _validate_threats(threats_doc: dict) -> tuple[list[str], list[dict]]:
                 problems.append(f"{label} {field} must be a list")
         if not isinstance(threat.get("lifecycle"), Mapping):
             problems.append(f"{label} lifecycle is required")
+        # Provenance is optional on a record that predates the field, and closed
+        # to three values when present. Independent of the lifecycle status.
+        evidence_status = threat.get("evidence_status")
+        if evidence_status is not None and evidence_status not in EVIDENCE_STATUSES:
+            problems.append(f"{label} evidence_status is invalid")
 
     try:
         active = active_threats(threats_doc)
@@ -722,6 +838,11 @@ def _validated_calculation(
 
     problems = _validate_likelihood_evidence(threat_id, proposed)
     problems.extend(_validate_scope_expansion(threat_id, proposed))
+    # The cia block is derived from axis-tagged consequences. A declared one is
+    # the same class of claim as a declared score, and is refused the same way.
+    for carrier in (record, proposed):
+        if carrier.get("cia") is not None:
+            problems.append(f"{threat_id} cia is derived, not declared")
     try:
         calculated = calculate_inherent(policy, dict(proposed))
     except RiskValidationError as exc:

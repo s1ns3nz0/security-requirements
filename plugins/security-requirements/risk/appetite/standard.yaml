@@ -1,0 +1,23 @@
+# Risk-appetite policy selected by --risk-appetite.
+# Thresholds are identical across all three: appetite moves the consequence
+# floor and the release threshold, never the band arithmetic.
+version: 0.2.0
+thresholds:
+- min: 1
+  max: 4
+  rating: low
+- min: 5
+  max: 9
+  rating: medium
+- min: 10
+  max: 16
+  rating: high
+- min: 17
+  max: 25
+  rating: critical
+impact_floor:
+  low: 2
+  moderate: 3
+  high: 4
+release_threshold_rating: high
+publish_risk_summary: false
