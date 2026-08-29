@@ -490,8 +490,23 @@ def check_public_safety(req_id: str, managed: dict) -> list[Finding]:
             f"one particular resource answers \"where the data lives\" -- name the "
             f"kind of thing instead, or cite a recognised source."))
 
+    def report_key_material(name: str, what: str, fingerprint: str) -> None:
+        # Location and fingerprint, never the value. A finding that quotes the
+        # credential has copied it into the lint output, the CI log, and the
+        # ticket someone pastes it into -- one disclosure becomes four.
+        #
+        # ERROR for the same reason as above: publication cannot be undone, and
+        # WARN is the level this linter uses for prose quality.
+        findings.append(Finding(
+            "ERROR", req_id, "key-material",
+            f"managed.{name} contains {what} (fingerprint {fingerprint}). This "
+            f"field is published. Remove the credential and rotate it -- quoting "
+            f"it here has already put it in the lint output."))
+
     for name, value in fields.items():
         text = "; ".join(map(str, value)) if isinstance(value, (list, tuple)) else str(value or "")
+        for what, fingerprint in risk_mod.key_material_problems(text):
+            report_key_material(name, what, fingerprint)
         # Every distinct problem in the field, not the first. Reporting one at a
         # time turns a draft with three disclosures into three rounds of lint,
         # fix, lint -- and the author has no way to know how many are left.
