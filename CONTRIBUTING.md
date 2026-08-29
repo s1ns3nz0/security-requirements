@@ -117,7 +117,17 @@ support older Python versions.
 python3 -I plugins/security-requirements/scripts/rebuild_catalogs.py  # rebuild from upstream
 python3 -m pytest tests/                # deterministic layer
 python3 -I plugins/security-requirements/scripts/lint.py <requirements>  # source integrity and style gate
+python3 tools/update_test_count.py    # after adding or removing tests
 ```
+
+The README states how many tests the deterministic layer collects, and
+`test_the_test_count_on_the_front_page_is_the_test_count` enforces it. The
+number is generated, not typed: run `update_test_count.py` after changing the
+suite, or `--check` to report staleness without touching the tree.
+
+If two branches conflict on that line, resolve it by running the script rather
+than by choosing a number. Neither side is usually right — each branch counts
+only its own tests, while the merged tree collects both.
 
 ## Validating a distributable clone
 
