@@ -338,3 +338,157 @@ def test_the_shipped_appetite_policy_data_defines_an_impact_floor() -> None:
     standard = risk.load_policy(APPETITE_DIR / "standard.yaml")
     assert standard["thresholds"] == default_policy["thresholds"]
     assert standard["impact_floor"] == STANDARD_IMPACT_FLOOR
+
+
+# ---------------------------------------------------------------------------
+# N4 — below the floor is rejected, never clamped
+# ---------------------------------------------------------------------------
+
+
+def test_a_confidentiality_consequence_below_the_moderate_floor_is_rejected_not_clamped(
+    standard_policy: dict,
+) -> None:
+    """Plan §5.5 / §7 constraint 4, id N4.
+
+    Profile `moderate` puts the confidentiality floor at 3. An `I2` scores 2,
+    which is under it. The engine must refuse the record outright: a result
+    whose impact was quietly lifted to 3 would be a fabricated assessment, so
+    the assertion is that the call raises rather than returns.
+    """
+
+    assert risk.impact_floor(standard_policy, "moderate") == 3
+
+    proposed = _proposal(
+        "L2-RESTRICTED",
+        [_consequence("C-01", "I2-LIMITED-SCOPE", axis="confidentiality")],
+    )
+
+    with pytest.raises(risk.RiskValidationError) as excinfo:
+        risk.calculate_inherent(
+            standard_policy,
+            proposed,
+            profile_impact=_profile_impact("moderate"),
+        )
+
+    # Wording read from risk.py `_scored_consequences`, not guessed.
+    assert str(excinfo.value) == (
+        "consequence C-01 confidentiality score 2 is below the moderate floor 3"
+    )
+
+
+def test_the_below_floor_rejection_names_the_consequence_and_the_floor(
+    standard_policy: dict,
+) -> None:
+    """An author has to know *which* record failed and *what* it must clear."""
+
+    proposed = _proposal(
+        "L2-RESTRICTED",
+        [_consequence("C-42", "I1-LOCAL-RECOVERABLE", axis="confidentiality")],
+    )
+
+    with pytest.raises(risk.RiskValidationError) as excinfo:
+        risk.calculate_inherent(
+            standard_policy,
+            proposed,
+            profile_impact=_profile_impact("moderate"),
+        )
+
+    message = str(excinfo.value)
+    assert "C-42" in message  # the consequence
+    assert "confidentiality" in message  # the axis it failed on
+    assert "moderate" in message  # the profile level driving the floor
+    assert "3" in message  # the floor it had to clear
+    assert "1" in message  # the score it actually carried
+
+
+def test_the_floor_is_applied_per_axis_and_not_globally(standard_policy: dict) -> None:
+    """The same `I2` is legal on a `low` axis and rejected on a `moderate` one.
+
+    One profile, two different axis levels. If the floor were a single global
+    number both calls would agree; they must not.
+    """
+
+    mixed = _profile_impact("moderate")
+    mixed["integrity"] = {"level": "low", "because": ["ordinary catalogue writes"]}
+
+    assert risk.impact_floor(standard_policy, "low") == 2
+    assert risk.impact_floor(standard_policy, "moderate") == 3
+
+    on_low_axis = risk.calculate_inherent(
+        standard_policy,
+        _proposal(
+            "L2-RESTRICTED",
+            [_consequence("C-01", "I2-LIMITED-SCOPE", axis="integrity")],
+        ),
+        profile_impact=mixed,
+    )
+    # Sits exactly on the `low` floor, and is reported at its authored score.
+    assert on_low_axis["impact"] == 2
+
+    with pytest.raises(risk.RiskValidationError) as excinfo:
+        risk.calculate_inherent(
+            standard_policy,
+            _proposal(
+                "L2-RESTRICTED",
+                [_consequence("C-01", "I2-LIMITED-SCOPE", axis="confidentiality")],
+            ),
+            profile_impact=mixed,
+        )
+
+    assert "confidentiality" in str(excinfo.value)
+    assert "integrity" not in str(excinfo.value)
+
+
+def test_a_below_floor_consequence_is_rejected_even_with_a_written_raise_reason(
+    standard_policy: dict,
+) -> None:
+    """A written reason gates a *raise*; it never excuses being under the floor.
+
+    Plan §7 constraint 5 buys an author the right to go above the floor. The
+    error raised here must still be the below-floor one, not the rationale one,
+    or a reason would be a way to smuggle an under-scored record through.
+    """
+
+    proposed = _proposal(
+        "L2-RESTRICTED",
+        [
+            _consequence(
+                "C-01",
+                "I2-LIMITED-SCOPE",
+                axis="confidentiality",
+                raise_reason=["the catalogue rows are already public"],
+            )
+        ],
+    )
+
+    with pytest.raises(risk.RiskValidationError) as excinfo:
+        risk.calculate_inherent(
+            standard_policy,
+            proposed,
+            profile_impact=_profile_impact("moderate"),
+        )
+
+    assert "is below the moderate floor 3" in str(excinfo.value)
+    assert "rationale" not in str(excinfo.value)
+
+
+def test_a_below_floor_consequence_scores_normally_with_no_profile_impact(
+    standard_policy: dict,
+) -> None:
+    """Sanity guard: the floor engages only when `profile_impact` is passed.
+
+    Every assessment written before the floor existed must keep calculating,
+    at its authored score, with no clamping and no rejection.
+    """
+
+    proposed = _proposal(
+        "L2-RESTRICTED",
+        [_consequence("C-01", "I2-LIMITED-SCOPE", axis="confidentiality")],
+    )
+
+    result = risk.calculate_inherent(standard_policy, proposed)
+
+    assert result["impact"] == 2
+    assert result["likelihood"] == 2
+    assert result["score"] == 4
+    assert result["rating"] == "low"

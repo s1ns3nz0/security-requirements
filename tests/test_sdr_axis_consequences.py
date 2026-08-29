@@ -245,3 +245,106 @@ def test_delta_carrying_a_literal_cia_object_is_rejected(policy):
     assert any(
         "cia" in problem.lower() for problem in in_delta
     ), f"a literal cia object inside the delta was accepted: {in_delta}"
+
+
+# --- N1: the worked example, end to end -------------------------------------
+
+
+def _n1_consequences() -> list[dict]:
+    """Plan §11.2 N1, written in the input vocabulary.
+
+    N1 is spelled ``{c: I3}, {i: I4}, {a: I2}``, but the short letters are
+    output keys, not input. Plan §5.3 is long form in, short form out: the
+    authored ``axis`` values are the members of ``risk.CONSEQUENCE_AXES``
+    (``risk.py:56``) and the letters are produced by ``risk.cia_scores`` through
+    ``risk.CIA_OUTPUT_KEYS`` (``risk.py:59``). So ``{c: I3}`` is authored as
+    ``axis="confidentiality"`` with criterion ``I3-CORE-SERVICE``.
+    """
+
+    return [
+        _consequence("C-01", "I3-CORE-SERVICE", axis="confidentiality"),
+        _consequence("C-02", "I4-CROSS-SYSTEM", axis="integrity"),
+        _consequence("C-03", "I2-LIMITED-SCOPE", axis="availability"),
+    ]
+
+
+def test_three_axis_tagged_consequences_score_from_the_highest_axis(policy):
+    """N1. L4 over confidentiality I3, integrity I4, availability I2.
+
+    The whole worked example in one place: likelihood 4, impact 4 (integrity is
+    the highest axis), score 16, rating "high". The impact is not the sum or
+    the mean of the three axes, it is the max, which is the same ``max(impacts)``
+    the untagged path already used.
+    """
+
+    proposed = _proposal(_n1_consequences(), selected_from="C-02")
+
+    calculated = risk.calculate_inherent(policy, proposed)
+
+    assert calculated["likelihood"] == 4
+    assert calculated["impact"] == 4
+    assert calculated["score"] == 16
+    assert calculated["rating"] == "high"
+
+
+def test_axis_tagged_scoring_keeps_the_four_key_calculated_contract(policy):
+    """N1. The derived block is a sibling; ``calculated`` stays at four keys.
+
+    Load-bearing: ``risk_helpers._golden_report`` compares a stored
+    ``calculated`` block by exact equality, so a fifth key -- ``cia`` most of
+    all -- breaks every golden fixture. ``risk.cia_scores`` is the separate
+    entry point, and its values feed the same arithmetic: the overall impact is
+    the largest of them, not a second opinion computed elsewhere.
+    """
+
+    proposed = _proposal(_n1_consequences(), selected_from="C-02")
+
+    calculated = risk.calculate_inherent(policy, proposed)
+    cia = risk.cia_scores(policy, proposed)
+
+    assert list(calculated) == ["likelihood", "impact", "score", "rating"]
+    assert "cia" not in calculated
+    assert _axis_scores(cia) == {"c": 3, "i": 4, "a": 2}
+    assert calculated["impact"] == max(_axis_scores(cia).values())
+
+
+@pytest.mark.parametrize(
+    ("selected_from", "axis"),
+    [("C-01", "confidentiality"), ("C-03", "availability")],
+)
+def test_impact_selected_from_must_name_the_highest_axis_consequence(
+    policy, selected_from, axis
+):
+    """N1. Naming any axis below integrity is rejected, not silently corrected.
+
+    ``selected_from`` is the author's claim about which consequence drives the
+    impact. When it disagrees with the arithmetic the claim is wrong, and
+    ``calculate_inherent`` is a calculation function, so the house convention
+    (plan §10.1) is to raise ``RiskValidationError`` rather than return
+    problems or quietly score the max anyway.
+    """
+
+    proposed = _proposal(_n1_consequences(), selected_from=selected_from)
+
+    with pytest.raises(risk.RiskValidationError) as excinfo:
+        risk.calculate_inherent(policy, proposed)
+
+    assert str(excinfo.value) == (
+        "impact selected_from must identify the highest consequence"
+    ), f"the {axis} consequence was accepted as the impact driver"
+
+
+def test_impact_selected_from_names_the_integrity_consequence(policy):
+    """N1. The counterpart: the highest axis is the one that is accepted.
+
+    Paired with the rejection above so the error is known to be about *which*
+    consequence was named, not about axis tagging making the check stricter.
+    """
+
+    proposed = _proposal(_n1_consequences(), selected_from="C-02")
+    integrity_ids = [
+        row["id"] for row in _n1_consequences() if row["axis"] == "integrity"
+    ]
+
+    assert integrity_ids == ["C-02"]
+    assert risk.calculate_inherent(policy, proposed)["impact"] == 4
