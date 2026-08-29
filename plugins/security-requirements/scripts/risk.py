@@ -748,6 +748,54 @@ def threat_digest(threat: dict) -> str:
     return canonical_digest(material)
 
 
+# The same fields with the identifier removed. `threat_digest` binds a
+# confirmation to one record and therefore includes `id`, which makes it useless
+# for spotting the same threat entered twice: two ids always give two digests.
+# Deduplication and binding are different jobs and need different keys.
+MATERIAL_THREAT_FIELDS = tuple(
+    field for field in THREAT_DIGEST_FIELDS if field != "id"
+)
+
+
+def threat_material_digest(threat: dict) -> str:
+    """Digest what a threat *says*, ignoring which id it was filed under."""
+
+    if not isinstance(threat, Mapping):
+        raise RiskValidationError("threat must be a mapping")
+    return canonical_digest(
+        {key: threat.get(key) for key in MATERIAL_THREAT_FIELDS}
+    )
+
+
+def _duplicate_threat_pairs(threats: Sequence) -> list[tuple[str, str]]:
+    """(first_id, duplicate_id) for every record repeating an earlier one.
+
+    Ordered by appearance so the report is deterministic.
+    """
+
+    first_seen: dict[str, str] = {}
+    duplicates: list[tuple[str, str]] = []
+    for threat in threats:
+        if not isinstance(threat, Mapping):
+            continue
+        threat_id = threat.get("id")
+        if not isinstance(threat_id, str) or not threat_id:
+            continue
+        # Active records only. Superseding a threat routinely produces a
+        # replacement identical in every material field -- that is the
+        # supersede pattern working, not a document saying the same thing
+        # twice -- and retired records are history the register keeps on
+        # purpose.
+        if _lifecycle_status(threat) != "active":
+            continue
+        digest = threat_material_digest(threat)
+        if digest in first_seen:
+            duplicates.append((first_seen[digest], threat_id))
+        else:
+            first_seen[digest] = threat_id
+    return duplicates
+
+
 def _lifecycle_status(threat: Mapping) -> str:
     lifecycle = threat.get("lifecycle") or {}
     if not isinstance(lifecycle, Mapping):
@@ -861,6 +909,14 @@ def _validate_threats(threats_doc: dict) -> tuple[list[str], list[dict]]:
         evidence_status = threat.get("evidence_status")
         if evidence_status is not None and evidence_status not in EVIDENCE_STATUSES:
             problems.append(f"{label} evidence_status is invalid")
+
+    # After the per-record loop, not inside it. The same threat filed twice
+    # under two ids is a property of the document, not of either record.
+    for first_id, duplicate_id in _duplicate_threat_pairs(threats):
+        problems.append(
+            f"{duplicate_id} duplicates {first_id}: identical in every "
+            f"material field except id"
+        )
 
     try:
         active = active_threats(threats_doc)
@@ -997,6 +1053,16 @@ def aggregate_risk(
     """Summarise active inherent-risk ratings without averaging independent risks."""
 
     active = active_threats(threats)
+    # Refused here rather than in active_threats, which digesting and validation
+    # also call: a document that says the same thing twice can still be read and
+    # digested, it just cannot be *scored*. Counting both inflates the register,
+    # and an inflated register reads as assessed, so nobody goes looking.
+    duplicates = _duplicate_threat_pairs(active)
+    if duplicates:
+        first_id, duplicate_id = duplicates[0]
+        raise RiskValidationError(
+            f"duplicate threat: {duplicate_id} repeats {first_id}"
+        )
     if today is None:
         today = date.today()
     if not isinstance(assessment, Mapping):
@@ -1226,6 +1292,25 @@ def render_register(summary: dict) -> str:
         "> Sensitive internal record. Do not publish.",
         "",
     ]
+
+    # The data-flow diagram is sensitive by construction: it names components,
+    # stores, and internal boundaries, which is the "where does the data live"
+    # answer the publish boundary exists to refuse. It reaches this document and
+    # no other -- render_public_summary must never grow an equivalent block.
+    architecture = summary.get("architecture")
+    if isinstance(architecture, Mapping):
+        import sdr_mermaid
+
+        diagram = sdr_mermaid.render_dfd(architecture)
+        if diagram.strip():
+            out += [
+                "## Data flows",
+                "",
+                "```mermaid",
+                diagram,
+                "```",
+                "",
+            ]
     for record in sorted(
         (item for item in records if isinstance(item, Mapping)),
         key=lambda item: str(item.get("threat_id", item.get("id", ""))),

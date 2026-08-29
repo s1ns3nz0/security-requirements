@@ -607,7 +607,7 @@ def test_overall_is_highest_active_rating_not_average(default_policy):
         "version": "0.2.0",
         "threats": [
             threat_record("T-1"),
-            threat_record("T-2"),
+            threat_record("T-2", scenario="stale session replay"),
             threat_record("T-3", status="retired"),
         ],
     }
@@ -707,7 +707,10 @@ def test_unknown_risk_ref_is_preserved_for_lint():
 def test_expired_acceptance_risk_exposure_is_unresolved_and_sorts_before_high():
     today = date(2027, 1, 1)
     threats = {
-        "threats": [threat_record("T-EXPIRED"), threat_record("T-HIGH")]
+        "threats": [
+            threat_record("T-EXPIRED"),
+            threat_record("T-HIGH", scenario="privileged export"),
+        ]
     }
     assessment = {
         "assessments": [
@@ -1252,7 +1255,15 @@ def test_assessment_validation_requires_scope_expansion_evidence(default_policy)
 
 
 def test_incomplete_active_assessments_make_aggregate_provisional():
-    threats_doc = {"threats": [threat_record("T-1"), threat_record("T-2")]}
+    # Distinct scenarios: two records identical in every material field
+    # except id are the same threat filed twice, which the duplicate check
+    # rejects. These are meant to be two different threats.
+    threats_doc = {
+        "threats": [
+            threat_record("T-1"),
+            threat_record("T-2", scenario="stale session replay"),
+        ]
+    }
     assessment = {
         "assessments": [
             assessment_record("T-1", "CONFIRMED", "high"),
