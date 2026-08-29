@@ -1317,6 +1317,28 @@ def _assessment_rationale(proposed: object) -> list[object]:
     return rationale
 
 
+def output_allowed(
+    problems: Sequence[str], evidence_problems: Sequence[str]
+) -> bool:
+    """Whether a run may render anything at all.
+
+    Invalid or stale evidence may still render an UNDETERMINED preview: the
+    reader learns the evidence expired, which is the answer. Any *binding or
+    document-integrity* error suppresses all output, so untrusted assessment
+    material is never presented as a calculated result.
+
+    One function with two callers rather than the rule written twice. The
+    residual preview and the design review reach it by different routes and
+    must agree; two copies agree on the day they are written and diverge on
+    the day one of them is fixed (plan §11.2 N29).
+    """
+
+    return not problems or (
+        bool(evidence_problems)
+        and all(problem in evidence_problems for problem in problems)
+    )
+
+
 def render_register(summary: dict) -> str:
     """Render the sensitive internal register from canonical report data."""
 
@@ -3345,6 +3367,25 @@ def _add_path_argument(parser: argparse.ArgumentParser, name: str) -> None:
     parser.add_argument(name, type=Path, required=True, action=_StoreOnce)
 
 
+def _add_confirmed_at_argument(parser: argparse.ArgumentParser) -> None:
+    """Let a caller pin the confirmation clock.
+
+    `stamp_policy`, `stamp_assessment` and `stamp_residual_assessment` all
+    accept `confirmed_at` already, but nothing exposed it, so every CLI run
+    stamped `datetime.now` into the confirmation and the state snapshot. That
+    made `snapshot_digest` and `confirmation.risk_state_digest` differ between
+    two otherwise identical runs — the same entrypoint disagreeing with itself
+    — and put plan N39 ("two runs with `today` and `confirmed_at` pinned
+    produce an identical digest") out of reach from a command line.
+
+    Optional, unlike every path flag: omitting it means "stamp now", which is
+    the ordinary case and must not become a required argument on a shipped
+    command.
+    """
+
+    parser.add_argument("--confirmed-at", action=_StoreOnce)
+
+
 def argument_parser() -> argparse.ArgumentParser:
     """Return the strict risk confirmation command grammar."""
     parser = _StrictArgumentParser(description=__doc__, allow_abbrev=False)
@@ -3357,6 +3398,7 @@ def argument_parser() -> argparse.ArgumentParser:
     policy_confirm.add_argument(
         "--authority", choices=sorted(AUTHORITIES), required=True, action=_StoreOnce
     )
+    _add_confirmed_at_argument(policy_confirm)
 
     for name in ("confirm", "check"):
         command = commands.add_parser(name, allow_abbrev=False)
@@ -3378,6 +3420,7 @@ def argument_parser() -> argparse.ArgumentParser:
                 required=True,
                 action=_StoreOnce,
             )
+            _add_confirmed_at_argument(command)
 
     evidence_command = commands.add_parser("evidence", allow_abbrev=False)
     _add_path_argument(evidence_command, "--project-root")
@@ -3416,6 +3459,7 @@ def argument_parser() -> argparse.ArgumentParser:
         required=True,
         action=_StoreOnce,
     )
+    _add_confirmed_at_argument(residual_confirm)
 
     migrate_command = commands.add_parser("migrate", allow_abbrev=False)
     for name in (
@@ -3652,11 +3696,15 @@ def main(argv: list[str] | None = None) -> int:
                     print(message)
             return 0
         if args.command == "policy-confirm":
-            policy = stamp_policy(paths, args.by, args.authority)
+            policy = stamp_policy(
+                paths, args.by, args.authority, confirmed_at=args.confirmed_at
+            )
             print(f"confirmed risk policy ({policy['confirmation']['policy_digest']})")
             return 0
         if args.command == "confirm":
-            assessment = stamp_assessment(paths, args.by, args.authority)
+            assessment = stamp_assessment(
+                paths, args.by, args.authority, confirmed_at=args.confirmed_at
+            )
             print(
                 "confirmed risk assessment "
                 f"({assessment['confirmation']['assessment_digest']})"
@@ -3664,7 +3712,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "residual-confirm":
             assessment = stamp_residual_assessment(
-                paths, args.by, args.authority
+                paths, args.by, args.authority, confirmed_at=args.confirmed_at
             )
             print(
                 "confirmed residual risk assessment "
@@ -3712,15 +3760,7 @@ def main(argv: list[str] | None = None) -> int:
             problems.extend(
                 problem for problem in residual_problems if problem not in problems
             )
-            # Invalid or stale evidence may still render an UNDETERMINED
-            # preview.  Any binding or document-integrity error suppresses all
-            # preview output so untrusted assessment material is never shown as
-            # a calculated result.
-            preview_allowed = not problems or (
-                bool(evidence_problems)
-                and all(problem in evidence_problems for problem in problems)
-            )
-            if preview_allowed:
+            if output_allowed(problems, evidence_problems):
                 for threat_id, result in results:
                     if result.get("status") == "UNDETERMINED":
                         print(
