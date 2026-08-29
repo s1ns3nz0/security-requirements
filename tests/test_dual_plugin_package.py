@@ -280,13 +280,17 @@ DEFAULT_POLICY = PLUGIN_ROOT / "risk" / "default-policy.yaml"
 #: `tests/fixtures/adversarial-checkout` ships the dotenv under a neutral name.
 MATERIALISED_NAMES = {"env.fixture": ".env"}
 
-#: The two fixtures of plan §11.5, as the two things a review actually reads:
-#: the repository it inspects, and the model it scores. Both run the same
-#: model — `golden/movie-rating-aws` is the only complete one in the tree — so
-#: what differs between them is the project the payload runs inside: one
-#: hostile by construction (planted key, injected README, real `.env`), one
-#: clean. See the module report for why the plan's "both fixtures" is
-#: ambiguous.
+#: Plan §11.5 says "Two" and then describes one — the adversarial repository
+#: fixture — so "both fixtures" in N43 is read here as the two things a review
+#: actually reads: the repository it inspects and the model it scores.
+#:
+#: Both run the same model, because `golden/movie-rating-aws` is the only
+#: complete one in the tree. What differs is the project the payload runs
+#: inside: one hostile by construction (planted key, injected README, real
+#: `.env`), one clean. Equality between the two fixtures is therefore expected
+#: and is not what these tests assert — each fixture is compared across the
+#: two entrypoints, and `test_a_changed_model_changes_the_digests...` is what
+#: shows the comparison is sensitive to content at all.
 PARITY_FIXTURES = ("adversarial-checkout", "golden-model")
 
 #: Enough of the workflow to produce every digest the payload writes:
