@@ -8,6 +8,7 @@ import copy
 from datetime import date, datetime, timezone
 import hashlib
 import json
+import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 import sys
@@ -77,6 +78,83 @@ EVIDENCE_METHODS = {
     "manual",
 }
 EVIDENCE_SUPPORTS = {"likelihood", "impact", "attack_path_removal"}
+
+# Key material, as data rather than branches (plan §9 change point 6). A new
+# credential form is a row here, never an `if` somewhere in the scan.
+#
+# The existing publish-boundary scan in lint.py knows shapes and hosts:
+# INSTANCE_FORMS, CITATION_HOSTS, SIGNED_PARAM_NAMES. None of them knows what a
+# credential is, so a password beside an unremarkable hostname published clean.
+KEY_MATERIAL_PATTERNS: tuple[tuple[str, Any], ...] = (
+    # AKIA plus exactly sixteen. Bounded on both sides so a longer run of the
+    # same characters is not sliced into a false match.
+    (
+        "an AWS access key id",
+        re.compile(r"(?<![A-Za-z0-9])AKIA[0-9A-Z]{16}(?![A-Za-z0-9])"),
+    ),
+    (
+        "a private key block",
+        re.compile(r"-----BEGIN(?: [A-Z]+)* PRIVATE KEY-----"),
+    ),
+    # `user:password@host`, with no scheme required. Keying on the scheme is
+    # what let a DSN through the moment its host stopped looking internal, and
+    # the credential is in the userinfo either way.
+    (
+        "a credential embedded in a connection string",
+        re.compile(r"[^\s:@/]+:[^\s@/]+@"),
+    ),
+    (
+        "a signed token",
+        re.compile(r"eyJ[A-Za-z0-9_\-]{3,}"),
+    ),
+)
+
+# A forty-character base64-ish run: the AWS secret access key shape. Handled
+# separately from the table because it needs a mixed-case test that a regex
+# alone states badly -- a forty-character lowercase run is a sha1 digest, which
+# is published deliberately and must not be flagged.
+_OPAQUE_SECRET = re.compile(r"(?<![A-Za-z0-9/+=])[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])")
+
+
+def key_material_fingerprint(value: str) -> str:
+    """Identify a secret without carrying it.
+
+    A report that quotes the secret has copied it somewhere new. This is what
+    lets two findings be told apart, and the same finding be recognised across
+    runs, without the report becoming a second disclosure.
+    """
+
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+
+
+def key_material_problems(text: str) -> list[tuple[str, str]]:
+    """Return (label, fingerprint) for every distinct credential in ``text``.
+
+    Deduplicated by fingerprint so one secret quoted twice is one problem, and
+    ordered by first appearance so the report is deterministic.
+    """
+
+    problems: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    def record(label: str, value: str) -> None:
+        fingerprint = key_material_fingerprint(value)
+        if fingerprint in seen:
+            return
+        seen.add(fingerprint)
+        problems.append((label, fingerprint))
+
+    for label, pattern in KEY_MATERIAL_PATTERNS:
+        for match in pattern.finditer(text):
+            record(label, match.group(0))
+    for match in _OPAQUE_SECRET.finditer(text):
+        candidate = match.group(0)
+        if not any(c.islower() for c in candidate):
+            continue
+        if not any(c.isupper() for c in candidate):
+            continue
+        record("an opaque secret", candidate)
+    return problems
 MINIMUM_PYTHON = (3, 12)
 LEGACY_THREAT_SCHEMA_VERSION = "0.1.0"
 CURRENT_THREAT_SCHEMA_VERSION = "0.2.0"
@@ -2195,6 +2273,19 @@ def _write_text_transaction(
     targets: list[tuple[Path, Path, str, bool, bytes | None]] = []
     seen: set[Path] = set()
     for path, root, content, create_parents in entries:
+        # Refused before a single byte is written, not rolled back after. A
+        # rollback still put the credential on disk, where a backup, an editor
+        # swap file, or a filesystem snapshot may already have it.
+        leaked = key_material_problems(content)
+        if leaked:
+            raise RiskValidationError(
+                "refusing to write key material to "
+                f"{Path(path).name}: "
+                + ", ".join(
+                    f"{label} (fingerprint {fingerprint})"
+                    for label, fingerprint in leaked
+                )
+            )
         validated = safe_path(path, project_root=root)
         if validated in seen:
             raise RiskValidationError(f"duplicate transaction target: {validated}")
