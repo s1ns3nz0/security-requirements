@@ -185,6 +185,13 @@ BASELINE_CLOCK_SITES = {
     ("risk.py", "refresh_persisted_assessment", "datetime.now()"): 1,
     ("risk.py", "write_migration", "datetime.now()"): 1,
     ("risk.py", "main", "date.today()"): 3,
+    # The design-review runner. Both are *fallbacks* for an omitted
+    # `--confirmed-at`, which the subcommand now accepts precisely so a run can
+    # be pinned (N39). When it is supplied neither fires, and `today` is
+    # derived from the stamp rather than read separately — two reads could
+    # straddle midnight and score one run against two days.
+    ("risk.py", "_run_design_review", "datetime.now()"): 1,
+    ("risk.py", "_run_design_review", "date.today()"): 1,
     ("semantic_review.py", "stamp", "datetime.now()"): 1,
 }
 
