@@ -69,6 +69,13 @@ LIFELIHOOD_EVIDENCE_FIELDS = (
     "observed_controls",
 )
 AUTHORITIES = {"self_declared", "externally_attested"}
+#: Interview depth for a design review. `quick` takes the architecture as
+#: given; `guided` asks. Closed, because a third value would have to mean
+#: something to every stage that reads it.
+REVIEW_MODES = {"guided", "quick"}
+#: The appetites under `risk/appetite/`. One file per name, so a value outside
+#: this set names a policy that does not exist.
+RISK_APPETITES = {"conservative", "standard", "tolerant"}
 EVIDENCE_METHODS = {
     "iac_inspect",
     "config_api",
@@ -183,8 +190,28 @@ class RiskArgumentError(ValueError):
     """Raised when the risk CLI does not match its strict grammar."""
 
 
+#: Flags that were removed, mapped to the flag that replaced them. `--profile`
+#: collided with the service `profile.yaml` the tool already reads, so the
+#: design-review appetite selector is spelled `--risk-appetite`.
+#:
+#: Data rather than a branch: a retired flag is rejected by the closed grammar
+#: like any other unknown flag, and this table only decides what the message
+#: says. A bare "unrecognized arguments: --profile" sends the reader to the
+#: docs to find out what to type instead.
+RETIRED_FLAGS: dict[str, str] = {
+    "--profile": "--risk-appetite",
+}
+
+
 class _StrictArgumentParser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
+        hints = [
+            f"{retired} was replaced by {successor}"
+            for retired, successor in RETIRED_FLAGS.items()
+            if retired in message
+        ]
+        if hints:
+            message = f"{message} ({'; '.join(hints)})"
         raise RiskArgumentError(message)
 
 
@@ -3368,6 +3395,43 @@ def argument_parser() -> argparse.ArgumentParser:
         "--state",
     ):
         _add_path_argument(refresh_command, name)
+
+    # The design-review pair (plan §3, F21). Two subcommands rather than one
+    # with a --confirm flag: no single run may both interview and emit an
+    # authoritative artifact, and a flag is too easy to add to a script that
+    # was only ever meant to preview.
+    #
+    # None of these carry a default. `_StoreOnce` refuses a second value by
+    # testing the namespace for `None`, so a default would make the first use
+    # of the flag look like a repeat. Defaults belong to the layer that runs
+    # the review, not to the grammar that reads it.
+    design_review = commands.add_parser("design-review", allow_abbrev=False)
+    _add_path_argument(design_review, "--project-root")
+    _add_path_argument(design_review, "--output")
+    design_review.add_argument(
+        "--mode", choices=sorted(REVIEW_MODES), action=_StoreOnce
+    )
+    design_review.add_argument(
+        "--risk-appetite", choices=sorted(RISK_APPETITES), action=_StoreOnce
+    )
+    design_review.add_argument("--scope", action=_StoreOnce)
+
+    design_review_confirm = commands.add_parser(
+        "design-review-confirm", allow_abbrev=False
+    )
+    _add_path_argument(design_review_confirm, "--project-root")
+    _add_path_argument(design_review_confirm, "--output")
+    # Appetite and scope, but not --mode: confirmation records a review that
+    # already happened, and the two must describe the same run. Interview depth
+    # is spent by then.
+    design_review_confirm.add_argument(
+        "--risk-appetite", choices=sorted(RISK_APPETITES), action=_StoreOnce
+    )
+    design_review_confirm.add_argument("--scope", action=_StoreOnce)
+    design_review_confirm.add_argument("--by", required=True, action=_StoreOnce)
+    design_review_confirm.add_argument(
+        "--authority", choices=sorted(AUTHORITIES), required=True, action=_StoreOnce
+    )
     return parser
 
 
@@ -3631,6 +3695,15 @@ def main(argv: list[str] | None = None) -> int:
             if problems:
                 return 1
             return 0
+
+        if args.command in ("design-review", "design-review-confirm"):
+            # The grammar lands before the runner does. Without this the
+            # command falls through to check_policy, which reads a --policy
+            # this subcommand does not declare, and reports a missing policy
+            # for a review that was never attempted.
+            raise RiskValidationError(
+                f"{args.command} is not wired to a runner yet"
+            )
 
         problems = check_policy(paths)
         for problem in check_assessment(paths):
