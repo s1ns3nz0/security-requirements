@@ -263,15 +263,17 @@ INVOCATION = {
 }
 
 
-def _policy() -> dict:
-    import yaml
+def _policy(appetite: str = "standard") -> dict:
+    """The base policy overlaid with one appetite.
 
-    path = PLUGIN_ROOT / "risk" / "appetite" / "standard.yaml"
-    assert path.is_file(), (
-        f"{path} is the appetite policy the report scores against; without it "
-        "these tests assert against an invented threshold"
-    )
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+    An appetite file is an overlay, not a whole policy: it restates
+    `thresholds`, `impact_floor` and `release_threshold_rating`, while the
+    `likelihood` and `impact` criterion tables live only in
+    `default-policy.yaml`. Reading the overlay alone gives a policy with no
+    criteria, and `criterion_score` raises `KeyError` on it.
+    """
+
+    return risk_mod.appetite_policy(appetite)
 
 
 def _assessment() -> dict:
@@ -671,7 +673,20 @@ def test_the_verdict_never_asserts_the_service_is_secure():
         f"§4.2 carries a verdict `statement`; got {statement!r}"
     )
     lowered = statement.lower()
-    for forbidden in ("is secure", "approved", "attestation of security"):
+
+    # The disclaimer itself contains the phrase "the service is secure", inside
+    # a negation. A substring scan cannot tell an assertion from its denial, so
+    # this asserts the denial is *present* and then forbids only phrasings that
+    # cannot occur inside one.
+    assert "not an approval" in lowered, (
+        "F14: the verdict carries the disclaimer that it is not an approval, "
+        f"attestation, or claim that the service is secure; got {statement!r}"
+    )
+    for forbidden in (
+        "approved for release",
+        "no security issues",
+        "we attest",
+    ):
         assert forbidden not in lowered, (
             "F14: the verdict is never an approval, attestation, or claim that "
             f"the service is secure. The statement said {statement!r}"

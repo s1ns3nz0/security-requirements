@@ -224,6 +224,33 @@ class _StoreOnce(argparse.Action):
         setattr(namespace, self.dest, values)
 
 
+def appetite_policy(name: str, *, plugin_root: Path | None = None) -> dict:
+    """The base risk policy overlaid with one appetite.
+
+    An appetite file is an *overlay*, not a policy. It carries `thresholds`,
+    `impact_floor`, `release_threshold_rating` and `publish_risk_summary`; the
+    `likelihood` and `impact` criterion tables live only in
+    `default-policy.yaml` and are the same under every appetite — an appetite
+    changes what a score *means*, not how it is derived.
+
+    Shallow merge, overlay wins per top-level key. Deep-merging `thresholds`
+    would let an appetite silently inherit a band it did not restate, so a
+    conservative file that lists three bands would quietly keep the base
+    file's fourth.
+    """
+
+    if name not in RISK_APPETITES:
+        raise RiskValidationError(
+            f"unknown risk appetite {name!r}; expected one of "
+            f"{', '.join(sorted(RISK_APPETITES))}"
+        )
+    root = plugin_root or Path(__file__).resolve().parent.parent
+    policy = load_policy(root / "risk" / "default-policy.yaml")
+    overlay = load_policy(root / "risk" / "appetite" / f"{name}.yaml")
+    policy.update(overlay)
+    return policy
+
+
 def load_policy(path: Path) -> dict:
     """Load a YAML policy and require its document to be a mapping."""
 
