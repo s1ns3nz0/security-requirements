@@ -95,10 +95,18 @@ def cross(
     controls_doc: dict,
     responsibility_doc: dict,
     threats_doc: dict,
-    assessment: dict | None = None,
+    blast_radius_doc: dict | None = None,
     *,
+    assessment: dict | None = None,
     today: date | None = None,
 ) -> dict:
+    """Cross the control baseline with the threat model.
+
+    ``blast_radius_doc`` raises affected work: a threat whose blast radius
+    carries ``priority_floor: high`` lifts its controls to high priority even
+    when the threat itself is generic. ``assessment`` is a separate axis --
+    it links confirmed risk ratings without ever changing priority.
+    """
     baseline = set(controls_doc["controls"])
     # None means the derivation did not publish the field -- an older artefact --
     # and an empty set means the profile declared nothing. Collapsing them made
@@ -108,6 +116,19 @@ def cross(
     known_data_types = _known_data_types()
     resp = {entry["control"]: entry for entry in responsibility_doc["controls"]}
     threats = threats_doc.get("threats", []) or []
+    blast_priority = {}
+    blast_results = {}
+    if blast_radius_doc is not None:
+        for result in blast_radius_doc.get("results", []) or []:
+            threat_id = result.get("threat_id")
+            if threat_id:
+                blast_priority[threat_id] = result.get("priority_floor")
+                blast_results[threat_id] = {
+                    "coarse_scope": result.get("coarse_scope"),
+                    "blast_radius": result.get("blast_radius", {}),
+                    "priority_reasons": result.get("priority_reasons", []),
+                    "review_required": result.get("review_required", False),
+                }
     catalog = load_catalog_ids()
 
     # control -> threats that name it
@@ -242,6 +263,8 @@ def cross(
                     for t in threats
                 )
                 priority = "high" if service_specific else "medium"
+                if any(blast_priority.get(threat_id) == "high" for threat_id in matched):
+                    priority = "high"
             else:
                 origin = "baseline_only"
                 priority = "low"
@@ -255,6 +278,12 @@ def cross(
             "unverified": entry.get("unverified", False),
             "services": entry.get("services", []),
             "org_control_declared": entry.get("org_control_declared", False),
+            "blast_radius_refs": matched,
+            "blast_radius": [
+                blast_results[threat_id]
+                for threat_id in matched
+                if threat_id in blast_results
+            ],
         })
 
     for threat in threat_only:
@@ -267,7 +296,14 @@ def cross(
             "unverified": False,
             "services": [],
             "threat": threat,
+            "blast_radius_refs": [threat["id"]] if threat["id"] in blast_results else [],
+            "blast_radius": (
+                [blast_results[threat["id"]]] if threat["id"] in blast_results else []
+            ),
         })
+
+        if blast_priority.get(threat["id"]) == "high":
+            items[-1]["priority"] = "high"
 
     # Data types that demand a requirement whatever the threat model found.
     # System-information types reach the output only through this path, having
@@ -611,6 +647,8 @@ def main() -> int:
     ap.add_argument("--responsibility", type=Path)
     ap.add_argument("--threats", type=Path)
     ap.add_argument("--assessment", type=Path)
+    ap.add_argument("--blast-radius", type=Path,
+                    help="optional blast-radius.json used to raise affected work")
     ap.add_argument("--out", type=Path)
 
     ap.add_argument("--draft", type=Path)
@@ -654,10 +692,18 @@ def main() -> int:
 
         try:
             assessment = load_yaml(args.assessment, None) if args.assessment else None
+            blast_doc = None
+            if args.blast_radius:
+                if not args.blast_radius.exists():
+                    print(f"error: --blast-radius {args.blast_radius} does not exist.",
+                          file=sys.stderr)
+                    return 2
+                blast_doc = json.loads(args.blast_radius.read_text(encoding="utf-8"))
             result = cross(
                 json.loads(args.controls.read_text(encoding="utf-8")),
                 json.loads(args.responsibility.read_text(encoding="utf-8")),
                 threats_doc,
+                blast_doc,
                 assessment=assessment,
             )
         except ValueError as exc:
