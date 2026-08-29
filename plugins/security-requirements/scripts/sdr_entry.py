@@ -17,6 +17,7 @@ read from the files git already maintains, not from `git log`.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 import sys
 
@@ -56,6 +57,23 @@ INTERVIEW_DEPTHS = {
 }
 
 DEFAULT_MODE = "quick"
+
+#: Plan §3 line 134 / §8 / N8. What quick mode was not told, it inferred, and
+#: an inference may not claim more than `low`.
+#:
+#: Deliberately named for the axis rather than spelled `CONFIDENCE`, because
+#: `blast_radius.py:36` already owns that name for a different axis with a
+#: disjoint vocabulary (`confirmed` / `inferred` / `unknown`). The two
+#: documents never meet — `blast_radius._check_value` runs on blast-radius
+#: graph nodes, which a design review never writes — so this is a naming
+#: hazard for a maintainer reaching for the wrong constant, not a runtime one.
+#: Note also that `inferred` means *certainty of a graph edge* there and *how
+#: a fact was established* in `risk.EVIDENCE_STATUSES`; that collision predates
+#: this module and is not made worse by it.
+REVIEW_CONFIDENCE_LOW = "low"
+
+#: `risk.EVIDENCE_STATUSES` spelling for a fact nobody confirmed.
+INFERRED_EVIDENCE_STATUS = "inferred"
 
 
 def store_present(project_root: Path) -> bool:
@@ -127,12 +145,48 @@ def profile_staleness(project_root: Path) -> dict:
     }
 
 
+def _answered(answers: Mapping, name: str) -> bool:
+    """Whether the operator actually said something about `name`.
+
+    `False` and `"no"` are answers. A truthiness test would read "not internet
+    facing" as "never asked", which is the exact laundering N8 exists to stop:
+    an unknown becoming a stated fact. Only absence, `None`, and an empty
+    string or collection count as unanswered.
+    """
+
+    if name not in answers:
+        return False
+    value = answers[name]
+    if value is None:
+        return False
+    if isinstance(value, (str, bytes)) and not value.strip():
+        return False
+    if isinstance(value, (list, tuple, set, dict)) and not value:
+        return False
+    return True
+
+
+def unconfirmed_critical_facts(answers: object) -> list[str]:
+    """The critical unknowns the operator never answered, sorted.
+
+    Sorted rather than in `CRITICAL_UNKNOWNS` order so the value is stable
+    under any answer ordering (§4.3: no set iteration reaches output).
+    """
+
+    if not isinstance(answers, Mapping):
+        answers = {}
+    return sorted(
+        name for name in CRITICAL_UNKNOWNS if not _answered(answers, name)
+    )
+
+
 def design_review(
     project_root: Path,
     *,
     argument: str | None = None,
     mode: str = DEFAULT_MODE,
     invoke_intake=None,
+    answers: Mapping | None = None,
 ) -> dict:
     """Run a design review, building the model first only if there is none.
 
@@ -171,6 +225,11 @@ def design_review(
                 "wrapper does not write profile.yaml or threats.yaml itself"
             )
 
+    # Computed after intake, and deliberately not touched by it: intake
+    # building a model is not the operator answering a question. A store
+    # existing is not evidence about isolation.
+    unconfirmed = unconfirmed_critical_facts(answers)
+
     return {
         "run": {
             "mode": mode,
@@ -180,6 +239,24 @@ def design_review(
             # ./services/checkout from a review of the whole repository.
             "evidence_source": argument,
             "intake_invoked": intake_result is not None,
-            "profile": profile_staleness(project_root),
+            "profile": {
+                **profile_staleness(project_root),
+                # Plan §4.2 line 193 puts this beside `stale_vs_head`. Always
+                # present, `[]` when nothing is unconfirmed: an absent key
+                # reads as "nothing to disclose" and an empty list says it.
+                "unconfirmed_critical_facts": unconfirmed,
+            },
+            # The list above says *which* facts are unconfirmed; these records
+            # say *how they were arrived at*. A name on a list is not a
+            # disclosure — a reader has to be able to see that the fact was
+            # inferred and how far to trust it.
+            "critical_facts": [
+                {
+                    "fact": name,
+                    "evidence_status": INFERRED_EVIDENCE_STATUS,
+                    "confidence": REVIEW_CONFIDENCE_LOW,
+                }
+                for name in unconfirmed
+            ],
         },
     }
