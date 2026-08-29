@@ -159,6 +159,8 @@ scripts/render.py
 scripts/risk.py
 scripts/sdr_attack_paths.py
 scripts/sdr_mermaid.py
+scripts/sdr_entry.py
+scripts/sdr_scope.py
 scripts/runtime_paths.py
 scripts/safe_paths.py
 scripts/select_baseline.py

@@ -69,6 +69,13 @@ LIFELIHOOD_EVIDENCE_FIELDS = (
     "observed_controls",
 )
 AUTHORITIES = {"self_declared", "externally_attested"}
+#: Interview depth for a design review. `quick` takes the architecture as
+#: given; `guided` asks. Closed, because a third value would have to mean
+#: something to every stage that reads it.
+REVIEW_MODES = {"guided", "quick"}
+#: The appetites under `risk/appetite/`. One file per name, so a value outside
+#: this set names a policy that does not exist.
+RISK_APPETITES = {"conservative", "standard", "tolerant"}
 EVIDENCE_METHODS = {
     "iac_inspect",
     "config_api",
@@ -183,8 +190,28 @@ class RiskArgumentError(ValueError):
     """Raised when the risk CLI does not match its strict grammar."""
 
 
+#: Flags that were removed, mapped to the flag that replaced them. `--profile`
+#: collided with the service `profile.yaml` the tool already reads, so the
+#: design-review appetite selector is spelled `--risk-appetite`.
+#:
+#: Data rather than a branch: a retired flag is rejected by the closed grammar
+#: like any other unknown flag, and this table only decides what the message
+#: says. A bare "unrecognized arguments: --profile" sends the reader to the
+#: docs to find out what to type instead.
+RETIRED_FLAGS: dict[str, str] = {
+    "--profile": "--risk-appetite",
+}
+
+
 class _StrictArgumentParser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
+        hints = [
+            f"{retired} was replaced by {successor}"
+            for retired, successor in RETIRED_FLAGS.items()
+            if retired in message
+        ]
+        if hints:
+            message = f"{message} ({'; '.join(hints)})"
         raise RiskArgumentError(message)
 
 
@@ -994,8 +1021,21 @@ def _validated_calculation(
     return problems
 
 
-def validate_assessment(threats: dict, assessment: dict, policy: dict) -> list[str]:
-    """Return deterministic validation problems for a threat assessment document."""
+def validate_assessment(
+    threats: dict, assessment: dict, policy: dict, today: date | None = None
+) -> list[str]:
+    """Return deterministic validation problems for a threat assessment document.
+
+    `today` decides which acceptances have expired. It is a parameter (plan
+    §11.2 N40) because a verdict a reviewer cannot reproduce is not a verdict:
+    without it, the same document validates clean one day and reports an
+    expired acceptance the next, with no way to pin which answer was given.
+
+    Defaulting to the calendar is the correct default — an expiry that ignores
+    the date is not an expiry — but the default is now the caller's to override.
+    """
+
+    today = today or date.today()
 
     problems, active = _validate_threats(threats)
     if not isinstance(assessment, Mapping):
@@ -1034,7 +1074,7 @@ def validate_assessment(threats: dict, assessment: dict, policy: dict) -> list[s
             if "treatment" in record:
                 problems.extend(
                     f"{threat_id} {problem}"
-                    for problem in validate_treatment(record, policy, date.today())
+                    for problem in validate_treatment(record, policy, today)
                 )
 
     for threat in active:
@@ -1544,8 +1584,31 @@ def _risk_snapshot(
     requirements: dict,
     evidence: dict,
     assessed_at: str,
+    today: date | None = None,
 ) -> dict:
-    """Build a digest-bound immutable view of one risk lifecycle transition."""
+    """Build a digest-bound immutable view of one risk lifecycle transition.
+
+    `today` decides which acceptances have expired, and that verdict reaches
+    `snapshot_digest` through `inherent`. It defaults to the date in
+    `assessed_at` rather than to the calendar (plan §11.2 N40): a snapshot is a
+    view of one moment, so it must be scored as of that moment. Reading the
+    process clock instead made `snapshot_digest` a function of the day the
+    command ran — and that digest is what `risk_state_digest` binds, so a
+    confirmation silently stopped matching on a date nobody chose.
+    """
+
+    if today is None:
+        # The same parse `_snapshot_assessed_date` already does for a built
+        # snapshot, applied to the timestamp before the snapshot exists.
+        today = _snapshot_assessed_date({"assessed_at": assessed_at})
+    if today is None:
+        # No clock fallback. Substituting the calendar here would put the
+        # process date back inside `snapshot_digest` for exactly the inputs
+        # that are already malformed — the quietest possible version of the
+        # bug this parameter exists to close.
+        raise RiskValidationError(
+            f"snapshot assessed_at is not a parseable timestamp: {assessed_at!r}"
+        )
 
     threat_by_id = {
         threat.get("id"): threat
@@ -1580,7 +1643,7 @@ def _risk_snapshot(
         "assessment_digest": assessment_digest(assessment),
         "requirements_digest": canonical_digest(requirements),
         "evidence_digest": canonical_digest(evidence),
-        "inherent": aggregate_risk(threats, assessment),
+        "inherent": aggregate_risk(threats, assessment, today=today),
         "residual": residual,
         "treatment": treatment,
         "evidence_refs": sorted(evidence_refs),
@@ -2970,8 +3033,18 @@ def stamp_residual_assessment(
     authority: str,
     *,
     confirmed_at: str | None = None,
+    today: date | None = None,
 ) -> dict:
-    """Calculate and atomically confirm refresh-bound residual proposals."""
+    """Calculate and atomically confirm refresh-bound residual proposals.
+
+    `today` decides which evidence is still current, and that decision reaches
+    a residual *rating* — so it reaches `assessment_digest` (plan §11.2 N40).
+    One date is read once here and threaded through both the evidence
+    validation and the residual calculation: reading the clock twice could
+    straddle midnight and score a run against two different days.
+    """
+
+    today = today or date.today()
 
     policy_problems = check_policy(paths)
     if policy_problems:
@@ -2993,13 +3066,11 @@ def stamp_residual_assessment(
     policy = _load_mapping(policy_path, "risk policy")
     threats = _load_mapping(threats_path, "threat document")
     requirements, evidence, evidence_problems = _validated_evidence_documents(
-        paths, date.today()
+        paths, today
     )
     if evidence_problems:
         raise RiskValidationError("; ".join(evidence_problems))
-    current_evidence = _current_passing_evidence(
-        evidence, requirements, date.today()
-    )
+    current_evidence = _current_passing_evidence(evidence, requirements, today)
     assessment = _load_mapping(assessment_path, "assessment document")
     exact_problems = _refresh_binding_problems(
         trusted,
@@ -3046,7 +3117,7 @@ def stamp_residual_assessment(
                 policy,
                 dict(proposed),
                 requirements=requirements,
-                today=date.today(),
+                today=today,
             )
         except RiskValidationError as exc:
             if "residual reduction requires current passing evidence" in str(exc):
@@ -3368,6 +3439,43 @@ def argument_parser() -> argparse.ArgumentParser:
         "--state",
     ):
         _add_path_argument(refresh_command, name)
+
+    # The design-review pair (plan §3, F21). Two subcommands rather than one
+    # with a --confirm flag: no single run may both interview and emit an
+    # authoritative artifact, and a flag is too easy to add to a script that
+    # was only ever meant to preview.
+    #
+    # None of these carry a default. `_StoreOnce` refuses a second value by
+    # testing the namespace for `None`, so a default would make the first use
+    # of the flag look like a repeat. Defaults belong to the layer that runs
+    # the review, not to the grammar that reads it.
+    design_review = commands.add_parser("design-review", allow_abbrev=False)
+    _add_path_argument(design_review, "--project-root")
+    _add_path_argument(design_review, "--output")
+    design_review.add_argument(
+        "--mode", choices=sorted(REVIEW_MODES), action=_StoreOnce
+    )
+    design_review.add_argument(
+        "--risk-appetite", choices=sorted(RISK_APPETITES), action=_StoreOnce
+    )
+    design_review.add_argument("--scope", action=_StoreOnce)
+
+    design_review_confirm = commands.add_parser(
+        "design-review-confirm", allow_abbrev=False
+    )
+    _add_path_argument(design_review_confirm, "--project-root")
+    _add_path_argument(design_review_confirm, "--output")
+    # Appetite and scope, but not --mode: confirmation records a review that
+    # already happened, and the two must describe the same run. Interview depth
+    # is spent by then.
+    design_review_confirm.add_argument(
+        "--risk-appetite", choices=sorted(RISK_APPETITES), action=_StoreOnce
+    )
+    design_review_confirm.add_argument("--scope", action=_StoreOnce)
+    design_review_confirm.add_argument("--by", required=True, action=_StoreOnce)
+    design_review_confirm.add_argument(
+        "--authority", choices=sorted(AUTHORITIES), required=True, action=_StoreOnce
+    )
     return parser
 
 
@@ -3631,6 +3739,15 @@ def main(argv: list[str] | None = None) -> int:
             if problems:
                 return 1
             return 0
+
+        if args.command in ("design-review", "design-review-confirm"):
+            # The grammar lands before the runner does. Without this the
+            # command falls through to check_policy, which reads a --policy
+            # this subcommand does not declare, and reports a missing policy
+            # for a review that was never attempted.
+            raise RiskValidationError(
+                f"{args.command} is not wired to a runner yet"
+            )
 
         problems = check_policy(paths)
         for problem in check_assessment(paths):
