@@ -224,24 +224,52 @@ def _verdict(threats: object, assessment: object, policy: dict, today) -> dict:
             for rating in risk_mod.RATINGS[: limit + 1]
         )
 
+    # "Nothing was modelled" and "nothing was found" are different facts and a
+    # count of zero renders them alike. `0 finding(s) at or above the release
+    # threshold` is the sentence a thoroughly-reviewed clean service gets, and
+    # a reader has no way to tell it from a review that had nothing to look at.
+    # The distinction lives in `overall`/`coverage`, which reach only the JSON,
+    # and an unconfirmed run never writes the JSON — so it has to be said here.
+    if overall == "UNDETERMINED" or inherent.get("coverage") == "0/0":
+        statement = (
+            "No threats are modelled, so nothing was assessed and the overall "
+            f"rating is UNDETERMINED (coverage {inherent.get('coverage')}). "
+            "This is not a finding of low risk. "
+            f"{NEVER_ASSERT_SECURE}"
+        )
+    else:
+        statement = (
+            f"{at_or_above} finding(s) at or above the release threshold "
+            f"({threshold}). {NEVER_ASSERT_SECURE}"
+        )
+
     return {
         "release_threshold_rating": threshold,
         "exceeds_threshold": exceeds,
         "inherent": inherent,
-        "statement": (
-            f"{at_or_above} finding(s) at or above the release threshold "
-            f"({threshold}). {NEVER_ASSERT_SECURE}"
-        ),
+        "statement": statement,
     }
 
 
-def _limitations(entry: Mapping, scope_record: Mapping) -> list[str]:
+def _limitations(
+    entry: Mapping, scope_record: Mapping, inherent: Mapping | None = None
+) -> list[str]:
     """What the run could not see, stated rather than left to inference."""
 
     limitations = [
         "Static, local, read-only analysis. "
         "No execution, probing, or network access.",
     ]
+    # First, because it governs how everything below it should be read. The
+    # generic disclaimer above appears on every run and cannot carry this
+    # meaning: a reader who skims sees a limitations list either way.
+    if isinstance(inherent, Mapping) and inherent.get("coverage") == "0/0":
+        limitations.insert(
+            0,
+            "No threats are modelled, so this review assessed nothing. "
+            "Run /sec-req-build to produce a threat model before reading "
+            "anything below as coverage.",
+        )
     excluded = _sequence(scope_record.get("excluded"))
     if excluded:
         limitations.append(
@@ -329,6 +357,8 @@ def build_report(
         if isinstance(record, Mapping)
     ]
 
+    verdict = _verdict(threats, assessment, policy, today)
+
     return {
         "schema_version": SCHEMA_VERSION,
         "run": {
@@ -352,8 +382,10 @@ def build_report(
         "architecture": architecture,
         "findings": findings,
         "attack_paths": paths,
-        "verdict": _verdict(threats, assessment, policy, today),
-        "limitations": _limitations(_mapping(entry), scope_block),
+        "verdict": verdict,
+        "limitations": _limitations(
+            _mapping(entry), scope_block, verdict.get("inherent")
+        ),
         "disclosures_blocked": list(
             _sequence(invocation_block.get("disclosures_blocked"))
         ),
