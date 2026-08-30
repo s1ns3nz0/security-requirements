@@ -157,9 +157,12 @@ scripts/kubernetes_supply_chain.py
 scripts/simulate_blast_paths.py
 scripts/render.py
 scripts/risk.py
+scripts/sdr_architecture.py
+scripts/sdr_artifacts.py
 scripts/sdr_attack_paths.py
 scripts/sdr_mermaid.py
 scripts/sdr_entry.py
+scripts/sdr_report.py
 scripts/sdr_scope.py
 scripts/runtime_paths.py
 scripts/safe_paths.py

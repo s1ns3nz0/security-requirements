@@ -49,16 +49,25 @@ SEVEN_DOCUMENT_PATHS = frozenset(
 )
 CONFIRMATION_FLAGS = frozenset({"--by", "--authority"})
 
+#: The one optional flag on the confirm subcommands. It pins the confirmation
+#: clock so two runs can produce the same `snapshot_digest` (plan N39); it is
+#: optional because omitting it means "stamp now", which is the ordinary case
+#: and must not become a required argument on a shipped command.
+CLOCK_FLAG = "--confirmed-at"
+OPTIONAL_FLAGS = frozenset({CLOCK_FLAG})
+
 # The eight subcommands that exist today, with the exact option set each one
 # declares. Frozen so that adding a ninth and a tenth cannot quietly reshape a
 # sibling.
 BASELINE_SUBCOMMANDS: dict[str, frozenset[str]] = {
-    "policy-confirm": frozenset({"--project-root", "--policy"}) | CONFIRMATION_FLAGS,
-    "confirm": SEVEN_DOCUMENT_PATHS | CONFIRMATION_FLAGS,
+    "policy-confirm": frozenset({"--project-root", "--policy"})
+    | CONFIRMATION_FLAGS
+    | OPTIONAL_FLAGS,
+    "confirm": SEVEN_DOCUMENT_PATHS | CONFIRMATION_FLAGS | OPTIONAL_FLAGS,
     "check": SEVEN_DOCUMENT_PATHS,
     "evidence": frozenset({"--project-root", "--requirements", "--evidence"}),
     "residual": SEVEN_DOCUMENT_PATHS,
-    "residual-confirm": SEVEN_DOCUMENT_PATHS | CONFIRMATION_FLAGS,
+    "residual-confirm": SEVEN_DOCUMENT_PATHS | CONFIRMATION_FLAGS | OPTIONAL_FLAGS,
     "migrate": frozenset(
         {
             "--project-root",
@@ -167,10 +176,24 @@ def test_each_existing_subcommand_still_declares_its_original_flag_set(name):
 
     assert frozenset(options) == BASELINE_SUBCOMMANDS[name]
     for option, action in options.items():
-        assert action.required is True, f"{name} {option} stopped being required"
+        # `_StoreOnce` still applies to every flag without exception. Only the
+        # *required* half is narrowed below.
         assert isinstance(action, risk._StoreOnce), (
             f"{name} {option} stopped using _StoreOnce"
         )
+        # Narrowed from "every flag" to "every flag except the clock". What
+        # this assertion protects is that no *document path* silently gains a
+        # default and starts reading a file the caller never named. Requiring
+        # `--confirmed-at` would instead break every shipped confirm
+        # invocation to serve a determinism concern, so it is optional and
+        # named here rather than the rule being dropped.
+        if option in OPTIONAL_FLAGS:
+            assert action.required is False, (
+                f"{name} {option} is the optional clock pin; making it "
+                "required breaks every existing confirm invocation"
+            )
+            continue
+        assert action.required is True, f"{name} {option} stopped being required"
 
 
 @pytest.mark.parametrize("name", sorted(BASELINE_SUBCOMMANDS))

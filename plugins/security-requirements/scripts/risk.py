@@ -224,6 +224,33 @@ class _StoreOnce(argparse.Action):
         setattr(namespace, self.dest, values)
 
 
+def appetite_policy(name: str, *, plugin_root: Path | None = None) -> dict:
+    """The base risk policy overlaid with one appetite.
+
+    An appetite file is an *overlay*, not a policy. It carries `thresholds`,
+    `impact_floor`, `release_threshold_rating` and `publish_risk_summary`; the
+    `likelihood` and `impact` criterion tables live only in
+    `default-policy.yaml` and are the same under every appetite — an appetite
+    changes what a score *means*, not how it is derived.
+
+    Shallow merge, overlay wins per top-level key. Deep-merging `thresholds`
+    would let an appetite silently inherit a band it did not restate, so a
+    conservative file that lists three bands would quietly keep the base
+    file's fourth.
+    """
+
+    if name not in RISK_APPETITES:
+        raise RiskValidationError(
+            f"unknown risk appetite {name!r}; expected one of "
+            f"{', '.join(sorted(RISK_APPETITES))}"
+        )
+    root = plugin_root or Path(__file__).resolve().parent.parent
+    policy = load_policy(root / "risk" / "default-policy.yaml")
+    overlay = load_policy(root / "risk" / "appetite" / f"{name}.yaml")
+    policy.update(overlay)
+    return policy
+
+
 def load_policy(path: Path) -> dict:
     """Load a YAML policy and require its document to be a mapping."""
 
@@ -1315,6 +1342,28 @@ def _assessment_rationale(proposed: object) -> list[object]:
             if isinstance(consequence, Mapping) and consequence.get("rationale") is not None
         )
     return rationale
+
+
+def output_allowed(
+    problems: Sequence[str], evidence_problems: Sequence[str]
+) -> bool:
+    """Whether a run may render anything at all.
+
+    Invalid or stale evidence may still render an UNDETERMINED preview: the
+    reader learns the evidence expired, which is the answer. Any *binding or
+    document-integrity* error suppresses all output, so untrusted assessment
+    material is never presented as a calculated result.
+
+    One function with two callers rather than the rule written twice. The
+    residual preview and the design review reach it by different routes and
+    must agree; two copies agree on the day they are written and diverge on
+    the day one of them is fixed (plan §11.2 N29).
+    """
+
+    return not problems or (
+        bool(evidence_problems)
+        and all(problem in evidence_problems for problem in problems)
+    )
 
 
 def render_register(summary: dict) -> str:
@@ -3345,6 +3394,25 @@ def _add_path_argument(parser: argparse.ArgumentParser, name: str) -> None:
     parser.add_argument(name, type=Path, required=True, action=_StoreOnce)
 
 
+def _add_confirmed_at_argument(parser: argparse.ArgumentParser) -> None:
+    """Let a caller pin the confirmation clock.
+
+    `stamp_policy`, `stamp_assessment` and `stamp_residual_assessment` all
+    accept `confirmed_at` already, but nothing exposed it, so every CLI run
+    stamped `datetime.now` into the confirmation and the state snapshot. That
+    made `snapshot_digest` and `confirmation.risk_state_digest` differ between
+    two otherwise identical runs — the same entrypoint disagreeing with itself
+    — and put plan N39 ("two runs with `today` and `confirmed_at` pinned
+    produce an identical digest") out of reach from a command line.
+
+    Optional, unlike every path flag: omitting it means "stamp now", which is
+    the ordinary case and must not become a required argument on a shipped
+    command.
+    """
+
+    parser.add_argument("--confirmed-at", action=_StoreOnce)
+
+
 def argument_parser() -> argparse.ArgumentParser:
     """Return the strict risk confirmation command grammar."""
     parser = _StrictArgumentParser(description=__doc__, allow_abbrev=False)
@@ -3357,6 +3425,7 @@ def argument_parser() -> argparse.ArgumentParser:
     policy_confirm.add_argument(
         "--authority", choices=sorted(AUTHORITIES), required=True, action=_StoreOnce
     )
+    _add_confirmed_at_argument(policy_confirm)
 
     for name in ("confirm", "check"):
         command = commands.add_parser(name, allow_abbrev=False)
@@ -3378,6 +3447,7 @@ def argument_parser() -> argparse.ArgumentParser:
                 required=True,
                 action=_StoreOnce,
             )
+            _add_confirmed_at_argument(command)
 
     evidence_command = commands.add_parser("evidence", allow_abbrev=False)
     _add_path_argument(evidence_command, "--project-root")
@@ -3416,6 +3486,7 @@ def argument_parser() -> argparse.ArgumentParser:
         required=True,
         action=_StoreOnce,
     )
+    _add_confirmed_at_argument(residual_confirm)
 
     migrate_command = commands.add_parser("migrate", allow_abbrev=False)
     for name in (
@@ -3459,6 +3530,10 @@ def argument_parser() -> argparse.ArgumentParser:
         "--risk-appetite", choices=sorted(RISK_APPETITES), action=_StoreOnce
     )
     design_review.add_argument("--scope", action=_StoreOnce)
+    # Pinnable for the same reason the confirm subcommands are: the report
+    # carries a timestamp and is digested, so two runs of an unchanged store
+    # must be able to agree (plan N39).
+    _add_confirmed_at_argument(design_review)
 
     design_review_confirm = commands.add_parser(
         "design-review-confirm", allow_abbrev=False
@@ -3472,6 +3547,7 @@ def argument_parser() -> argparse.ArgumentParser:
         "--risk-appetite", choices=sorted(RISK_APPETITES), action=_StoreOnce
     )
     design_review_confirm.add_argument("--scope", action=_StoreOnce)
+    _add_confirmed_at_argument(design_review_confirm)
     design_review_confirm.add_argument("--by", required=True, action=_StoreOnce)
     design_review_confirm.add_argument(
         "--authority", choices=sorted(AUTHORITIES), required=True, action=_StoreOnce
@@ -3611,6 +3687,143 @@ def _residual_results(
     return results, problems
 
 
+#: The store documents a design review reads, by the canonical names
+#: `publish.py:_risk_paths` already writes. The design-review grammar declares
+#: no document flags on purpose — an operator naming seven paths by hand is
+#: seven chances to review one project's threats against another's assessment.
+DESIGN_REVIEW_DOCUMENTS = {
+    "threats": "threats.yaml",
+    "assessment": "risk-assessment.yaml",
+    "requirements": "requirements.yaml",
+    "evidence": "risk-evidence.yaml",
+    "architecture": "architecture.yaml",
+    "attack_paths": "attack-paths.yaml",
+}
+
+
+def _load_design_review_documents(project_root: Path, appetite: str) -> dict:
+    """Read the store. A document that is absent is `None`, not an error here.
+
+    Absence is reported by the validators that know what each document is for,
+    with a message naming it. Raising on the first missing file would report
+    one gap at a time and make an empty project take six runs to diagnose.
+    """
+
+    store = project_root / ".security-requirements"
+    documents: dict = {"policy": appetite_policy(appetite)}
+    for name, filename in DESIGN_REVIEW_DOCUMENTS.items():
+        path = safe_path(store / filename, project_root=project_root)
+        documents[name] = (
+            _load_mapping(path, f"{name} document") if path.is_file() else None
+        )
+    return documents
+
+
+def _run_design_review(args: argparse.Namespace) -> int:
+    """Preview or confirm a design review (plan §3, §4.1, N26-N29)."""
+
+    import sdr_artifacts
+    import sdr_entry
+    import sdr_report
+    import sdr_scope
+
+    project_root = safe_path(args.project_root, project_root=args.project_root)
+    output_root = safe_path(args.output, project_root=args.output)
+    appetite = args.risk_appetite or "standard"
+    mode = getattr(args, "mode", None) or sdr_entry.DEFAULT_MODE
+    scope = getattr(args, "scope", None)
+    confirming = args.command == "design-review-confirm"
+
+    if not sdr_entry.store_present(project_root):
+        # The wrapper invokes intake when there is no store, but only a caller
+        # that can run the interview may supply it. From a bare CLI there is
+        # nobody to answer the questions, so this reports rather than pretends.
+        print(
+            f"ERROR: {project_root} holds no model under .security-requirements/; "
+            "run /sec-req-init and /sec-req-build first",
+            file=sys.stderr,
+        )
+        return 1
+
+    documents = _load_design_review_documents(project_root, appetite)
+    entry = sdr_entry.design_review(project_root, mode=mode)
+    scope_record = sdr_scope.resolve_scope(documents.get("architecture"), scope)
+
+    stamped_at = getattr(args, "confirmed_at", None) or (
+        datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    )
+    # Derived from the stamp rather than read separately: a run must be scored
+    # as of the moment it records, and two reads could straddle midnight.
+    today = _snapshot_assessed_date({"assessed_at": stamped_at}) or date.today()
+    problems = sdr_report.report_problems(
+        documents, scope=scope, policy=documents["policy"], today=today
+    )
+
+    # Evidence is optional and validated only when it exists. It is produced by
+    # a later workflow step, so a team may legitimately have none yet, and
+    # treating its absence as a defect would fail every design review run
+    # before the first evidence is written.
+    #
+    # Kept as its own list because `output_allowed` distinguishes the two:
+    # stale evidence still renders a preview — the reader learns the evidence
+    # expired, which is the answer — while a binding or integrity error
+    # suppresses everything. Folding these into `problems` alone would make an
+    # expired record indistinguishable from a corrupted document.
+    evidence_problems: list[str] = []
+    if documents.get("evidence") is not None:
+        evidence_problems = validate_evidence(
+            documents["evidence"], documents.get("requirements"), today
+        )
+        problems.extend(
+            problem for problem in evidence_problems if problem not in problems
+        )
+
+    confirmation = _read_trusted_confirmation(project_root, "assessment")
+    if confirming and confirmation is None:
+        # N27. A problem exit, not a usage error: the grammar was correct and
+        # the operator can fix this by running the confirmation.
+        print(
+            "ERROR: design-review-confirm requires a trusted confirmation; "
+            "none is bound for this project",
+            file=sys.stderr,
+        )
+        return 1
+
+    for problem in problems:
+        print(f"ERROR: {problem}", file=sys.stderr)
+
+    report = None
+    if output_allowed(problems, evidence_problems):
+        report = sdr_report.build_report(
+            documents,
+            entry=entry,
+            scope_record=scope_record,
+            confirmation=confirmation if confirming else None,
+            risk_appetite=appetite,
+            invocation={
+                "plugin_version": None,
+                "command": " ".join(sys.argv[1:]) or args.command,
+                "timestamp": stamped_at,
+            },
+            today=today,
+        )
+
+    entries = sdr_artifacts.artifact_entries(
+        report if report is not None else {},
+        project_root=project_root,
+        output_root=output_root,
+        policy=documents["policy"],
+        confirmed=confirming and confirmation is not None,
+        problems=problems,
+        evidence_problems=evidence_problems,
+    )
+    if entries:
+        sdr_artifacts.write_artifacts(entries)
+        for path, *_rest in entries:
+            print(f"wrote {path}")
+    return 1 if problems else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Confirm or check risk policy and assessment state."""
     if sys.version_info < MINIMUM_PYTHON:
@@ -3652,11 +3865,15 @@ def main(argv: list[str] | None = None) -> int:
                     print(message)
             return 0
         if args.command == "policy-confirm":
-            policy = stamp_policy(paths, args.by, args.authority)
+            policy = stamp_policy(
+                paths, args.by, args.authority, confirmed_at=args.confirmed_at
+            )
             print(f"confirmed risk policy ({policy['confirmation']['policy_digest']})")
             return 0
         if args.command == "confirm":
-            assessment = stamp_assessment(paths, args.by, args.authority)
+            assessment = stamp_assessment(
+                paths, args.by, args.authority, confirmed_at=args.confirmed_at
+            )
             print(
                 "confirmed risk assessment "
                 f"({assessment['confirmation']['assessment_digest']})"
@@ -3664,7 +3881,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "residual-confirm":
             assessment = stamp_residual_assessment(
-                paths, args.by, args.authority
+                paths, args.by, args.authority, confirmed_at=args.confirmed_at
             )
             print(
                 "confirmed residual risk assessment "
@@ -3712,15 +3929,7 @@ def main(argv: list[str] | None = None) -> int:
             problems.extend(
                 problem for problem in residual_problems if problem not in problems
             )
-            # Invalid or stale evidence may still render an UNDETERMINED
-            # preview.  Any binding or document-integrity error suppresses all
-            # preview output so untrusted assessment material is never shown as
-            # a calculated result.
-            preview_allowed = not problems or (
-                bool(evidence_problems)
-                and all(problem in evidence_problems for problem in problems)
-            )
-            if preview_allowed:
+            if output_allowed(problems, evidence_problems):
                 for threat_id, result in results:
                     if result.get("status") == "UNDETERMINED":
                         print(
@@ -3741,13 +3950,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command in ("design-review", "design-review-confirm"):
-            # The grammar lands before the runner does. Without this the
-            # command falls through to check_policy, which reads a --policy
-            # this subcommand does not declare, and reports a missing policy
-            # for a review that was never attempted.
-            raise RiskValidationError(
-                f"{args.command} is not wired to a runner yet"
-            )
+            return _run_design_review(args)
 
         problems = check_policy(paths)
         for problem in check_assessment(paths):

@@ -82,6 +82,62 @@ python3 -I "<exact absolute plugin root>/scripts/safe_paths.py" \
 
 Write `.security-requirements/threats.yaml`.
 
+### 1b. Persist the DFD
+
+The DFD above is what the threat model was derived from, so it is evidence, not
+scratch work. Write it down: `/security-design-review` scores against it, and a
+model that exists only in the transcript cannot be reviewed, diffed, or
+corrected.
+
+Preflight the target the same way, then write
+`.security-requirements/architecture.yaml`:
+
+```
+SECURITY_REQUIREMENTS_ROOT="<exact absolute plugin root>" \
+SECURITY_REQUIREMENTS_DATA="<exact absolute data root returned by runtime_paths.py>" \
+python3 -I "<exact absolute plugin root>/scripts/safe_paths.py" \
+    --project-root "$PWD" --check-output .security-requirements/architecture.yaml
+```
+
+```yaml
+version: "0.1.0"
+actors:           [{id, name, evidence_status}]
+components:       [{id, name, evidence_status, trust_boundary}]
+data_stores:      [{id, name, classification, evidence_status}]
+data_flows:       [{id, from, to, crosses, protocol, authenticated, evidence_status}]
+trust_boundaries: [{id, name, evidence_status}]
+assets:           [{id, name, cia_relevance}]
+dependencies:     [{id, name, kind, shared_responsibility}]
+assumptions:      ["stated as a sentence"]
+```
+
+Rules the architecture validator enforces. It reports each one, so a document
+that breaks them is caught before it is scored:
+
+**Every id is unique across the whole document, not just within its kind.** A
+flow and a component sharing an id makes the scope record ambiguous: the same
+string lands on one side as a flow and the other as a component, and the two
+halves disagree about it.
+
+**Every reference names a declared id, of the right kind.** `from`, `to` and
+`crosses` on a flow, and `trust_boundary` on a component. Naming something real
+of the wrong kind is reported separately from naming nothing, because the two
+have different fixes.
+
+**`evidence_status` is `observed`, `inferred`, or `unverified`, and is
+required.** "We did not record how we know this" and "we observed it" are
+different claims, and a default would render the first as the second. Use
+`inferred` for anything the code did not show you.
+
+**`cia_relevance` is spelled out** — `confidentiality`, `integrity`,
+`availability`. The single letters are output spelling and belong in the report,
+never in a document.
+
+**The `boundaries:` entries in `threats.yaml` are `data_flows` here.** They
+carry `{id, from, to}`, which describes a flow across a boundary rather than a
+boundary itself. Keep their `TB-` ids unchanged so existing threat records still
+resolve, and use `trust_boundaries` for the zones those flows cross.
+
 ## 2. Confirm inherent risk before deriving publishable output
 
 Use the bundled default policy unless the user has reviewed an organisation
