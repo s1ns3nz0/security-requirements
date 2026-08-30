@@ -45,13 +45,28 @@ The bytes asserted below are bytes written to disk by
 Two results worth reading before the tests
 ------------------------------------------
 
-**One test here is deliberately red.**
+**One test here is deliberately red: `findings[].evidence` has no producer.**
 `test_the_published_summary_contains_no_evidence_excerpt` fails on its *paired*
-half, not its leaking half: §4.2 gives every finding an `evidence` block of
-`{kind, location, excerpt}`, `sdr_report.build_report` never reads
-`documents["evidence"]`, and so nothing from `risk-evidence.yaml` reaches any
-artifact at all. The summary does not publish an excerpt only because no excerpt
-exists. Its docstring names the source change that turns it green.
+half, never on its leaking half. §4.2 declares an `evidence` block of
+`{kind, location, excerpt}` on every finding — repository evidence that the
+threat exists — and nothing anywhere collects one. The summary is clean, but it
+is clean because no excerpt reaches any artifact, so the absence proves nothing.
+
+This is **not** a matter of reading `risk-evidence.yaml`. That document is
+*implementation* evidence that a **requirement** is met — a test run, an
+observation date, an artifact digest, a `requirement_digest`. §4.2's block is
+*repository* evidence that a **threat** exists — a file, a position, the line of
+source showing the defect. Wiring the former in would not produce the latter. The
+block has no producer, the same shape of gap as `architecture.yaml` before §4.2's
+fourteenth correction of record named a file for it.
+
+`findings[].treatment` was in exactly this state when these tests were written —
+`_finding` emitted no `treatment` key, so `render_register`'s Owner, Treatment,
+Acceptance and Expiry rows printed "not recorded" for every finding in every run.
+`_finding` now carries `treatment`, `residual` and `owner` from the assessment
+record, so the two tests below that cover it are green and are live regression
+guards. `Attack path` remains an unfilled register row, read off a `attack_path`
+key the §4.2 finding does not carry.
 
 **N19's second sentence does not hold.**
 `preflight_output_paths` is a containment check — it refuses an escape, a parent
@@ -917,14 +932,56 @@ def test_the_published_summary_contains_no_attack_path_detail(published):
 
 
 def test_the_published_summary_contains_no_accepted_risk_detail(published):
+    """The requirement side of an accepted risk: `human.exception`."""
+
     assert SENTINEL_EXCEPTION not in published["summary"], (
         f"N20: the summary carries no accepted-risk detail; {SENTINEL_EXCEPTION!r} "
-        "is the internal exception note on a managed requirement and reached the "
-        "published document"
+        "is the rationale on a managed requirement's internal exception and "
+        "reached the published document"
     )
     assert SENTINEL_EXCEPTION in _sensitive(published), (
         "the accepted-risk sentinel must be shown to travel into the sensitive "
         f"set; {SENTINEL_EXCEPTION!r} reached no artifact"
+    )
+
+
+def test_the_published_summary_contains_no_treatment_or_acceptance_detail(published):
+    """The threat side of an accepted risk: `treatment.approval`.
+
+    §4.2 declares `treatment` on every finding, and `render_register` renders
+    four rows straight off it — Owner from `treatment.owner`, Treatment from
+    `treatment.strategy`, Acceptance from `treatment.approval`, Expiry from
+    `treatment.approval.expires`. This fixture's first assessment record carries
+    a fully valid `strategy: accept` with an approval `validate_treatment`
+    accepts, so all four have something real to render.
+
+    Written red: `_finding` emitted no `treatment` key, so every one of those
+    rows printed "not recorded" (Acceptance printed `{}`) for every finding in
+    every run, and the absence half below was vacuous. `_finding` now carries
+    `treatment`, `residual` and `owner` from the assessment record, so the pair
+    holds and this is a live guard. If a future change drops that carry, the
+    *second* assertion fails and says so rather than this test quietly going
+    green-for-nothing.
+    """
+
+    for sentinel in (
+        SENTINEL_ACCEPTANCE_OWNER,
+        SENTINEL_ACCEPTANCE_APPROVER,
+        SENTINEL_ACCEPTANCE_RATIONALE,
+    ):
+        assert sentinel not in published["summary"], (
+            f"N20: the summary carries no accepted-risk detail; {sentinel!r} is "
+            "part of a threat's acceptance approval and reached the published "
+            "document"
+        )
+    assert SENTINEL_ACCEPTANCE_RATIONALE in _sensitive(published), (
+        "the finding `treatment` block §4.2 declares has no producer: "
+        "`sdr_report._finding` emits no `treatment` key, so the register's "
+        "Owner, Treatment, Acceptance and Expiry rows print 'not recorded' for "
+        "every finding even when the assessment record carries a valid accepted "
+        f"risk. {SENTINEL_ACCEPTANCE_RATIONALE!r} is in "
+        "`risk-assessment.yaml` and in neither artifact, so the assertion above "
+        "passes for a pipeline with no acceptance to leak"
     )
 
 
@@ -992,20 +1049,47 @@ def test_the_published_summary_carries_no_exception(published):
     )
 
 
-def test_the_published_summary_carries_no_expiry(published):
+def test_the_published_summary_carries_no_requirement_exception_expiry(published):
     """§4.1: `expiry` has crossed this boundary once already.
 
-    Half a disclosure is still a disclosure: `status: accepted_risk` says a risk
-    was accepted and the expiry says until when.
+    Half a disclosure is still a disclosure: `status: accepted_risk` says a
+    control is not in place and the expiry says until when. `render.py` records
+    that the status was removed one commit before the expiry was, and that the
+    expiry on its own was still a disclosure.
     """
 
-    assert SENTINEL_EXPIRY not in published["summary"], (
-        f"N20: {SENTINEL_EXPIRY!r} is the expiry of an accepted risk and reached "
-        "the published document"
+    assert SENTINEL_EXCEPTION_EXPIRES not in published["summary"], (
+        f"N20: {SENTINEL_EXCEPTION_EXPIRES!r} is `human.exception.expires`, the "
+        "date a requirement's exception runs out, and it reached the published "
+        "document"
     )
-    assert SENTINEL_EXPIRY in _sensitive(published), (
-        f"the expiry sentinel must be shown to travel; {SENTINEL_EXPIRY!r} "
-        "reached no artifact"
+    assert SENTINEL_EXCEPTION_EXPIRES in _sensitive(published), (
+        "the requirement-expiry sentinel must be shown to travel; "
+        f"{SENTINEL_EXCEPTION_EXPIRES!r} reached no artifact"
+    )
+
+
+def test_the_published_summary_carries_no_acceptance_expiry(published):
+    """The threat-side expiry: `treatment.approval.expires`.
+
+    Named separately from
+    `test_the_published_summary_contains_no_treatment_or_acceptance_detail`
+    because §4.1 names `expiry` as its own prior incident, and because "expiry"
+    has two halves that travel by different routes — `human.exception.expires`
+    on the requirement above, and the acceptance's own `expires` here. Both need
+    guarding; a fix to either route leaves the other unwatched.
+    """
+
+    assert SENTINEL_ACCEPTANCE_EXPIRES not in published["summary"], (
+        f"N20: {SENTINEL_ACCEPTANCE_EXPIRES!r} is the expiry of an accepted risk "
+        "and reached the published document"
+    )
+    assert SENTINEL_ACCEPTANCE_EXPIRES in _sensitive(published), (
+        "`treatment.approval.expires` reaches no artifact: `_finding` emits no "
+        "`treatment` key, so the register's Expiry row is always 'not recorded'. "
+        f"{SENTINEL_ACCEPTANCE_EXPIRES!r} is in `risk-assessment.yaml` and in "
+        "neither artifact, so the assertion above passes for a pipeline with no "
+        "expiry to leak"
     )
 
 
