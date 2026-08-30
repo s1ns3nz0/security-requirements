@@ -37,6 +37,14 @@ THREAT_DIGEST_FIELDS = (
     "related_controls",
 )
 RATINGS = ("critical", "high", "medium", "low")
+
+#: F14 — every artifact that states a rating also states what that rating is
+#: not. Defined here rather than in `sdr_report` because two modules assert it:
+#: the report's verdict and the published summary. One sentence, one source, or
+#: the two drift and the weaker one is the one that gets published.
+NEVER_ASSERT_SECURE = (
+    "This is not an approval, attestation, or claim that the service is secure."
+)
 TREATMENT_STRATEGIES = {"mitigate", "avoid", "transfer", "accept"}
 SNAPSHOT_FIELDS = (
     "assessed_at",
@@ -1400,10 +1408,13 @@ def render_register(summary: dict) -> str:
                 "```",
                 "",
             ]
-    for record in sorted(
-        (item for item in records if isinstance(item, Mapping)),
-        key=lambda item: str(item.get("threat_id", item.get("id", ""))),
-    ):
+    # Rendered in the order given. This used to sort by id, which made the
+    # register a *second* orderer: one run published its findings as
+    # `T-08…T-01` in the JSON and `T-01…T-08` here, and a reader comparing the
+    # two artifacts could not line them up — "the top finding" named a
+    # different threat depending on which file was open. §4.3 gives ordering
+    # one choke point, and a renderer that re-sorts is not it.
+    for record in (item for item in records if isinstance(item, Mapping)):
         threat_id = record.get("threat_id", record.get("id", "<unknown risk>"))
         proposed = record.get("proposed")
         treatment = record.get("treatment")
@@ -1518,7 +1529,17 @@ def render_public_summary(summary: dict, policy: dict) -> str | None:
     if not isinstance(summary, Mapping):
         raise RiskValidationError("risk report summary must be a mapping")
 
-    out = ["# Public risk summary", ""]
+    # F14/F15. This is the only artifact its readers see, and a rating table
+    # under a "Public risk summary" heading with nothing else on the page reads
+    # as a clearance. The sensitive documents carry this sentence; the
+    # publishable one needs it more, not less, because its audience has no
+    # register to read alongside it.
+    out = [
+        "# Public risk summary",
+        "",
+        f"> {NEVER_ASSERT_SECURE}",
+        "",
+    ]
     for name, section in _public_summary_sections(summary):
         overall, counts, coverage = _validated_public_section(section)
         out += [f"## {name.title()}", "", "| Measure | Value |", "|---|---|"]
@@ -2509,10 +2530,16 @@ def _write_text_transaction(
             if prior is None:
                 safe_path(path, project_root=root).unlink(missing_ok=True)
             else:
+                # Byte-for-byte, via `surrogateescape` in both directions. The
+                # prior contents were read as bytes and need not be valid
+                # UTF-8; a strict decode here raises, the restore fails, and
+                # the target keeps the *failed run's* content — a partial write
+                # from the one code path whose whole purpose is to prevent one.
                 safe_write_text(
                     path,
-                    prior.decode("utf-8"),
+                    prior.decode("utf-8", "surrogateescape"),
                     encoding="utf-8",
+                    errors="surrogateescape",
                     project_root=root,
                     create_parents=True,
                 )
@@ -3779,15 +3806,36 @@ def _run_design_review(args: argparse.Namespace) -> int:
         )
 
     confirmation = _read_trusted_confirmation(project_root, "assessment")
-    if confirming and confirmation is None:
-        # N27. A problem exit, not a usage error: the grammar was correct and
-        # the operator can fix this by running the confirmation.
-        print(
-            "ERROR: design-review-confirm requires a trusted confirmation; "
-            "none is bound for this project",
-            file=sys.stderr,
+    if confirming:
+        # N27/N28. Presence at the plugin-owned path is not proof of a
+        # binding. Testing `is not None` accepted two things it must not: a
+        # confirmation whose digests no longer match the documents — the exact
+        # condition confirmation exists to detect — and a file planted at that
+        # path. `check_assessment` is what every other confirm path in this
+        # module runs, and it verifies all four digests against disk.
+        store = project_root / ".security-requirements"
+        confirmation_problems = (
+            ["design-review-confirm requires a trusted confirmation; none is "
+             "bound for this project"]
+            if confirmation is None
+            else check_assessment(
+                {
+                    "project_root": project_root,
+                    "assessment": store / "risk-assessment.yaml",
+                    "policy": store / "risk-policy.yaml",
+                    "threats": store / "threats.yaml",
+                    "requirements": store / "requirements.yaml",
+                    "evidence": store / "risk-evidence.yaml",
+                    "state": store / "risk-state.yaml",
+                }
+            )
         )
-        return 1
+        if confirmation_problems:
+            for problem in confirmation_problems:
+                print(f"ERROR: {problem}", file=sys.stderr)
+            # A problem exit, not a usage error: the grammar was correct and
+            # the operator can fix this by running the confirmation.
+            return 1
 
     for problem in problems:
         print(f"ERROR: {problem}", file=sys.stderr)
@@ -3801,6 +3849,11 @@ def _run_design_review(args: argparse.Namespace) -> int:
             confirmation=confirmation if confirming else None,
             risk_appetite=appetite,
             invocation={
+                # N17: what the repository said to the reviewer. Collected here
+                # because the runner is what knows the project root; the report
+                # module stays free of filesystem access.
+                "repository_untrusted_content":
+                    sdr_entry.repository_untrusted_content(project_root),
                 "plugin_version": None,
                 "command": " ".join(sys.argv[1:]) or args.command,
                 "timestamp": stamped_at,
@@ -3821,6 +3874,22 @@ def _run_design_review(args: argparse.Namespace) -> int:
         sdr_artifacts.write_artifacts(entries)
         for path, *_rest in entries:
             print(f"wrote {path}")
+        # N21: a withheld summary is stated, never merely absent. The run names
+        # each artifact it wrote, so saying nothing about the one it did not is
+        # indistinguishable from having published it — and silence is the more
+        # dangerous reading of the two. Naming the setting as well, because an
+        # operator who wanted the summary has no other way to find out why they
+        # did not get it.
+        wrote_summary = any(
+            Path(path).name == sdr_artifacts.PUBLISHABLE_ARTIFACT
+            for path, *_rest in entries
+        )
+        if confirming and confirmation is not None and not wrote_summary:
+            print(
+                f"withheld {sdr_artifacts.PUBLISHABLE_ARTIFACT}: "
+                "publish_risk_summary is not true under the "
+                f"{appetite} appetite"
+            )
     return 1 if problems else 0
 
 

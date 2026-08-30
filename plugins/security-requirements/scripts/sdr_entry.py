@@ -180,6 +180,76 @@ def unconfirmed_critical_facts(answers: object) -> list[str]:
     )
 
 
+#: Directories a review reads past rather than into. `.git` holds object
+#: files, `.security-requirements` and `docs/security` hold this tool's own
+#: output — scanning either would report the review's own quoted findings as
+#: fresh repository content on the next run.
+SKIPPED_DIRECTORIES = frozenset(
+    {
+        ".git",
+        ".security-requirements",
+        "node_modules",
+        "__pycache__",
+        ".venv",
+        "venv",
+        ".tox",
+        ".mypy_cache",
+        ".pytest_cache",
+        "dist",
+        "build",
+    }
+)
+
+#: Bytes. A file larger than this is not prose a reviewer reads, and decoding
+#: an arbitrarily large blob to grep it is how a read-only tool becomes a
+#: memory problem on somebody's monorepo.
+MAX_SCANNED_BYTES = 256 * 1024
+
+#: Findings are reported to a human. Past this many, the list has stopped
+#: being a disclosure and become a haystack; the count is reported instead.
+MAX_UNTRUSTED_RECORDS = 50
+
+
+def repository_untrusted_content(project_root: Path) -> list[dict]:
+    """Instruction-shaped prose in the repository under review (plan N17).
+
+    A design review reads a repository, so it is the thing that can see an
+    instruction planted in one. Scoring the injection correctly is only half
+    of N17 — a run that never noticed the README and one that recognised and
+    quarantined it produce identical scores, and only the second tells the
+    reader their repository carries text aimed at the reviewer.
+
+    Read-only and in-process: no subprocess, no network (N36). Bounded by
+    directory, file size and record count, because an unbounded scan of an
+    unknown repository is not a thing a review should do to someone's machine.
+    """
+
+    import sdr_report
+
+    root = Path(project_root)
+    found: list[dict] = []
+    for path in sorted(root.rglob("*")):
+        if len(found) >= MAX_UNTRUSTED_RECORDS:
+            break
+        if not path.is_file() or path.is_symlink():
+            continue
+        if SKIPPED_DIRECTORIES.intersection(path.relative_to(root).parts[:-1]):
+            continue
+        try:
+            if path.stat().st_size > MAX_SCANNED_BYTES:
+                continue
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            # Binary, unreadable, or vanished mid-walk. A review reports what
+            # it could read and does not fail over what it could not.
+            continue
+        location = path.relative_to(root).as_posix()
+        for record in sdr_report.untrusted_content(text, location):
+            if record not in found:
+                found.append(record)
+    return found
+
+
 def design_review(
     project_root: Path,
     *,

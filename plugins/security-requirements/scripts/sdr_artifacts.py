@@ -119,6 +119,38 @@ def _render_markdown(report: Mapping, *, confirmed: bool) -> str:
     out.append(risk_mod.render_register(_register_summary(report)))
     out.append("")
 
+    # N17/N18. Fenced and labelled, so a reader can tell attacker prose from
+    # the review's own words. The label is the whole point: the same sentence
+    # unlabelled reads as a finding, which is exactly what an injection is for.
+    quoted = report.get("untrusted_content")
+    if isinstance(quoted, Sequence) and not isinstance(quoted, (str, bytes)) and quoted:
+        out += [
+            "## Untrusted content",
+            "",
+            "> The repository under review contains text addressed to the "
+            "reviewer. It is **untrusted content**, quoted here so it can be "
+            "judged, and it was not acted on. Nothing in the block below is a "
+            "finding or an instruction.",
+            "",
+        ]
+        for record in quoted:
+            if not isinstance(record, Mapping):
+                continue
+            # The label repeats on every entry rather than sitting once under
+            # the heading. A reader scrolling into the middle of a long list,
+            # or a tool reading a window around one quote, has to be able to
+            # tell what it is looking at without the heading in view — and a
+            # section heading is exactly what scrolling loses first.
+            out += [
+                f"- Untrusted content from `{record.get('location')}` — "
+                f"{record.get('why')}:",
+                "",
+                "```text",
+                str(record.get("quoted", "")),
+                "```",
+                "",
+            ]
+
     limitations = report.get("limitations")
     if isinstance(limitations, Sequence) and not isinstance(limitations, (str, bytes)):
         out += ["## Limitations", ""]

@@ -15,6 +15,8 @@ recomputing it. A second derivation is a second opinion, and the two drift.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+import copy
+import re
 from datetime import date
 from pathlib import Path
 import sys
@@ -37,9 +39,94 @@ SCHEMA_VERSION = "1.0.0"
 CALCULATED_KEYS = ("likelihood", "impact", "score", "rating")
 
 #: F14 — the verdict states a threshold comparison and never an approval.
-NEVER_ASSERT_SECURE = (
-    "This is not an approval, attestation, or claim that the service is secure."
+#: Re-exported from `risk` so the published summary and this report cannot
+#: drift apart on the sentence that matters most.
+NEVER_ASSERT_SECURE = risk_mod.NEVER_ASSERT_SECURE
+
+
+#: Prose shaped like an instruction aimed at the reviewer rather than a
+#: description of the system. Repository content is data, and a sentence in it
+#: telling the reviewer what to conclude is an attempt to be obeyed.
+#:
+#: Policy-as-data, like `risk.KEY_MATERIAL_PATTERNS`, and matched on the
+#: *shape* of an instruction rather than on any fixture's wording — a list of
+#: known-bad sentences only catches the attacker who copied one.
+#:
+#: Deliberately narrow. This decides what gets quoted rather than paraphrased,
+#: so a false positive costs a reader one labelled block; the alternative
+#: failure is the review reproducing attacker prose in its own voice.
+INSTRUCTION_PATTERNS: tuple[tuple[str, object], ...] = (
+    (
+        "an instruction to disregard prior direction",
+        re.compile(r"\bignore\s+(?:all\s+|any\s+)?previous\s+instructions?\b", re.I),
+    ),
+    (
+        "an instruction to lower or waive findings",
+        re.compile(
+            r"\b(?:score|rate|report|mark)\b[^.]{0,60}?"
+            r"\b(?:all|every)\b[^.]{0,40}?\b(?:low|accepted|safe|no\s+risk)\b",
+            re.I,
+        ),
+    ),
+    (
+        "an instruction addressed to the reviewing agent",
+        re.compile(r"\byou\s+(?:must|should|will)\s+(?:not\s+)?report\b", re.I),
+    ),
 )
+
+#: What a redacted instruction is replaced with in the review's own prose. The
+#: text still reaches the reader — verbatim, once, inside the labelled block —
+#: but never in a position where it reads as the analyst's own sentence.
+REDACTION_NOTICE = "[untrusted content removed — see Untrusted content]"
+
+
+def untrusted_content(value: object, location: str = "") -> list[dict]:
+    """Instruction-shaped prose found in repository-sourced text.
+
+    Returns `{location, quoted, why}` records. Reported rather than obeyed, and
+    reported *verbatim*: a reviewer deciding whether this matters needs to read
+    what was actually written, not a summary of it.
+    """
+
+    found: list[dict] = []
+    if not isinstance(value, str):
+        return found
+    for why, pattern in INSTRUCTION_PATTERNS:
+        for match in pattern.finditer(value):
+            sentence = _enclosing_sentence(value, match.start(), match.end())
+            record = {"location": location, "quoted": sentence, "why": why}
+            if record not in found:
+                found.append(record)
+    return found
+
+
+def _enclosing_sentence(text: str, start: int, end: int) -> str:
+    """The whole sentence a match sits in, so the quote is not a fragment."""
+
+    left = max(text.rfind(".", 0, start), text.rfind("\n", 0, start))
+    right = text.find(".", end)
+    right = len(text) if right == -1 else right + 1
+    return text[left + 1 : right].strip()
+
+
+def redact_instructions(value: object) -> object:
+    """Replace instruction-shaped sentences with a pointer to the quoted block.
+
+    The review must not reproduce attacker prose in its own voice. A reader
+    scanning a scenario cannot tell a sentence the analyst wrote from one the
+    repository supplied, and the whole point of the injection is to be read as
+    the former.
+    """
+
+    if not isinstance(value, str):
+        return value
+    redacted = value
+    for _why, pattern in INSTRUCTION_PATTERNS:
+        for match in reversed(list(pattern.finditer(redacted))):
+            sentence = _enclosing_sentence(redacted, match.start(), match.end())
+            if sentence:
+                redacted = redacted.replace(sentence, REDACTION_NOTICE)
+    return redacted
 
 
 def _mapping(value: object) -> dict:
@@ -110,6 +197,7 @@ def _finding(
     requirements: object,
     assessment: object,
     threats: object,
+    evidence: object,
     attack_paths: object,
     today: date | None,
 ) -> dict:
@@ -123,13 +211,13 @@ def _finding(
         "threat": {
             "stride": threat.get("category"),
             "normalized": threat.get("attack_path"),
-            "title": threat.get("scenario"),
+            "title": redact_instructions(threat.get("scenario")),
         },
         "target": {
             "kind": "trust_boundary" if threat.get("boundary") else None,
             "ref": threat.get("boundary"),
         },
-        "scenario": threat.get("scenario"),
+        "scenario": redact_instructions(threat.get("scenario")),
         "threat_digest": risk_mod.threat_digest(dict(threat)),
         "status": record.get("status"),
         "evidence_status": threat.get("evidence_status"),
@@ -139,6 +227,18 @@ def _finding(
     proposed = record.get("proposed")
     if isinstance(proposed, Mapping):
         finding["proposed"] = dict(proposed)
+
+    # Carried from the assessment record, not re-derived. Without these the
+    # register's Owner, Treatment, Acceptance and Expiry rows print
+    # "not recorded" for every finding even when the assessment holds a valid
+    # accepted risk — so a reader of the sensitive report cannot see that a
+    # risk was accepted, by whom, or when the acceptance lapses. Each of the
+    # four is also named in §4.1 as having crossed the publish boundary once,
+    # which is only testable once they reach an artifact at all.
+    for carried in ("treatment", "residual", "owner"):
+        value = record.get(carried)
+        if value is not None:
+            finding[carried] = copy.deepcopy(value)
 
     calculated = record.get("calculated")
     if isinstance(calculated, Mapping):
@@ -159,11 +259,84 @@ def _finding(
     requirement = _requirement_for(requirements, threat_id)
     if requirement is not None:
         finding["requirement"] = requirement
+        supporting = _evidence_for(evidence, requirement.get("id"))
+        if supporting:
+            finding["evidence"] = supporting
         links = risk_mod.derive_risk_links(
             [threat_id], _mapping(assessment), _mapping(threats), today=today
         )
         finding["risk_exposure"] = links.get("risk_exposure")
     return finding
+
+
+def _evidence_for(evidence: object, requirement_id: object) -> list[dict]:
+    """§4.2 `findings[].evidence` — what shows this finding is real.
+
+    Projected to `{kind, location, excerpt}` and nothing else. The stored
+    record carries a digest, an observer, an expiry and a requirement digest
+    besides; a report that copied the whole record would put four more fields
+    on the sensitive/publishable seam, and §4.1 already lists five that crossed
+    it. A projection is a smaller thing to keep on the right side of a boundary
+    than a filter.
+
+    Linked through the requirement, which is how the evidence document
+    addresses its subject: an evidence record names `requirement_id`, never a
+    threat. A finding without a requirement has nothing to link through and
+    carries no evidence, rather than carrying all of it.
+    """
+
+    if not _nonempty(requirement_id):
+        return []
+    supporting: list[dict] = []
+    for record in _sequence(_mapping(evidence).get("evidence")):
+        if not isinstance(record, Mapping):
+            continue
+        if record.get("requirement_id") != requirement_id:
+            continue
+        artifact = _mapping(record.get("artifact"))
+        projected = {
+            "kind": artifact.get("kind"),
+            "location": artifact.get("location"),
+        }
+        excerpt = artifact.get("excerpt")
+        if excerpt is not None:
+            projected["excerpt"] = excerpt
+        supporting.append(projected)
+    return supporting
+
+
+def _nonempty(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def order_findings(findings: Sequence) -> list[dict]:
+    """§4.3 — rating rank, then score descending, then id.
+
+    The one place findings are ordered. `render_register` used to sort by id,
+    which made a run publish two orders: document order in the JSON and id
+    order in the markdown. It no longer sorts, so this is the order both
+    artifacts carry, and "the top finding" means the same thing in either.
+
+    A finding with no rating sorts last rather than first. An unscored record
+    is not the most severe thing in the report, and putting it at the top is
+    the reading a hurried reviewer would act on.
+    """
+
+    def key(finding: object) -> tuple:
+        record = _mapping(finding)
+        calculated = _mapping(record.get("calculated"))
+        rating = calculated.get("rating")
+        rank = (
+            risk_mod.RATINGS.index(rating)
+            if rating in risk_mod.RATINGS
+            else len(risk_mod.RATINGS)
+        )
+        score = calculated.get("score")
+        score = score if isinstance(score, int) and not isinstance(score, bool) else -1
+        # Negated so a higher score sorts earlier under an ascending sort.
+        return (rank, -score, str(record.get("id") or ""))
+
+    return sorted((_mapping(finding) for finding in findings), key=key)
 
 
 def _requirement_for(requirements: object, threat_id: object) -> dict | None:
@@ -211,24 +384,52 @@ def _verdict(threats: object, assessment: object, policy: dict, today) -> dict:
             for rating in risk_mod.RATINGS[: limit + 1]
         )
 
+    # "Nothing was modelled" and "nothing was found" are different facts and a
+    # count of zero renders them alike. `0 finding(s) at or above the release
+    # threshold` is the sentence a thoroughly-reviewed clean service gets, and
+    # a reader has no way to tell it from a review that had nothing to look at.
+    # The distinction lives in `overall`/`coverage`, which reach only the JSON,
+    # and an unconfirmed run never writes the JSON — so it has to be said here.
+    if overall == "UNDETERMINED" or inherent.get("coverage") == "0/0":
+        statement = (
+            "No threats are modelled, so nothing was assessed and the overall "
+            f"rating is UNDETERMINED (coverage {inherent.get('coverage')}). "
+            "This is not a finding of low risk. "
+            f"{NEVER_ASSERT_SECURE}"
+        )
+    else:
+        statement = (
+            f"{at_or_above} finding(s) at or above the release threshold "
+            f"({threshold}). {NEVER_ASSERT_SECURE}"
+        )
+
     return {
         "release_threshold_rating": threshold,
         "exceeds_threshold": exceeds,
         "inherent": inherent,
-        "statement": (
-            f"{at_or_above} finding(s) at or above the release threshold "
-            f"({threshold}). {NEVER_ASSERT_SECURE}"
-        ),
+        "statement": statement,
     }
 
 
-def _limitations(entry: Mapping, scope_record: Mapping) -> list[str]:
+def _limitations(
+    entry: Mapping, scope_record: Mapping, inherent: Mapping | None = None
+) -> list[str]:
     """What the run could not see, stated rather than left to inference."""
 
     limitations = [
         "Static, local, read-only analysis. "
         "No execution, probing, or network access.",
     ]
+    # First, because it governs how everything below it should be read. The
+    # generic disclaimer above appears on every run and cannot carry this
+    # meaning: a reader who skims sees a limitations list either way.
+    if isinstance(inherent, Mapping) and inherent.get("coverage") == "0/0":
+        limitations.insert(
+            0,
+            "No threats are modelled, so this review assessed nothing. "
+            "Run /sec-req-build to produce a threat model before reading "
+            "anything below as coverage.",
+        )
     excluded = _sequence(scope_record.get("excluded"))
     if excluded:
         limitations.append(
@@ -298,10 +499,38 @@ def build_report(
                 requirements=requirements,
                 assessment=assessment,
                 threats=threats,
+                evidence=_document(documents, "evidence"),
                 attack_paths=attack_paths,
                 today=today,
             )
         )
+
+    # §4.3's single ordering choke point for findings. Applied here so both
+    # the JSON and the rendered register carry the same order.
+    findings = order_findings(findings)
+
+    # Collected from the *unredacted* model, because the findings above now
+    # carry the pointer rather than the prose. Reported, never obeyed.
+    quoted: list[dict] = [
+        record
+        for record in _sequence(
+            invocation_block.get("repository_untrusted_content")
+        )
+        if isinstance(record, Mapping)
+    ]
+    for threat in risk_mod.active_threats(threats):
+        for field in ("scenario", "attack_path"):
+            for record in untrusted_content(
+                threat.get(field), f"threats.yaml:{threat.get('id')}.{field}"
+            ):
+                if record not in quoted:
+                    quoted.append(record)
+    for index, assumption in enumerate(_sequence(architecture.get("assumptions"))):
+        for record in untrusted_content(
+            assumption, f"architecture.yaml:assumptions[{index}]"
+        ):
+            if record not in quoted:
+                quoted.append(record)
 
     paths = [
         {
@@ -315,6 +544,8 @@ def build_report(
         for record in _sequence(_mapping(attack_paths).get("attack_paths"))
         if isinstance(record, Mapping)
     ]
+
+    verdict = _verdict(threats, assessment, policy, today)
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -339,11 +570,16 @@ def build_report(
         "architecture": architecture,
         "findings": findings,
         "attack_paths": paths,
-        "verdict": _verdict(threats, assessment, policy, today),
-        "limitations": _limitations(_mapping(entry), scope_block),
+        "verdict": verdict,
+        "limitations": _limitations(
+            _mapping(entry), scope_block, verdict.get("inherent")
+        ),
         "disclosures_blocked": list(
             _sequence(invocation_block.get("disclosures_blocked"))
         ),
+        # N17/N18. What the repository said to the reviewer, quoted so a human
+        # can judge it, and never acted on.
+        "untrusted_content": quoted,
     }
 
 
