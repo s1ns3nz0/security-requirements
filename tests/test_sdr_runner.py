@@ -379,6 +379,172 @@ def test_the_output_flag_moves_the_artifacts_out_of_the_project(project, tmp_pat
 
 
 # ---------------------------------------------------------------------------
+# Evidence — the other half of `output_allowed`.
+#
+# The rule has two halves and only one of them was reachable from this command
+# while the runner passed `evidence_problems=[]`. Stale evidence is supposed to
+# still render an UNDETERMINED preview: the reader learns the evidence expired,
+# which is the answer. Hardcoding the list empty meant an evidence problem was
+# indistinguishable from a binding error, and suppressed everything.
+# ---------------------------------------------------------------------------
+
+#: `valid_until` in the past relative to the run. Everything else about the
+#: record is well formed, so the only problem it can produce is staleness —
+#: otherwise the test would pass for the wrong reason.
+EXPIRED_UNTIL = "2026-02-01"
+PINNED_STAMP = "2026-05-01T00:00:00Z"
+
+
+def _managed_requirement() -> tuple[dict, dict]:
+    managed = {
+        "statement": "checkout-api MUST reject unauthenticated writes.",
+        "verification": {"method": "test_case", "expect": "401"},
+    }
+    requirements = {
+        "version": "0.1.0",
+        "requirements": [
+            {
+                "id": "REQ-1",
+                "statement": managed["statement"],
+                "rationale": "Unauthenticated write across the internet boundary.",
+                "sources": ["AC-3"],
+                "responsibility": "team",
+                "priority": "high",
+                "managed": managed,
+                "verification": managed["verification"],
+            }
+        ],
+    }
+    return managed, requirements
+
+
+def _write_expired_evidence(project_root: Path) -> None:
+    """A store carrying requirements and one expired-but-otherwise-valid record."""
+
+    managed, requirements = _managed_requirement()
+    evidence = {
+        "version": "0.1.0",
+        "evidence": [
+            {
+                "id": "EV-1",
+                "requirement_id": "REQ-1",
+                "method": "test_case",
+                "result": "pass",
+                "observed_at": "2026-01-05T00:00:00Z",
+                "observed_by": "ci",
+                "artifact": {
+                    "kind": "test_report",
+                    "location": "ci/run/1",
+                    "digest": risk_mod.canonical_digest({"run": 1}),
+                },
+                "requirement_digest": risk_mod.canonical_digest(managed),
+                "valid_until": EXPIRED_UNTIL,
+            }
+        ],
+    }
+    store = project_root / STORE_DIRNAME
+    (store / "requirements.yaml").write_text(
+        yaml.safe_dump(requirements, sort_keys=True), encoding="utf-8"
+    )
+    (store / "risk-evidence.yaml").write_text(
+        yaml.safe_dump(evidence, sort_keys=True), encoding="utf-8"
+    )
+
+
+def test_a_store_without_evidence_documents_is_not_a_problem(project):
+    """Evidence is optional. Its absence is not a defect in the model."""
+
+    store = project / STORE_DIRNAME
+    assert not (store / "risk-evidence.yaml").exists(), "fixture drift"
+
+    exit_code = risk_mod.main(_argv(project))
+
+    assert exit_code == OK, (
+        "requirements.yaml and risk-evidence.yaml are produced by a later "
+        "workflow step and a team may legitimately have neither yet. Treating "
+        "their absence as a problem would fail every design review run before "
+        f"the first evidence is written; got {exit_code}"
+    )
+
+
+def test_expired_evidence_is_reported(project, capsys):
+    _write_expired_evidence(project)
+
+    exit_code = risk_mod.main(_argv(project, "--confirmed-at", PINNED_STAMP))
+
+    assert exit_code == PROBLEMS, (
+        f"an expired evidence record is a problem the operator can fix; got {exit_code}"
+    )
+    captured = capsys.readouterr()
+    assert "EV-1" in captured.err, (
+        "the problem names the record, so the operator knows which evidence to "
+        f"refresh; stderr was {captured.err!r}"
+    )
+
+
+def test_expired_evidence_alone_still_renders_the_preview(project):
+    """The half of `output_allowed` that `evidence_problems=[]` made unreachable."""
+
+    _write_expired_evidence(project)
+
+    exit_code = risk_mod.main(_argv(project, "--confirmed-at", PINNED_STAMP))
+
+    # Both halves, together. "The preview was written" is also true of a run
+    # that never noticed the evidence at all, so on its own it cannot tell the
+    # rule from the absence of the rule. The pair — reported *and* rendered —
+    # is the property `output_allowed` actually encodes.
+    assert exit_code == PROBLEMS, (
+        "the expired record must be reported, or this test passes for a run "
+        f"that silently ignored the evidence document; got {exit_code}"
+    )
+    assert _artifacts(project) == [PREVIEW], (
+        "invalid or stale evidence may still render a preview — the reader "
+        "learns the evidence expired, which is the answer. Only a binding or "
+        "document-integrity error suppresses everything. This is what "
+        "`risk.output_allowed` exists to distinguish, and it cannot make the "
+        f"distinction if the runner reports no evidence problems; wrote "
+        f"{_artifacts(project)}"
+    )
+
+
+def test_expired_evidence_beside_an_integrity_error_suppresses_everything(project):
+    """One evidence problem does not licence rendering past a real fault."""
+
+    _write_expired_evidence(project)
+    store = project / STORE_DIRNAME
+    architecture = yaml.safe_load(
+        (store / "architecture.yaml").read_text(encoding="utf-8")
+    )
+    architecture["trust_boundaries"] = architecture["trust_boundaries"][:-1]
+    (store / "architecture.yaml").write_text(
+        yaml.safe_dump(architecture, sort_keys=True), encoding="utf-8"
+    )
+
+    exit_code = risk_mod.main(_argv(project, "--confirmed-at", PINNED_STAMP))
+
+    assert exit_code == PROBLEMS
+    assert _artifacts(project) == [], (
+        "`output_allowed` renders only when *every* problem is an evidence "
+        "problem. A dangling architecture reference beside a stale record is "
+        f"not that case; wrote {_artifacts(project)}"
+    )
+
+
+def test_a_malformed_evidence_document_suppresses_output(project):
+    """A document that will not parse as evidence is an integrity error."""
+
+    store = project / STORE_DIRNAME
+    (store / "risk-evidence.yaml").write_text(
+        yaml.safe_dump({"version": "0.1.0", "evidence": "not-a-list"}, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    exit_code = risk_mod.main(_argv(project, "--confirmed-at", PINNED_STAMP))
+
+    assert exit_code == PROBLEMS, f"got {exit_code}"
+
+
+# ---------------------------------------------------------------------------
 # A missing store is reported, not crashed on.
 # ---------------------------------------------------------------------------
 

@@ -3758,11 +3758,25 @@ def _run_design_review(args: argparse.Namespace) -> int:
     problems = sdr_report.report_problems(
         documents, scope=scope, policy=documents["policy"], today=today
     )
-    _requirements, _evidence, evidence_problems = (
-        documents.get("requirements"),
-        documents.get("evidence"),
-        [],
-    )
+
+    # Evidence is optional and validated only when it exists. It is produced by
+    # a later workflow step, so a team may legitimately have none yet, and
+    # treating its absence as a defect would fail every design review run
+    # before the first evidence is written.
+    #
+    # Kept as its own list because `output_allowed` distinguishes the two:
+    # stale evidence still renders a preview — the reader learns the evidence
+    # expired, which is the answer — while a binding or integrity error
+    # suppresses everything. Folding these into `problems` alone would make an
+    # expired record indistinguishable from a corrupted document.
+    evidence_problems: list[str] = []
+    if documents.get("evidence") is not None:
+        evidence_problems = validate_evidence(
+            documents["evidence"], documents.get("requirements"), today
+        )
+        problems.extend(
+            problem for problem in evidence_problems if problem not in problems
+        )
 
     confirmation = _read_trusted_confirmation(project_root, "assessment")
     if confirming and confirmation is None:
