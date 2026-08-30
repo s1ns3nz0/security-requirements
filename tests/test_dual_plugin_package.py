@@ -220,6 +220,7 @@ def test_codex_manifest_declares_the_required_plugin_interface():
             "Build security requirements from the confirmed profile.",
             "Refresh security requirements after service changes.",
             "Assess and review threat risk for this repository.",
+            "Review a service design against its threat model for this repository.",
         ],
     }
 
