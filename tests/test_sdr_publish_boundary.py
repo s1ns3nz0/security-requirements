@@ -1134,6 +1134,13 @@ def test_the_published_summary_is_a_strict_subset_of_what_the_report_publishes(
     allowed = {"", "# Public risk summary", "| Measure | Value |", "|---|---|",
                "| Rating | Count |", "|---|---:|"}
     allowed |= {f"## {name}" for name in ("Inherent", "Residual")}
+    # The never-assert-secure disclaimer, added after this test was written.
+    # Admitted to the whitelist rather than excepted from it: it is a fixed
+    # constant read from `risk`, so it carries no finding data and cannot vary
+    # with the run. Spelled by reference, not copied — a literal here would let
+    # the sentence change in the source while this list still permitted the old
+    # one, which is the drift the constant was centralised to prevent.
+    allowed.add(f"> {risk_mod.NEVER_ASSERT_SECURE}")
 
     unexpected = []
     for line in published["summary"].splitlines():
