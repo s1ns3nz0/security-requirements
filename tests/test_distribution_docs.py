@@ -1546,7 +1546,7 @@ def test_payload_manifests_publish_020_while_marketplace_metadata_is_unchanged()
 
 
 @pytest.mark.parametrize("host", ("claude", "codex"))
-def test_distribution_validator_requires_exactly_four_host_entrypoints(tmp_path, host):
+def test_distribution_validator_requires_exactly_the_host_entrypoints(tmp_path, host):
     module = _load_validator()
     clone = _distribution_clone(tmp_path)
     payload = clone / "plugins" / PLUGIN_NAME
@@ -1563,7 +1563,7 @@ def test_distribution_validator_requires_exactly_four_host_entrypoints(tmp_path,
     assert any(f"unexpected {host.title()} entry point" in error for error in errors), errors
 
 
-def test_distribution_validator_requires_exactly_four_ordered_codex_prompts(tmp_path):
+def test_distribution_validator_requires_exactly_the_ordered_codex_prompts(tmp_path):
     module = _load_validator()
     clone = _distribution_clone(tmp_path)
     manifest_path = clone / "plugins" / PLUGIN_NAME / ".codex-plugin" / "plugin.json"
@@ -1574,7 +1574,7 @@ def test_distribution_validator_requires_exactly_four_ordered_codex_prompts(tmp_
 
     errors = module.validate(clone)
 
-    assert "Codex manifest must declare exactly the four canonical workflow prompts" in errors
+    assert "Codex manifest must declare exactly the canonical workflow prompts" in errors
 
 
 def test_distribution_validator_rejects_unapproved_payload_components_without_execution(
@@ -1788,7 +1788,7 @@ def test_distribution_validator_aggregates_risk_distribution_errors(tmp_path):
     for expected in (
         "missing required risk asset: scripts/risk.py",
         "invalid bundled default risk policy",
-        "exactly the four canonical workflow prompts",
+        "exactly the canonical workflow prompts",
         "unapproved payload path",
     ):
         assert any(expected in error for error in errors), errors
@@ -1943,7 +1943,7 @@ def test_distribution_validator_aggregates_non_mapping_codex_interfaces(
     errors = module.validate(clone)
 
     assert "Codex manifest.interface must be a mapping" in errors
-    assert "Codex manifest must declare exactly the four canonical workflow prompts" in errors
+    assert "Codex manifest must declare exactly the canonical workflow prompts" in errors
 
 
 def test_distribution_validator_aggregates_malformed_prompt_and_version_types(tmp_path):
@@ -1963,7 +1963,7 @@ def test_distribution_validator_aggregates_malformed_prompt_and_version_types(tm
 
     assert any("payload manifest versions must both equal 0.2.0" in error for error in errors)
     assert "Codex manifest.interface.defaultPrompt must be a list of strings" in errors
-    assert "Codex manifest must declare exactly the four canonical workflow prompts" in errors
+    assert "Codex manifest must declare exactly the canonical workflow prompts" in errors
 
 
 @pytest.mark.parametrize(

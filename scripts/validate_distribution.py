@@ -20,12 +20,13 @@ PAYLOAD = Path("plugins") / PLUGIN_NAME
 RELEASE_VERSION = "0.2.0"
 THREAT_SCHEMA_VERSION = "0.2.0"
 RUNTIME_DIRECTORIES = ("scripts", "catalogs", "overlays", "responsibility", "skills")
-WORKFLOWS = ("init", "build", "refresh", "risk")
+WORKFLOWS = ("init", "build", "refresh", "risk", "design-review")
 WORKFLOW_PROMPTS = (
     "Initialize the security requirements profile for this repository.",
     "Build security requirements from the confirmed profile.",
     "Refresh security requirements after service changes.",
     "Assess and review threat risk for this repository.",
+    "Review a service design against its threat model for this repository.",
 )
 RISK_ASSETS = (
     Path("risk") / "default-policy.yaml",
@@ -89,6 +90,7 @@ catalogs/nist-800-53r5/SR.jsonl
 catalogs/nist-800-53r5/baselines.json
 catalogs/nist-800-53r5/meta.json
 commands/sec-req-build.md
+commands/sec-req-design-review.md
 commands/sec-req-init.md
 commands/sec-req-refresh.md
 commands/sec-req-risk.md
@@ -177,6 +179,7 @@ skills/deriving-security-requirements/references/blast-radius.md
 skills/deriving-security-requirements/references/risk-assessment.md
 skills/deriving-security-requirements/references/threat-modeling.md
 skills/security-requirements-build/SKILL.md
+skills/security-requirements-design-review/SKILL.md
 skills/security-requirements-init/SKILL.md
 skills/security-requirements-refresh/SKILL.md
 skills/security-requirements-risk/SKILL.md
@@ -254,6 +257,9 @@ SAFE_OUTPUTS = {
     "build": (".security-requirements", "docs/security"),
     "refresh": (".security-requirements", "docs/security"),
     "risk": (".security-requirements",),
+    # Writes the sensitive set always and the publishable summary when the
+    # policy opts in, so both trees are declared.
+    "design-review": (".security-requirements", "docs/security"),
 }
 CANONICAL_SAFE_OUTPUT_PREFLIGHTS = {
     workflow: (
@@ -1108,7 +1114,9 @@ def _release_contract(payload: Path, manifests: dict[str, dict], errors: list[st
                 "Codex manifest.interface.defaultPrompt must be a list of strings"
             )
     if prompts != list(WORKFLOW_PROMPTS):
-        errors.append("Codex manifest must declare exactly the four canonical workflow prompts")
+        errors.append(
+            "Codex manifest must declare exactly the canonical workflow prompts"
+        )
 
 
 def _entrypoint_contract(payload: Path, errors: list[str], payload_entries: list[Path]) -> None:

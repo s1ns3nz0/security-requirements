@@ -95,7 +95,8 @@ def test_every_workflow_python_invocation_is_isolated_and_packaged():
 
 
 def test_claude_commands_capture_trusted_literals_without_exporting_state():
-    assert len(COMMANDS) == 4
+    # Five workflows: init, build, refresh, risk, design-review.
+    assert len(COMMANDS) == 5
     for command in COMMANDS:
         text = command.read_text(encoding="utf-8")
         assert "${CLAUDE_PLUGIN_ROOT}" in text

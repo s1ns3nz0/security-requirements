@@ -25,12 +25,17 @@
     "longDescription": "Build and maintain a tailored security requirements contract from architecture or repository evidence, NIST, OWASP ASVS, cloud responsibility guidance, threat modeling, and applicable regulatory overlays.",
     "developerName": "s1ns3nz0",
     "category": "Developer Tools",
-    "capabilities": ["Interactive", "Read", "Write"],
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
     "defaultPrompt": [
       "Initialize the security requirements profile for this repository.",
       "Build security requirements from the confirmed profile.",
       "Refresh security requirements after service changes.",
-      "Assess and review threat risk for this repository."
+      "Assess and review threat risk for this repository.",
+      "Review a service design against its threat model for this repository."
     ]
   }
 }
