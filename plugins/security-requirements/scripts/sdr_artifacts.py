@@ -151,6 +151,41 @@ def _render_markdown(report: Mapping, *, confirmed: bool) -> str:
                 "",
             ]
 
+    # F12/§8. Rendered only when the key exists: a service with no AI gets no
+    # heading, no sentence, and no mention of the taxonomy at all.
+    ai = report.get("ai_coverage")
+    if isinstance(ai, Mapping):
+        out += ["## AI threat taxonomy", ""]
+        components = ai.get("components")
+        if isinstance(components, Sequence) and not isinstance(components, (str, bytes)):
+            out += [
+                f"- `{record.get('component_id')}` — {record.get('why')}"
+                for record in components
+                if isinstance(record, Mapping)
+            ]
+            out.append("")
+        uncovered = ai.get("uncovered")
+        titles = {
+            entry.get("id"): entry.get("title")
+            for entry in ai.get("categories", [])
+            if isinstance(entry, Mapping)
+        }
+        if isinstance(uncovered, Sequence) and not isinstance(uncovered, (str, bytes)):
+            if uncovered:
+                out += [
+                    "No active threat addresses these categories. That is a gap "
+                    "in the threat model, not a finding — the model belongs to "
+                    "whoever ran the interview.",
+                    "",
+                ]
+                out += [
+                    f"- **{item}** {titles.get(item, '')}".rstrip()
+                    for item in uncovered
+                ]
+            else:
+                out.append("Every taxonomy category is addressed by an active threat.")
+            out.append("")
+
     limitations = report.get("limitations")
     if isinstance(limitations, Sequence) and not isinstance(limitations, (str, bytes)):
         out += ["## Limitations", ""]
