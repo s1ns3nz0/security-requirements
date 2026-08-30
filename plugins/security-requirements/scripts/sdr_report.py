@@ -23,6 +23,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import risk as risk_mod  # noqa: E402
+import sdr_ai_risk  # noqa: E402
 import sdr_architecture  # noqa: E402
 import sdr_attack_paths  # noqa: E402
 import sdr_scope  # noqa: E402
@@ -547,7 +548,13 @@ def build_report(
 
     verdict = _verdict(threats, assessment, policy, today)
 
-    return {
+    # F12/§8: applied only where there is AI, and *absent* rather than empty
+    # otherwise. `ai_coverage` returns None for a service with no AI component,
+    # and the key is omitted entirely — a block saying "not applicable" is a
+    # line whose only function is to be skipped.
+    ai = sdr_ai_risk.ai_coverage(architecture, threats)
+
+    record = {
         "schema_version": SCHEMA_VERSION,
         "run": {
             # Caller knowledge. Nothing here knows which host or model is
@@ -581,6 +588,9 @@ def build_report(
         # can judge it, and never acted on.
         "untrusted_content": quoted,
     }
+    if ai is not None:
+        record["ai_coverage"] = ai
+    return record
 
 
 def _repo_block(invocation: Mapping) -> dict:

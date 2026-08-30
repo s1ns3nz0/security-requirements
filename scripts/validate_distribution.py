@@ -160,6 +160,7 @@ scripts/kubernetes_supply_chain.py
 scripts/simulate_blast_paths.py
 scripts/render.py
 scripts/risk.py
+scripts/sdr_ai_risk.py
 scripts/sdr_architecture.py
 scripts/sdr_artifacts.py
 scripts/sdr_attack_paths.py
@@ -177,6 +178,7 @@ skills/deriving-security-requirements/SKILL.md
 skills/deriving-security-requirements/references/profile-schema.md
 skills/deriving-security-requirements/references/repository-trust.md
 skills/deriving-security-requirements/references/requirement-style.md
+skills/deriving-security-requirements/references/ai-threats.md
 skills/deriving-security-requirements/references/blast-radius.md
 skills/deriving-security-requirements/references/risk-assessment.md
 skills/deriving-security-requirements/references/threat-modeling.md

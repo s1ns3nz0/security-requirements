@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/s1ns3nz0/security-requirements/schema/design-review-1.0.0.json",
   "title": "Design review report",
-  "description": "The record a design review emits. Plan of record §4.2. The top level is closed: a block outside this list is either a field that escaped review or a consumer reading a contract this schema does not describe.",
+  "description": "The record a design review emits. Plan of record \u00a74.2. The top level is closed: a block outside this list is either a field that escaped review or a consumer reading a contract this schema does not describe.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -44,18 +44,37 @@
       "properties": {
         "platform": {
           "description": "Caller knowledge. Null rather than guessed: nothing in the payload knows which host is running.",
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "model": {
           "description": "Caller knowledge, as above.",
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
-        "plugin_version": { "type": ["string", "null"] },
-        "command": { "type": ["string", "null"] },
+        "plugin_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "mode": {
           "description": "Interview depth. Quick asks the five critical unknowns and infers the rest.",
           "type": "string",
-          "enum": ["quick", "guided"]
+          "enum": [
+            "quick",
+            "guided"
+          ]
         },
         "confirmed": {
           "description": "Stated either way. An absent key reads as confirmed to anything using .get.",
@@ -63,48 +82,108 @@
         },
         "risk_appetite": {
           "type": "string",
-          "enum": ["conservative", "standard", "tolerant"]
+          "enum": [
+            "conservative",
+            "standard",
+            "tolerant"
+          ]
         },
         "policy_digest": {
           "description": "Binds the report to the thresholds that produced it. A pure function of the appetite, so repository content cannot move it.",
           "type": "string"
         },
-        "timestamp": { "type": ["string", "null"] },
+        "timestamp": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "repo": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["branch", "commit", "dirty", "dirty_unknown_reason"],
+          "required": [
+            "branch",
+            "commit",
+            "dirty",
+            "dirty_unknown_reason"
+          ],
           "properties": {
-            "branch": { "type": ["string", "null"] },
-            "commit": { "type": ["string", "null"] },
+            "branch": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "commit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "dirty": {
               "description": "Always null. Determining a dirty worktree needs a subprocess, which N36 forbids; a false 'clean' on a dirty tree is worse than declining to answer, because this field is how a reader decides whether the commit id means anything.",
               "type": "null"
             },
-            "dirty_unknown_reason": { "type": ["string", "null"] }
+            "dirty_unknown_reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         },
         "scope": {
           "description": "What the review covered and what it left out. Both sides, always: a narrowed review whose report lists only what it covered reads exactly like a complete one.",
           "type": "object",
           "additionalProperties": false,
-          "required": ["included", "excluded", "scope_filter"],
+          "required": [
+            "included",
+            "excluded",
+            "scope_filter"
+          ],
           "properties": {
-            "included": { "type": "array", "items": { "type": "string" } },
-            "excluded": { "type": "array", "items": { "type": "string" } },
-            "scope_filter": { "type": ["string", "null"] }
+            "included": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "excluded": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "scope_filter": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         },
         "profile": {
           "type": "object",
-          "required": ["stale_vs_head", "unconfirmed_critical_facts"],
+          "required": [
+            "stale_vs_head",
+            "unconfirmed_critical_facts"
+          ],
           "properties": {
-            "stale_vs_head": { "type": "boolean" },
-            "compared_against": { "type": ["string", "null"] },
+            "stale_vs_head": {
+              "type": "boolean"
+            },
+            "compared_against": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "unconfirmed_critical_facts": {
               "description": "Present as [] when nothing is unconfirmed. 'Nothing is unconfirmed' and 'we did not look' are different claims.",
               "type": "array",
-              "items": { "type": "string" }
+              "items": {
+                "type": "string"
+              }
             }
           }
         },
@@ -112,14 +191,30 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["fact", "evidence_status", "confidence"],
+            "required": [
+              "fact",
+              "evidence_status",
+              "confidence"
+            ],
             "properties": {
-              "fact": { "type": "string" },
+              "fact": {
+                "type": "string"
+              },
               "evidence_status": {
                 "type": "string",
-                "enum": ["observed", "inferred", "unverified"]
+                "enum": [
+                  "observed",
+                  "inferred",
+                  "unverified"
+                ]
               },
-              "confidence": { "type": "string", "enum": ["high", "low"] }
+              "confidence": {
+                "type": "string",
+                "enum": [
+                  "high",
+                  "low"
+                ]
+              }
             }
           }
         }
@@ -134,38 +229,100 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "threat", "scenario", "threat_digest", "status"],
+        "required": [
+          "id",
+          "threat",
+          "scenario",
+          "threat_digest",
+          "status"
+        ],
         "properties": {
           "id": {
             "description": "The existing author-assigned threat id, carried unchanged across runs.",
             "type": "string"
           },
-          "threat": { "type": "object" },
-          "target": { "type": "object" },
-          "scenario": { "type": ["string", "null"] },
-          "threat_digest": { "type": "string" },
-          "status": { "type": ["string", "null"] },
-          "evidence_status": {
-            "type": ["string", "null"],
-            "enum": ["observed", "inferred", "unverified", null]
+          "threat": {
+            "type": "object"
           },
-          "confidence": { "type": ["string", "null"] },
-          "proposed": { "type": "object" },
-          "treatment": { "type": "object" },
-          "residual": { "type": "object" },
-          "owner": { "type": ["string", "null"] },
+          "target": {
+            "type": "object"
+          },
+          "scenario": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "threat_digest": {
+            "type": "string"
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evidence_status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "observed",
+              "inferred",
+              "unverified",
+              null
+            ]
+          },
+          "confidence": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "proposed": {
+            "type": "object"
+          },
+          "treatment": {
+            "type": "object"
+          },
+          "residual": {
+            "type": "object"
+          },
+          "owner": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "calculated": {
             "description": "Exactly the four keys calculate_inherent returns. An extra key here breaks every fixture that records a calculation by exact equality.",
             "type": "object",
             "additionalProperties": false,
-            "required": ["likelihood", "impact", "score", "rating"],
+            "required": [
+              "likelihood",
+              "impact",
+              "score",
+              "rating"
+            ],
             "properties": {
-              "likelihood": { "type": "integer" },
-              "impact": { "type": "integer" },
-              "score": { "type": "integer" },
+              "likelihood": {
+                "type": "integer"
+              },
+              "impact": {
+                "type": "integer"
+              },
+              "score": {
+                "type": "integer"
+              },
               "rating": {
                 "type": "string",
-                "enum": ["critical", "high", "medium", "low"]
+                "enum": [
+                  "critical",
+                  "high",
+                  "medium",
+                  "low"
+                ]
               }
             }
           },
@@ -173,21 +330,51 @@
             "description": "A sibling of calculated, never a member of it. An axis no consequence claims is absent rather than zero: 'not assessed' and 'assessed as none' must not render alike.",
             "type": "object"
           },
-          "attack_path_ids": { "type": "array", "items": { "type": "string" } },
+          "attack_path_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "evidence": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["kind", "location"],
+              "required": [
+                "kind",
+                "location"
+              ],
               "properties": {
-                "kind": { "type": ["string", "null"] },
-                "location": { "type": ["string", "null"] },
-                "excerpt": { "type": ["string", "null"] }
+                "kind": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "location": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "excerpt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
               }
             }
           },
-          "requirement": { "type": "object" },
-          "risk_exposure": { "type": ["string", "null"] }
+          "requirement": {
+            "type": "object"
+          },
+          "risk_exposure": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
       }
     },
@@ -195,12 +382,33 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "steps", "combined_rating"],
+        "required": [
+          "id",
+          "steps",
+          "combined_rating"
+        ],
         "properties": {
-          "id": { "type": ["string", "null"] },
-          "title": { "type": ["string", "null"] },
-          "steps": { "type": "array", "items": { "type": "string" } },
-          "combined_rating": { "type": "string" }
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "combined_rating": {
+            "type": "string"
+          }
         }
       }
     },
@@ -215,32 +423,116 @@
         "statement"
       ],
       "properties": {
-        "release_threshold_rating": { "type": ["string", "null"] },
-        "exceeds_threshold": { "type": "boolean" },
-        "inherent": { "type": "object" },
-        "statement": { "type": "string" }
+        "release_threshold_rating": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exceeds_threshold": {
+          "type": "boolean"
+        },
+        "inherent": {
+          "type": "object"
+        },
+        "statement": {
+          "type": "string"
+        }
       }
     },
     "limitations": {
       "description": "What the review could not see. This is what tells a reader how far to trust the rest.",
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "disclosures_blocked": {
       "description": "Key material found and refused, by location and fingerprint. Never the value.",
       "type": "array",
-      "items": { "type": "object" }
+      "items": {
+        "type": "object"
+      }
     },
     "untrusted_content": {
       "description": "Instruction-shaped prose the repository addressed to the reviewer. Quoted so it can be judged; never acted on.",
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["location", "quoted", "why"],
+        "required": [
+          "location",
+          "quoted",
+          "why"
+        ],
         "properties": {
-          "location": { "type": "string" },
-          "quoted": { "type": "string" },
-          "why": { "type": "string" }
+          "location": {
+            "type": "string"
+          },
+          "quoted": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ai_coverage": {
+      "description": "The AI threat taxonomy applied to this model. Present only when an AI component was detected: F12 and \u00a78 require the taxonomy to be not applied AND not mentioned otherwise, so the key is absent rather than empty. Not in `required` for the same reason.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "components",
+        "categories",
+        "uncovered"
+      ],
+      "properties": {
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "component_id",
+              "why"
+            ],
+            "properties": {
+              "component_id": {
+                "type": "string"
+              },
+              "why": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "applies_to"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "applies_to": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "uncovered": {
+          "description": "Category ids no active threat addresses. A gap in the threat model, not a finding.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     }
