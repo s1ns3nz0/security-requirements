@@ -827,43 +827,56 @@ def test_the_path_shaped_patterns_match_the_sensitive_set(published):
 
 
 def test_the_published_summary_contains_no_evidence_excerpt(published):
-    """RED, and the red half is the *sensitive* half. See the note below.
+    """RED, and the red half is the *sensitive* half. `findings[].evidence` has
+    no producer.
 
-    §4.2 specifies an `evidence` block on every finding —
+    §4.2 gives every finding an `evidence` block —
     `[{"kind": "repo", "location": "services/checkout/src/api/orders.ts:42-58",
     "excerpt": "router.post('/orders/:id', updateOrder)  // no auth middleware"}]`
-    — which is precisely the excerpt-and-location pair this boundary must never
-    publish. `sdr_report.build_report` never reads `documents["evidence"]` and
-    `_finding` emits no `evidence` key, so nothing from `risk-evidence.yaml`
-    reaches any artifact. `render_register` renders an `Evidence` row for every
-    finding and it prints "not recorded" every time.
+    — the excerpt-and-location pair this boundary must never publish. Nothing
+    emits it. `_finding` has no `evidence` key and `render_register`'s
+    `Evidence` row prints "not recorded" for every finding in every run.
 
-    So the summary does not leak an evidence excerpt — but only because no
-    excerpt exists anywhere in the run. That is not the property N20 asks for,
-    and asserting only the absent half would record a passing boundary test for
-    a pipeline that has nothing to leak yet. Left red deliberately.
+    **This is not a wiring job on `risk-evidence.yaml`, and reading that document
+    would not produce it.** The two are different kinds of evidence:
+    `risk-evidence.yaml` is *implementation* evidence that a **requirement** is
+    met — a test run, an observation date, an artifact digest, a
+    `requirement_digest` binding it to the requirement it satisfies. §4.2's block
+    is *repository* evidence that a **threat** exists — a file, a position in it,
+    and the line of source that shows the defect. No repository evidence is
+    collected anywhere in this pipeline, by any module, from any document. The
+    block has no producer, the same shape of gap as `architecture.yaml` before
+    §4.2's fourteenth correction of record named a file for it.
 
-    The source change it needs: `sdr_report._finding` carries the §4.2
-    `evidence` block from the evidence records bound to the finding's threat,
-    and `sdr_artifacts._register_summary` passes it through so the register's
-    `Evidence` row has something to render. This test goes green when it does,
-    and it is then a live regression guard on the excerpt never being published.
+    So the summary does not publish an excerpt only because the run never has
+    one. Asserting the absent half alone would bank a passing boundary test for a
+    pipeline with nothing to leak. Left red deliberately.
+
+    What turns it green: a producer for `findings[].evidence` — the design review
+    records where in the repository it saw the threat — and `_register_summary`
+    passing the block through so the `Evidence` row renders. This test then
+    becomes a live guard on that excerpt never being published.
+
+    The sentinel below is planted in `risk-evidence.yaml` because that is the
+    only evidence document the store has. It is the *wrong* document for this
+    field, and that is the finding.
     """
 
     for sentinel in (SENTINEL_EVIDENCE_LOCATION, SENTINEL_EVIDENCE_EXCERPT):
         assert sentinel not in published["summary"], (
-            f"N20: the summary carries no evidence excerpt; {sentinel!r} came "
-            "from an implementation-evidence record and reached the published "
-            "document"
+            f"N20: the summary carries no evidence excerpt; {sentinel!r} reached "
+            "the published document"
         )
     assert SENTINEL_EVIDENCE_EXCERPT in _sensitive(published), (
-        "§4.2 gives every finding an `evidence` block of `{kind, location, "
-        "excerpt}`, and nothing in the run produces one: `build_report` never "
-        "reads the evidence document, so `risk-evidence.yaml` reaches no "
-        f"artifact and the register's `Evidence` row is always 'not recorded'. "
-        f"{SENTINEL_EVIDENCE_EXCERPT!r} is in the store and in neither "
-        "artifact, so the assertion above passes for a pipeline with no excerpt "
-        "to leak rather than for a boundary that refuses one"
+        "§4.2's `findings[].evidence` block — `{kind, location, excerpt}`, "
+        "repository evidence that the threat exists — has no producer. No "
+        "module collects a repo excerpt from any document, so the register's "
+        "`Evidence` row is always 'not recorded'. Note this is NOT a matter of "
+        "reading `risk-evidence.yaml`: that document is implementation evidence "
+        "that a *requirement* is met and carries no repository excerpt to give. "
+        f"{SENTINEL_EVIDENCE_EXCERPT!r} is in the store and in neither artifact, "
+        "so the assertion above passes for a pipeline with no excerpt to leak "
+        "rather than for a boundary that refuses one"
     )
 
 

@@ -136,10 +136,18 @@ def safe_write_text(
     text: str,
     *,
     encoding: str = "utf-8",
+    errors: str = "strict",
     project_root: Path | None = None,
     create_parents: bool = False,
 ) -> Path:
-    """Atomically replace a validated regular output without following symlinks."""
+    """Atomically replace a validated regular output without following symlinks.
+
+    `errors` defaults to `strict`, so ordinary writes still refuse text they
+    cannot encode. It exists for restoring a prior file byte-for-byte: a
+    rollback reads the previous contents as bytes, and those bytes need not be
+    valid UTF-8. `surrogateescape` in both directions round-trips any byte
+    sequence exactly, which is what an atomic restore has to promise.
+    """
     target = safe_path(path, project_root=project_root)
     if create_parents:
         safe_mkdir(target.parent, project_root=project_root)
@@ -151,7 +159,7 @@ def safe_write_text(
     )
     temporary = Path(temporary_name)
     try:
-        with os.fdopen(descriptor, "w", encoding=encoding) as stream:
+        with os.fdopen(descriptor, "w", encoding=encoding, errors=errors) as stream:
             stream.write(text)
             stream.flush()
             os.fsync(stream.fileno())
