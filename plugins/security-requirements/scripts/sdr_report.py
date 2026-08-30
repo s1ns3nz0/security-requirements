@@ -15,6 +15,7 @@ recomputing it. A second derivation is a second opinion, and the two drift.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+import copy
 from datetime import date
 from pathlib import Path
 import sys
@@ -139,6 +140,18 @@ def _finding(
     proposed = record.get("proposed")
     if isinstance(proposed, Mapping):
         finding["proposed"] = dict(proposed)
+
+    # Carried from the assessment record, not re-derived. Without these the
+    # register's Owner, Treatment, Acceptance and Expiry rows print
+    # "not recorded" for every finding even when the assessment holds a valid
+    # accepted risk — so a reader of the sensitive report cannot see that a
+    # risk was accepted, by whom, or when the acceptance lapses. Each of the
+    # four is also named in §4.1 as having crossed the publish boundary once,
+    # which is only testable once they reach an artifact at all.
+    for carried in ("treatment", "residual", "owner"):
+        value = record.get(carried)
+        if value is not None:
+            finding[carried] = copy.deepcopy(value)
 
     calculated = record.get("calculated")
     if isinstance(calculated, Mapping):
