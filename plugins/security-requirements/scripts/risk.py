@@ -37,6 +37,14 @@ THREAT_DIGEST_FIELDS = (
     "related_controls",
 )
 RATINGS = ("critical", "high", "medium", "low")
+
+#: F14 — every artifact that states a rating also states what that rating is
+#: not. Defined here rather than in `sdr_report` because two modules assert it:
+#: the report's verdict and the published summary. One sentence, one source, or
+#: the two drift and the weaker one is the one that gets published.
+NEVER_ASSERT_SECURE = (
+    "This is not an approval, attestation, or claim that the service is secure."
+)
 TREATMENT_STRATEGIES = {"mitigate", "avoid", "transfer", "accept"}
 SNAPSHOT_FIELDS = (
     "assessed_at",
@@ -1400,10 +1408,13 @@ def render_register(summary: dict) -> str:
                 "```",
                 "",
             ]
-    for record in sorted(
-        (item for item in records if isinstance(item, Mapping)),
-        key=lambda item: str(item.get("threat_id", item.get("id", ""))),
-    ):
+    # Rendered in the order given. This used to sort by id, which made the
+    # register a *second* orderer: one run published its findings as
+    # `T-08…T-01` in the JSON and `T-01…T-08` here, and a reader comparing the
+    # two artifacts could not line them up — "the top finding" named a
+    # different threat depending on which file was open. §4.3 gives ordering
+    # one choke point, and a renderer that re-sorts is not it.
+    for record in (item for item in records if isinstance(item, Mapping)):
         threat_id = record.get("threat_id", record.get("id", "<unknown risk>"))
         proposed = record.get("proposed")
         treatment = record.get("treatment")
@@ -1518,7 +1529,17 @@ def render_public_summary(summary: dict, policy: dict) -> str | None:
     if not isinstance(summary, Mapping):
         raise RiskValidationError("risk report summary must be a mapping")
 
-    out = ["# Public risk summary", ""]
+    # F14/F15. This is the only artifact its readers see, and a rating table
+    # under a "Public risk summary" heading with nothing else on the page reads
+    # as a clearance. The sensitive documents carry this sentence; the
+    # publishable one needs it more, not less, because its audience has no
+    # register to read alongside it.
+    out = [
+        "# Public risk summary",
+        "",
+        f"> {NEVER_ASSERT_SECURE}",
+        "",
+    ]
     for name, section in _public_summary_sections(summary):
         overall, counts, coverage = _validated_public_section(section)
         out += [f"## {name.title()}", "", "| Measure | Value |", "|---|---|"]
@@ -3828,6 +3849,11 @@ def _run_design_review(args: argparse.Namespace) -> int:
             confirmation=confirmation if confirming else None,
             risk_appetite=appetite,
             invocation={
+                # N17: what the repository said to the reviewer. Collected here
+                # because the runner is what knows the project root; the report
+                # module stays free of filesystem access.
+                "repository_untrusted_content":
+                    sdr_entry.repository_untrusted_content(project_root),
                 "plugin_version": None,
                 "command": " ".join(sys.argv[1:]) or args.command,
                 "timestamp": stamped_at,

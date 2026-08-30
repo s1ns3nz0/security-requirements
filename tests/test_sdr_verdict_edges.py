@@ -912,10 +912,22 @@ def test_the_json_findings_and_the_rendered_register_present_one_order(project):
         (project / REPORT).read_text(encoding="utf-8")
     )
 
-    assert json_order == document_order, (
-        "fixture drift: the report must carry the store's order for this "
-        f"comparison to mean anything. Store held {document_order}, report "
-        f"carried {json_order}"
+    # Non-vacuity, restated. This guard originally required the report to carry
+    # the store's order, which held only while nothing ordered findings at all.
+    # `sdr_report.order_findings` now applies §4.3 — rating rank, score
+    # descending, then id — so the report legitimately reorders the store. What
+    # still has to be true is that there is something to disagree about: more
+    # than one finding, and an order that is not the trivial one both artifacts
+    # would reach by accident.
+    assert len(json_order) > 1, (
+        "one finding cannot be presented in two orders; this comparison needs "
+        f"several. The report carried {json_order}"
+    )
+    assert json_order != document_order, (
+        "the report is expected to reorder the store under §4.3. If it carries "
+        "the store's order unchanged, `order_findings` is not running and this "
+        f"test is comparing two copies of the same list. Store held "
+        f"{document_order}, report carried {json_order}"
     )
     assert register_order == json_order, (
         "§4.3/N41: the register renders the report and adds no ordering of its "
