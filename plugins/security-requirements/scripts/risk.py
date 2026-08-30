@@ -3752,6 +3752,7 @@ def _run_design_review(args: argparse.Namespace) -> int:
     import sdr_artifacts
     import sdr_entry
     import sdr_report
+    import sdr_schema
     import sdr_scope
 
     project_root = safe_path(args.project_root, project_root=args.project_root)
@@ -3860,6 +3861,20 @@ def _run_design_review(args: argparse.Namespace) -> int:
             },
             today=today,
         )
+
+    if report is not None:
+        # A report that does not satisfy its own published schema is not
+        # written. Consumers read design-review.json against that schema, and
+        # shipping a record the contract rejects is worse than shipping none:
+        # the reader has no way to tell a changed contract from a corrupt file.
+        schema_problems = sdr_schema.validate_report(report)
+        if schema_problems:
+            for problem in schema_problems:
+                print(
+                    f"ERROR: report does not match its schema: {problem}",
+                    file=sys.stderr,
+                )
+            return 1
 
     entries = sdr_artifacts.artifact_entries(
         report if report is not None else {},

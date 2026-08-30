@@ -127,6 +127,7 @@ responsibility/services/aws-s3.yaml
 responsibility/services/aws-sqs.yaml
 responsibility/services/azure-blob.yaml
 responsibility/services/gcp-gke.yaml
+schema/design-review-1.0.0.json
 risk/appetite/conservative.yaml
 risk/appetite/standard.yaml
 risk/appetite/tolerant.yaml
@@ -165,6 +166,7 @@ scripts/sdr_attack_paths.py
 scripts/sdr_mermaid.py
 scripts/sdr_entry.py
 scripts/sdr_report.py
+scripts/sdr_schema.py
 scripts/sdr_scope.py
 scripts/runtime_paths.py
 scripts/safe_paths.py
