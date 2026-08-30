@@ -2509,10 +2509,16 @@ def _write_text_transaction(
             if prior is None:
                 safe_path(path, project_root=root).unlink(missing_ok=True)
             else:
+                # Byte-for-byte, via `surrogateescape` in both directions. The
+                # prior contents were read as bytes and need not be valid
+                # UTF-8; a strict decode here raises, the restore fails, and
+                # the target keeps the *failed run's* content — a partial write
+                # from the one code path whose whole purpose is to prevent one.
                 safe_write_text(
                     path,
-                    prior.decode("utf-8"),
+                    prior.decode("utf-8", "surrogateescape"),
                     encoding="utf-8",
+                    errors="surrogateescape",
                     project_root=root,
                     create_parents=True,
                 )
@@ -3842,6 +3848,22 @@ def _run_design_review(args: argparse.Namespace) -> int:
         sdr_artifacts.write_artifacts(entries)
         for path, *_rest in entries:
             print(f"wrote {path}")
+        # N21: a withheld summary is stated, never merely absent. The run names
+        # each artifact it wrote, so saying nothing about the one it did not is
+        # indistinguishable from having published it — and silence is the more
+        # dangerous reading of the two. Naming the setting as well, because an
+        # operator who wanted the summary has no other way to find out why they
+        # did not get it.
+        wrote_summary = any(
+            Path(path).name == sdr_artifacts.PUBLISHABLE_ARTIFACT
+            for path, *_rest in entries
+        )
+        if confirming and confirmation is not None and not wrote_summary:
+            print(
+                f"withheld {sdr_artifacts.PUBLISHABLE_ARTIFACT}: "
+                "publish_risk_summary is not true under the "
+                f"{appetite} appetite"
+            )
     return 1 if problems else 0
 
 
