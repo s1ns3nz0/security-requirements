@@ -244,6 +244,61 @@ def test_design_review_confirm_refuses_without_a_trusted_confirmation(project, c
     )
 
 
+def test_an_unbound_confirmation_does_not_confirm_the_run(project, capsys):
+    """N27/N28 — presence at the state path is not proof of a binding.
+
+    The first version of this gate tested `_read_trusted_confirmation(...) is
+    not None` and nothing else, so *any* mapping at the plugin-owned path
+    confirmed the run. That accepts two things it must not: a confirmation
+    whose digests no longer match the documents — the exact condition
+    confirmation exists to detect — and a file planted at that path.
+
+    Every other confirm path in `risk.py` runs `check_assessment`, which
+    verifies `policy_digest`, `threat_digest`, `assessment_digest` and
+    `risk_state_digest` against the documents on disk. This one must too.
+    """
+
+    state_path = risk_mod.confirmation_state_path(project, "assessment")
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        yaml.safe_dump(
+            {
+                "status": "confirmed",
+                "project": str(project.resolve()),
+                "confirmed_by": "someone",
+                "confirmed_at": "2026-01-01T00:00:00Z",
+                "authority": "self_declared",
+                # No digests at all. Nothing here binds this record to the
+                # documents the run is about to score.
+                "policy_digest": "sha256:" + "0" * 64,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = risk_mod.main(
+        _argv(
+            project,
+            "--by",
+            "user",
+            "--authority",
+            "self_declared",
+            command="design-review-confirm",
+        )
+    )
+
+    assert exit_code == PROBLEMS, (
+        "a confirmation that does not bind the documents must not confirm the "
+        f"run; got {exit_code}"
+    )
+    assert _artifacts(project) == [], (
+        "an unbound confirmation must not produce authoritative artifacts — "
+        "design-review.md and design-review.json are the documents a reader "
+        f"trusts *because* they were confirmed; wrote {_artifacts(project)}"
+    )
+
+
 def test_the_refusal_says_what_is_missing(project, capsys):
     risk_mod.main(
         _argv(

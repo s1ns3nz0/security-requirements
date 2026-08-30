@@ -3779,15 +3779,36 @@ def _run_design_review(args: argparse.Namespace) -> int:
         )
 
     confirmation = _read_trusted_confirmation(project_root, "assessment")
-    if confirming and confirmation is None:
-        # N27. A problem exit, not a usage error: the grammar was correct and
-        # the operator can fix this by running the confirmation.
-        print(
-            "ERROR: design-review-confirm requires a trusted confirmation; "
-            "none is bound for this project",
-            file=sys.stderr,
+    if confirming:
+        # N27/N28. Presence at the plugin-owned path is not proof of a
+        # binding. Testing `is not None` accepted two things it must not: a
+        # confirmation whose digests no longer match the documents — the exact
+        # condition confirmation exists to detect — and a file planted at that
+        # path. `check_assessment` is what every other confirm path in this
+        # module runs, and it verifies all four digests against disk.
+        store = project_root / ".security-requirements"
+        confirmation_problems = (
+            ["design-review-confirm requires a trusted confirmation; none is "
+             "bound for this project"]
+            if confirmation is None
+            else check_assessment(
+                {
+                    "project_root": project_root,
+                    "assessment": store / "risk-assessment.yaml",
+                    "policy": store / "risk-policy.yaml",
+                    "threats": store / "threats.yaml",
+                    "requirements": store / "requirements.yaml",
+                    "evidence": store / "risk-evidence.yaml",
+                    "state": store / "risk-state.yaml",
+                }
+            )
         )
-        return 1
+        if confirmation_problems:
+            for problem in confirmation_problems:
+                print(f"ERROR: {problem}", file=sys.stderr)
+            # A problem exit, not a usage error: the grammar was correct and
+            # the operator can fix this by running the confirmation.
+            return 1
 
     for problem in problems:
         print(f"ERROR: {problem}", file=sys.stderr)
