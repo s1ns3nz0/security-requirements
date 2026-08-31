@@ -61,6 +61,22 @@ MANIFEST = PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
 SHA_LENGTH = 40
 
 
+def _documents() -> dict:
+    """The least a report needs. Contents are irrelevant here — this file is
+    about the run header, and every other block has its own tests."""
+
+    import risk as risk_mod
+
+    return {
+        "policy": risk_mod.appetite_policy("standard"),
+        "threats": {"version": "0.2.0", "threats": []},
+        "assessment": {"version": "0.2.0", "assessments": []},
+        "requirements": {"version": "0.1.0", "requirements": []},
+        "evidence": {"version": "0.1.0", "evidence": []},
+        "architecture": {"version": "0.1.0"},
+    }
+
+
 def _attr(name: str):
     value = getattr(sdr_entry, name, None)
     assert callable(value), (
@@ -78,9 +94,12 @@ def _git_repository(root: Path, *, branch: str = "main", sha: str = "a" * SHA_LE
     """
 
     git = root / ".git"
-    (git / "refs" / "heads").mkdir(parents=True)
+    ref = git / "refs" / "heads" / branch
+    # parents=True: a branch name with a slash is a nested directory on disk,
+    # which is the case `test_a_branch_name_containing_a_slash` exists for.
+    ref.parent.mkdir(parents=True, exist_ok=True)
     (git / "HEAD").write_text(f"ref: refs/heads/{branch}\n", encoding="utf-8")
-    (git / "refs" / "heads" / branch).write_text(f"{sha}\n", encoding="utf-8")
+    ref.write_text(f"{sha}\n", encoding="utf-8")
     return git
 
 
@@ -262,7 +281,7 @@ def test_a_real_run_records_the_branch_the_commit_and_the_version(tmp_path):
     import sdr_report
 
     record = sdr_report.build_report(
-        {"policy": risk_mod.appetite_policy("standard")},
+        _documents(),
         entry={"run": {"mode": "quick", "profile": {}}},
         scope_record={"included": [], "excluded": [], "scope_filter": None},
         confirmation=None,
@@ -298,7 +317,7 @@ def test_dirty_stays_null_even_now_that_the_commit_is_known():
     import sdr_report
 
     record = sdr_report.build_report(
-        {"policy": risk_mod.appetite_policy("standard")},
+        _documents(),
         entry={"run": {"mode": "quick", "profile": {}}},
         scope_record={"included": [], "excluded": [], "scope_filter": None},
         confirmation=None,

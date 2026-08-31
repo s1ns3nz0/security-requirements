@@ -3861,7 +3861,8 @@ def _run_design_review(args: argparse.Namespace) -> int:
                 # module stays free of filesystem access.
                 "repository_untrusted_content":
                     sdr_entry.repository_untrusted_content(project_root),
-                "plugin_version": None,
+                "repo": sdr_entry.repository_head(project_root),
+                "plugin_version": sdr_entry.plugin_version(),
                 "command": " ".join(sys.argv[1:]) or args.command,
                 "timestamp": stamped_at,
             },

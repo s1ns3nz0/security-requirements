@@ -109,6 +109,30 @@ def _render_markdown(report: Mapping, *, confirmed: bool) -> str:
         ]
     out += ["> Sensitive internal record. Do not publish.", ""]
 
+    # What was reviewed, before what was found. A reader deciding whether this
+    # document describes their service needs the commit and the scope first,
+    # and until now both reached only the JSON — which an unconfirmed run never
+    # writes, so the preview stated none of it.
+    run = report.get("run")
+    if isinstance(run, Mapping):
+        repo = run.get("repo") if isinstance(run.get("repo"), Mapping) else {}
+        scope = run.get("scope") if isinstance(run.get("scope"), Mapping) else {}
+        rows = [
+            ("Branch", repo.get("branch")),
+            ("Commit", repo.get("commit")),
+            ("Mode", run.get("mode")),
+            ("Risk appetite", run.get("risk_appetite")),
+            ("Scope", scope.get("scope_filter") or "whole model"),
+            ("Plugin version", run.get("plugin_version")),
+            ("Run at", run.get("timestamp")),
+        ]
+        out += ["## Run", "", "| Field | Value |", "|---|---|"]
+        # "not recorded" rather than a blank cell: a blank reads as an oversight
+        # and this one is a stated fact — the tree had no repository, or N36
+        # forbade computing it.
+        out += [f"| {label} | {value if value else 'not recorded'} |" for label, value in rows]
+        out.append("")
+
     verdict = report.get("verdict")
     if isinstance(verdict, Mapping):
         out += ["## Verdict", "", str(verdict.get("statement", "")), ""]
