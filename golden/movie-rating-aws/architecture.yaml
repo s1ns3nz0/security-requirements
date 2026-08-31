@@ -1,0 +1,125 @@
+# Synthetic. CONTRIBUTING: "Golden profiles must be synthetic. This repository
+# is public, and a profile plus its open requirements is a reconnaissance
+# document." Nothing here describes a real deployment.
+#
+# Derived from this case's own `threats.yaml`. Its top-level `boundaries:` block
+# carries `{id, from, to}` records — structurally data flows wearing a
+# trust-boundary name — so they land in `data_flows` with their `TB-` ids
+# unchanged, which is what keeps every shipped threat's `boundary` reference
+# resolvable. `trust_boundaries` below holds the zones those flows cross. See
+# plan correction sixteen.
+#
+# `evidence_status: inferred` throughout, and that is the honest value: this
+# model was read out of a threat register, not observed in a running system.
+version: "0.1.0"
+
+actors:
+  - id: act-anonymous-internet
+    name: anonymous internet user
+    evidence_status: inferred
+
+components:
+  - id: cmp-api-gateway
+    name: Amazon API Gateway
+    evidence_status: inferred
+    trust_boundary: tb-internet-edge
+  - id: cmp-movies-lambda
+    name: movies-dynamodb Lambda
+    evidence_status: inferred
+    trust_boundary: tb-account-internal
+  - id: cmp-credential-provider
+    name: AWS SDK credential provider
+    evidence_status: inferred
+    trust_boundary: tb-account-internal
+
+data_stores:
+  - id: ds-movies-table
+    name: Movies DynamoDB table
+    classification: internal
+    evidence_status: inferred
+  - id: ds-cloudwatch-logs
+    name: CloudWatch Logs
+    classification: internal
+    evidence_status: inferred
+  - id: ds-app-config
+    name: app_config.json
+    classification: internal
+    evidence_status: inferred
+
+# Ids carried unchanged from `threats.yaml:boundaries`. Renaming them would
+# leave every threat's `boundary` reference dangling.
+data_flows:
+  - id: TB-1
+    from: act-anonymous-internet
+    to: cmp-api-gateway
+    crosses: tb-internet-edge
+    protocol: https
+    authenticated: false
+    evidence_status: inferred
+  - id: TB-2
+    from: cmp-api-gateway
+    to: cmp-movies-lambda
+    crosses: tb-account-internal
+    protocol: aws-invoke
+    authenticated: true
+    evidence_status: inferred
+  - id: TB-3
+    from: cmp-movies-lambda
+    to: ds-movies-table
+    crosses: null
+    protocol: dynamodb
+    authenticated: true
+    evidence_status: inferred
+  - id: TB-4
+    from: ds-app-config
+    to: cmp-credential-provider
+    crosses: null
+    protocol: file
+    authenticated: false
+    evidence_status: inferred
+  - id: TB-5
+    from: cmp-movies-lambda
+    to: ds-cloudwatch-logs
+    crosses: null
+    protocol: aws-logs
+    authenticated: true
+    evidence_status: inferred
+
+trust_boundaries:
+  - id: tb-internet-edge
+    name: Internet to AWS edge
+    evidence_status: inferred
+  - id: tb-account-internal
+    name: Within the AWS account
+    evidence_status: inferred
+
+# Long form, never the rendered letter: §5.3 is long form in, short form out.
+assets:
+  - id: as-movie-records
+    name: movie_records
+    cia_relevance: integrity
+  - id: as-movie-ratings
+    name: movie_ratings
+    cia_relevance: integrity
+  - id: as-aws-credentials
+    name: aws_credentials
+    cia_relevance: confidentiality
+  - id: as-audit-records
+    name: audit_records
+    cia_relevance: integrity
+  - id: as-lambda-capacity
+    name: lambda_capacity
+    cia_relevance: availability
+
+dependencies:
+  - id: dep-aws
+    name: Amazon Web Services
+    kind: cloud
+    shared_responsibility: >-
+      AWS operates the API Gateway, Lambda and DynamoDB control planes; this
+      service owns authorization policy, the execution role, and what the
+      function writes to logs.
+
+assumptions:
+  - Ingress terminates TLS at API Gateway; nothing here observed that directly.
+  - No AI, LLM, or retrieval component is present in this service.
