@@ -390,16 +390,46 @@ def test_the_appetite_changes_the_policy_the_run_scores_against(project):
 
 
 def test_two_runs_with_the_clock_pinned_write_identical_bytes(project, tmp_path):
-    risk_mod.main(_argv(project))
+    """§4.3 / N39, and the clock is now actually pinned.
+
+    This test did not pass `--confirmed-at` despite its name, and passed anyway
+    because the timestamp reached only the JSON — which an unconfirmed run
+    never writes. Rendering the run header in the document exposed that: the
+    document now carries the stamp, so an unpinned pair genuinely differs.
+    Which is the point of the flag, and is asserted separately below.
+    """
+
+    risk_mod.main(_argv(project, "--confirmed-at", PINNED_STAMP))
     first = (project / PREVIEW).read_bytes()
     (project / PREVIEW).unlink()
 
-    risk_mod.main(_argv(project))
+    risk_mod.main(_argv(project, "--confirmed-at", PINNED_STAMP))
     second = (project / PREVIEW).read_bytes()
 
     assert first == second, (
-        "§4.3: two runs over an unchanged store produce identical output. A "
-        "difference means something read a clock or iterated a set"
+        "§4.3: two runs over an unchanged store with the clock pinned produce "
+        "identical output. A difference means something read a clock or "
+        "iterated a set"
+    )
+
+
+def test_an_unpinned_pair_differs_only_by_the_stamp_it_recorded(project):
+    """The other half: without `--confirmed-at` the runs may differ, and only
+    in the one field that records when they happened."""
+
+    risk_mod.main(_argv(project))
+    first = (project / PREVIEW).read_text(encoding="utf-8")
+    (project / PREVIEW).unlink()
+    risk_mod.main(_argv(project))
+    second = (project / PREVIEW).read_text(encoding="utf-8")
+
+    def without_the_stamp(document: str) -> list[str]:
+        return [line for line in document.splitlines() if not line.startswith("| Run at |")]
+
+    assert without_the_stamp(first) == without_the_stamp(second), (
+        "an unpinned run may record a different time and must differ in "
+        "nothing else. Any other difference is a clock or a set reaching "
+        "output where §4.3 forbids it"
     )
 
 
@@ -715,4 +745,35 @@ def test_the_minted_id_is_stable_across_two_runs(project):
     assert any(item.startswith(sdr_ids.MINTED_PREFIX) for item in minted), (
         "the fixture must actually contain an unidentified record, or this "
         f"test passes without minting anything; ids were {minted}"
+    )
+
+
+def test_a_run_inside_a_git_repository_records_its_branch_and_commit(project):
+    """§4.2's `run.repo`, through the runner rather than the builder.
+
+    `test_sdr_run_header.py` drives `build_report` with an explicit invocation,
+    which proves the record carries what it is given and says nothing about
+    whether the *runner* reads the repository. Removing the call from
+    `_run_design_review` left that file entirely green.
+    """
+
+    sha = "1" * 40
+    git = project / ".git"
+    (git / "refs" / "heads").mkdir(parents=True)
+    (git / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (git / "refs" / "heads" / "main").write_text(f"{sha}\n", encoding="utf-8")
+
+    assert risk_mod.main(_argv(project, "--confirmed-at", PINNED_STAMP)) == OK
+
+    preview = (project / PREVIEW).read_text(encoding="utf-8")
+    assert sha in preview or "main" in preview, (
+        "the run must read the repository it is reviewing; the preview carried "
+        "neither the branch nor the commit"
+    )
+
+    import sdr_entry
+
+    head = sdr_entry.repository_head(project)
+    assert head == {"branch": "main", "commit": sha}, (
+        f"fixture check: the helper must find both facts; got {head}"
     )
