@@ -174,6 +174,11 @@ def report_problems(
     if scope is not None:
         problems.extend(sdr_scope.scope_problems(architecture, scope))
 
+    # Duplicates are not collected here. `risk.aggregate_risk` already refuses
+    # them, and a second reporter would either duplicate the message or drift
+    # from the first. `sdr_ids.duplicate_pairs` is the public name for that one
+    # implementation.
+
     if isinstance(policy, Mapping):
         try:
             problems.extend(

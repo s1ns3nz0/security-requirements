@@ -618,3 +618,101 @@ def test_a_project_with_no_store_reports_a_problem_rather_than_raising(
     )
     captured = capsys.readouterr()
     assert captured.err.strip(), "the run must say what was missing"
+
+
+# ---------------------------------------------------------------------------
+# F10 / N42 — a duplicate threat reaches the operator, not just the module.
+#
+# `sdr_ids.duplicate_pairs` has its own unit tests. What those cannot show is
+# that the *runner* calls it: a module that is imported, invoked, and whose
+# result is discarded passes every unit test it has. Removing the call from
+# `sdr_report.report_problems` must turn something red, and before this test
+# it did not.
+# ---------------------------------------------------------------------------
+
+
+def test_a_threat_entered_twice_under_two_ids_is_reported_by_the_run(project, capsys):
+    store = project / STORE_DIRNAME
+    threats = yaml.safe_load((store / "threats.yaml").read_text(encoding="utf-8"))
+    original = threats["threats"][0]
+    twin = copy.deepcopy(original)
+    twin["id"] = f"{original['id']}-again"
+    threats["threats"].append(twin)
+    (store / "threats.yaml").write_text(
+        yaml.safe_dump(threats, sort_keys=False), encoding="utf-8"
+    )
+
+    exit_code = risk_mod.main(_argv(project, "--confirmed-at", PINNED_STAMP))
+
+    captured = capsys.readouterr()
+    assert exit_code == PROBLEMS, (
+        "the same threat under two ids inflates the register, and an inflated "
+        f"register reads as assessed so nobody goes looking; got {exit_code}"
+    )
+    assert twin["id"] in captured.err, (
+        "the report names the duplicate so the author knows what to merge; "
+        f"stderr was {captured.err!r}"
+    )
+
+
+def test_a_threat_with_no_id_is_minted_one_and_scored(project, capsys):
+    """F10's minting clause, exercised through a real run.
+
+    A register a person wrote carries ids and this is a no-op over it. A model
+    that just wrote one from a description does not, and every downstream
+    reference — the assessment, `threat_refs`, the rendered register — needs
+    one. Without this test the call in `_run_design_review` is a no-op over
+    every fixture in the tree, which is indistinguishable from not being there.
+    """
+
+    store = project / STORE_DIRNAME
+    threats = yaml.safe_load((store / "threats.yaml").read_text(encoding="utf-8"))
+    unidentified = copy.deepcopy(threats["threats"][0])
+    unidentified.pop("id")
+    unidentified["scenario"] = "A threat the author never gave an id."
+    threats["threats"].append(unidentified)
+    (store / "threats.yaml").write_text(
+        yaml.safe_dump(threats, sort_keys=False), encoding="utf-8"
+    )
+
+    exit_code = risk_mod.main(_argv(project, "--confirmed-at", PINNED_STAMP))
+
+    captured = capsys.readouterr()
+    assert "id is required" not in captured.err, (
+        "the record reached validation without an id, so minting did not run "
+        f"before it; stderr was {captured.err!r}"
+    )
+    assert exit_code in (OK, PROBLEMS), f"the run crashed: {exit_code}"
+
+
+def test_the_minted_id_is_stable_across_two_runs(project):
+    """Content-addressed, so two runs of one description agree.
+
+    A counter would satisfy the test above and fail this one the moment the
+    document is read in a different order.
+    """
+
+    store = project / STORE_DIRNAME
+    threats = yaml.safe_load((store / "threats.yaml").read_text(encoding="utf-8"))
+    unidentified = copy.deepcopy(threats["threats"][0])
+    unidentified.pop("id")
+    unidentified["scenario"] = "A threat the author never gave an id."
+    threats["threats"].append(unidentified)
+    (store / "threats.yaml").write_text(
+        yaml.safe_dump(threats, sort_keys=False), encoding="utf-8"
+    )
+
+    import sdr_ids
+
+    first = sdr_ids.assign_ids(copy.deepcopy(threats))
+    second = sdr_ids.assign_ids(copy.deepcopy(threats))
+    minted = [record["id"] for record in first["threats"]]
+
+    assert minted == [record["id"] for record in second["threats"]], (
+        "two runs over one document must mint the same ids, or a reader "
+        f"comparing them sees every finding as new; got {minted}"
+    )
+    assert any(item.startswith(sdr_ids.MINTED_PREFIX) for item in minted), (
+        "the fixture must actually contain an unidentified record, or this "
+        f"test passes without minting anything; ids were {minted}"
+    )

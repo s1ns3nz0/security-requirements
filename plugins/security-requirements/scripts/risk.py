@@ -3751,6 +3751,7 @@ def _run_design_review(args: argparse.Namespace) -> int:
 
     import sdr_artifacts
     import sdr_entry
+    import sdr_ids
     import sdr_report
     import sdr_schema
     import sdr_scope
@@ -3774,6 +3775,11 @@ def _run_design_review(args: argparse.Namespace) -> int:
         return 1
 
     documents = _load_design_review_documents(project_root, appetite)
+    # F10. A register authored by hand already carries ids and this is a no-op
+    # over it; a model built from a description does not, and every downstream
+    # reference needs one. Content-addressed, so two runs of the same
+    # description produce the same ids and a reader can compare them.
+    documents["threats"] = sdr_ids.assign_ids(documents.get("threats"))
     entry = sdr_entry.design_review(project_root, mode=mode)
     scope_record = sdr_scope.resolve_scope(documents.get("architecture"), scope)
 
