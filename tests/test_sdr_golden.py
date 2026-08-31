@@ -44,9 +44,21 @@ import risk as risk_mod  # noqa: E402
 import sdr_report  # noqa: E402
 import sdr_scope  # noqa: E402
 
-CASE = REPO_ROOT / "golden" / "movie-rating-aws"
-EXPECTED = CASE / "expected-design-review.yaml"
-EXPECTED_RISK = CASE / "expected-risk.yaml"
+GOLDEN = REPO_ROOT / "golden"
+
+#: Every case that ships an expected design review. Parametrised rather than
+#: written twice: a second case is only worth having if it runs the same
+#: assertions, and copying them would let the two drift.
+#:
+#: `movie-rating-aws` is the small one — no critical band, five flows, one
+#: third party. `b2b-saas-aws` is the one that exercises what the first cannot:
+#: a critical finding, two id tie-breaks at two different scores, and two flows
+#: that leave the organisation. A regression in how `critical` aggregates or
+#: orders is invisible against the first case alone.
+CASES = sorted(
+    path.parent.name
+    for path in GOLDEN.glob("*/expected-design-review.yaml")
+)
 
 #: Pinned, so nothing in the comparison is a function of when it ran.
 PINNED_TIMESTAMP = "2026-01-01T00:00:00Z"
@@ -57,14 +69,15 @@ def _load(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-def _report() -> dict:
-    """One design review of the golden case, through the real assembler."""
+def _report(case: str) -> dict:
+    """One design review of a golden case, through the real assembler."""
 
-    architecture = _load(CASE / "architecture.yaml")
+    root = GOLDEN / case
+    architecture = _load(root / "architecture.yaml")
     documents = {
         "policy": risk_mod.appetite_policy("standard"),
-        "threats": _load(CASE / "threats.yaml"),
-        "assessment": _load(CASE / "risk-assessment.yaml"),
+        "threats": _load(root / "threats.yaml"),
+        "assessment": _load(root / "risk-assessment.yaml"),
         "requirements": None,
         "evidence": None,
         "architecture": architecture,
@@ -85,14 +98,28 @@ def _report() -> dict:
     )
 
 
-@pytest.fixture(scope="module")
-def report() -> dict:
-    return _report()
+@pytest.fixture(params=CASES)
+def case(request) -> str:
+    return request.param
 
 
-@pytest.fixture(scope="module")
-def expected() -> dict:
-    return _load(EXPECTED)
+@pytest.fixture
+def report(case) -> dict:
+    return _report(case)
+
+
+@pytest.fixture
+def expected(case) -> dict:
+    return _load(GOLDEN / case / "expected-design-review.yaml")
+
+
+def test_more_than_one_case_is_pinned():
+    """One golden pins one shape. The rules are general; the data is not."""
+
+    assert len(CASES) >= 2, (
+        "a single case cannot exercise a band, a tie-break, or a boundary "
+        f"shape it does not contain; pinned cases are {CASES}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -100,16 +127,16 @@ def expected() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_the_golden_case_ships_an_architecture_to_review():
+def test_the_golden_case_ships_an_architecture_to_review(case):
     """Without one there is nothing to score against and no golden to keep."""
 
-    architecture = _load(CASE / "architecture.yaml")
+    architecture = _load(GOLDEN / case / "architecture.yaml")
 
     problems = sdr_report.report_problems(
         {
-            "threats": _load(CASE / "threats.yaml"),
+            "threats": _load(GOLDEN / case / "threats.yaml"),
             "architecture": architecture,
-            "assessment": _load(CASE / "risk-assessment.yaml"),
+            "assessment": _load(GOLDEN / case / "risk-assessment.yaml"),
         },
         scope=None,
         policy=risk_mod.appetite_policy("standard"),
@@ -122,13 +149,14 @@ def test_the_golden_case_ships_an_architecture_to_review():
     )
 
 
-def test_every_threat_resolves_against_the_shipped_architecture():
+def test_every_threat_resolves_against_the_shipped_architecture(case):
     """The `TB-n` mapping, on real data rather than an invented fixture."""
 
     import sdr_architecture
 
     dangling = sdr_architecture.unknown_architecture_refs(
-        _load(CASE / "threats.yaml"), _load(CASE / "architecture.yaml")
+        _load(GOLDEN / case / "threats.yaml"),
+        _load(GOLDEN / case / "architecture.yaml"),
     )
 
     assert dangling == [], (
@@ -167,10 +195,18 @@ def test_the_aggregate_matches_the_hand_reviewed_expectation(report, expected):
         )
 
 
-def test_the_design_review_and_the_risk_pipeline_agree_on_the_aggregate(report):
-    """Two paths, one register. The day they disagree, one of them is wrong."""
+def test_the_design_review_and_the_risk_pipeline_agree_on_the_aggregate(case, report):
+    """Two paths, one register. The day they disagree, one of them is wrong.
 
-    risk_expected = _load(EXPECTED_RISK)["inherent"]
+    Skipped where the case ships no `expected-risk.yaml` — not every golden
+    was built for the risk pipeline, and asserting against a file that does not
+    exist would fail for the wrong reason. Where one exists, it is checked.
+    """
+
+    risk_path = GOLDEN / case / "expected-risk.yaml"
+    if not risk_path.is_file():
+        return
+    risk_expected = _load(risk_path)["inherent"]
     inherent = report["verdict"]["inherent"]
 
     for field in ("overall", "counts", "coverage"):
@@ -279,9 +315,9 @@ def test_the_disclosure_blocks_match_the_expectation(report, expected):
 # ---------------------------------------------------------------------------
 
 
-def test_two_reviews_of_the_golden_case_are_byte_identical():
-    assert risk_mod.canonical_digest(_report()) == risk_mod.canonical_digest(
-        _report()
+def test_two_reviews_of_the_golden_case_are_byte_identical(case):
+    assert risk_mod.canonical_digest(_report(case)) == risk_mod.canonical_digest(
+        _report(case)
     ), (
         "§4.3 / N39: with the timestamp pinned, two reviews of an unchanged "
         "case must digest identically"
