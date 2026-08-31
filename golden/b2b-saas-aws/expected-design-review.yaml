@@ -1,0 +1,51 @@
+# Literal, hand-reviewed output expected from a design review of this case
+# under the `standard` appetite.
+#
+# The second golden, chosen for what it exercises that `movie-rating-aws` does
+# not: a **critical** finding, two ties broken by id at two different scores,
+# seven flows across three trust boundaries, and two flows that leave the
+# organisation entirely. The first case has no critical band at all, so a
+# regression in how `critical` aggregates or orders would be invisible with
+# only that one pinned.
+
+verdict:
+  release_threshold_rating: high
+  # `critical` against a `high` threshold.
+  exceeds_threshold: true
+
+inherent:
+  overall: critical
+  status: confirmed
+  counts: {critical: 1, high: 3, medium: 4, low: 0}
+  coverage: 8/8
+
+# §4.3: rating rank, then score descending, then id. Two tie-breaks here, at
+# two different scores — T-06 before T-07 at 8, T-03 before T-05 at 6 — which
+# is what makes this list a test of the rule rather than of the arithmetic.
+findings:
+  - {id: T-01, rating: critical, score: 20}
+  - {id: T-04, rating: high, score: 16}
+  - {id: T-08, rating: high, score: 15}
+  - {id: T-02, rating: high, score: 12}
+  - {id: T-06, rating: medium, score: 8}
+  - {id: T-07, rating: medium, score: 8}
+  - {id: T-03, rating: medium, score: 6}
+  - {id: T-05, rating: medium, score: 6}
+
+scope:
+  # Two actors, three components, three stores, seven flows, three boundaries.
+  # Assets and dependencies are declared and are not reviewable elements, so
+  # `sdr_scope` does not partition them.
+  included: 18
+  excluded: 0
+  filter: null
+
+disclosure:
+  # This case also names AI in prose — "No AI, LLM, or retrieval component is
+  # present in this service" — and must not trigger the taxonomy. Two cases
+  # asserting that is deliberate: it is the sentence a real architecture
+  # document is most likely to contain.
+  ai_coverage_present: false
+  untrusted_content: 0
+  disclosures_blocked: 0
+  limitations: 1

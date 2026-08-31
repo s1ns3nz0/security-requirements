@@ -1,0 +1,168 @@
+# Synthetic. CONTRIBUTING: golden profiles must be synthetic, because this
+# repository is public and a profile plus its open requirements is a
+# reconnaissance document. Nothing here describes a real deployment.
+#
+# Derived from this case's own `threats.yaml`. Its `boundaries:` block carries
+# `{id, from, to}` records — structurally data flows wearing a trust-boundary
+# name — so they land in `data_flows` with their `TB-` ids unchanged, which is
+# what keeps every shipped threat's `boundary` reference resolvable. See plan
+# correction sixteen.
+#
+# The shape this case adds over `movie-rating-aws`: multi-tenant data in one
+# store, two flows that leave the organisation entirely (Sentry, Stripe), and
+# an inbound webhook from a third party. Three trust boundaries rather than
+# two, because "inside the account" and "outside the organisation" are not the
+# same zone and the Sentry flow is the one a reviewer misses — it is a library
+# call, not an obvious integration.
+version: "0.1.0"
+
+actors:
+  - id: act-anonymous-internet
+    name: anonymous internet
+    evidence_status: inferred
+  - id: act-tenant-user
+    name: authenticated tenant user
+    evidence_status: inferred
+
+components:
+  - id: cmp-api-gateway
+    name: api-gateway
+    evidence_status: inferred
+    trust_boundary: tb-internet-edge
+  - id: cmp-order-svc
+    name: order-svc (lambda)
+    evidence_status: inferred
+    trust_boundary: tb-account-internal
+  - id: cmp-webhook-handler
+    name: webhook handler
+    evidence_status: inferred
+    trust_boundary: tb-internet-edge
+
+data_stores:
+  - id: ds-rds-postgres
+    name: rds-postgres
+    classification: pii
+    evidence_status: inferred
+  - id: ds-s3-exports
+    name: s3-exports
+    classification: pii
+    evidence_status: inferred
+  - id: ds-cloudwatch-logs
+    name: cloudwatch logs
+    classification: internal
+    evidence_status: inferred
+
+# Ids carried unchanged from `threats.yaml:boundaries`.
+data_flows:
+  - id: TB-1
+    from: act-anonymous-internet
+    to: cmp-api-gateway
+    crosses: tb-internet-edge
+    protocol: https
+    authenticated: false
+    evidence_status: inferred
+  - id: TB-2
+    from: cmp-api-gateway
+    to: cmp-order-svc
+    crosses: tb-account-internal
+    protocol: aws-invoke
+    authenticated: true
+    evidence_status: inferred
+  - id: TB-3
+    from: cmp-order-svc
+    to: ds-rds-postgres
+    crosses: null
+    protocol: postgres
+    authenticated: true
+    evidence_status: inferred
+  - id: TB-4
+    from: cmp-order-svc
+    to: ds-s3-exports
+    crosses: null
+    protocol: s3
+    authenticated: true
+    evidence_status: inferred
+  # Out of the organisation, and the flow a review is most likely to miss:
+  # it is a library call rather than an integration anyone drew.
+  - id: TB-5
+    from: cmp-order-svc
+    to: dep-sentry
+    crosses: tb-third-party
+    protocol: https
+    authenticated: true
+    evidence_status: inferred
+  - id: TB-6
+    from: cmp-order-svc
+    to: ds-cloudwatch-logs
+    crosses: null
+    protocol: aws-logs
+    authenticated: true
+    evidence_status: inferred
+  - id: TB-7
+    from: dep-stripe
+    to: cmp-webhook-handler
+    crosses: tb-third-party
+    protocol: https
+    authenticated: false
+    evidence_status: inferred
+
+trust_boundaries:
+  - id: tb-internet-edge
+    name: Internet to the service edge
+    evidence_status: inferred
+  - id: tb-account-internal
+    name: Within the AWS account
+    evidence_status: inferred
+  - id: tb-third-party
+    name: Out of the organisation
+    evidence_status: inferred
+
+# Long form, never the rendered letter: §5.3 is long form in, short form out.
+assets:
+  - id: as-transaction-history
+    name: transaction_history
+    cia_relevance: confidentiality
+  - id: as-customer-contracts
+    name: customer_contracts
+    cia_relevance: confidentiality
+  - id: as-basic-contact
+    name: basic_contact
+    cia_relevance: confidentiality
+  - id: as-payment-token
+    name: payment_token
+    cia_relevance: confidentiality
+  - id: as-audit-logs
+    name: audit_logs
+    cia_relevance: integrity
+  - id: as-account-credentials
+    name: account_credentials
+    cia_relevance: confidentiality
+  - id: as-app-logs
+    name: app_logs
+    cia_relevance: confidentiality
+
+dependencies:
+  - id: dep-sentry
+    name: Sentry
+    kind: saas
+    shared_responsibility: >-
+      Sentry operates the error-reporting service; this service owns what its
+      exception handler serialises into a report before it is sent.
+  - id: dep-stripe
+    name: Stripe
+    kind: saas
+    shared_responsibility: >-
+      Stripe signs and delivers webhooks; this service owns verifying that
+      signature and deciding whether a delivery it has already seen is new.
+  - id: dep-aws
+    name: Amazon Web Services
+    kind: cloud
+    shared_responsibility: >-
+      AWS operates the gateway, function, database and object-store control
+      planes; this service owns tenancy checks, presigned-URL lifetimes, and
+      what its own role is permitted to write.
+
+assumptions:
+  - Ingress terminates TLS at the gateway; nothing here observed that directly.
+  - Tenancy is enforced in application code rather than by a database policy.
+  - No AI, LLM, or retrieval component is present in this service.

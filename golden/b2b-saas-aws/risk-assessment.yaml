@@ -1,0 +1,258 @@
+# Synthetic, hand-authored. CONTRIBUTING: golden profiles must be synthetic,
+# because this repository is public and a profile plus its open requirements
+# is a reconnaissance document.
+#
+# Scored against the bundled 5x5 policy. Each likelihood states what access the
+# attacker needs before anything else; each consequence states how far the harm
+# reaches, which is what separates I2 from I4 here.
+assessments:
+- threat_id: T-01
+  status: CONFIRMED
+  proposed:
+    likelihood:
+      criterion: L5-DIRECT-AUTOMATABLE
+      evidence:
+        exposure: internet, behind sign-in
+        access_required: any authenticated tenant account
+        exploit_complexity: 'trivial: increment an integer'
+        preconditions:
+        - order_id is sequential and guessable.
+        - Authorisation checks the session, not the tenant on the row.
+        observed_controls: []
+      rationale:
+      - Any customer can enumerate the identifier space from a normal session; nothing further
+        is required.
+    consequences:
+    - id: C-01
+      asset: transaction_history
+      axis: confidentiality
+      criterion: I4-CROSS-SYSTEM
+      affected_scope: every tenant's orders, not merely the caller's
+      rationale:
+      - A cross-tenant read in a multi-tenant service exposes customers to each other, which
+        is the failure the tenancy boundary exists to prevent.
+    impact:
+      selected_from: C-01
+  calculated:
+    likelihood: 5
+    impact: 4
+    score: 20
+    rating: critical
+- threat_id: T-02
+  status: CONFIRMED
+  proposed:
+    likelihood:
+      criterion: L4-PUBLIC-LOW-COMPLEXITY
+      evidence:
+        exposure: the URL itself is the credential
+        access_required: possession of a forwarded link
+        exploit_complexity: none once the link is shared
+        preconditions:
+        - Export URLs carry a multi-day expiry.
+        - The link authorises on its own, with no session.
+        observed_controls: []
+      rationale:
+      - A presigned URL forwarded into a mail thread or a ticket is readable by everyone downstream
+        of it for days.
+    consequences:
+    - id: C-01
+      asset: customer_contracts
+      axis: confidentiality
+      criterion: I3-CORE-SERVICE
+      affected_scope: one tenant's exported records
+      rationale:
+      - The export is scoped to the requesting tenant, so disclosure is bounded to that customer's
+        data rather than the estate.
+    impact:
+      selected_from: C-01
+  calculated:
+    likelihood: 4
+    impact: 3
+    score: 12
+    rating: high
+- threat_id: T-03
+  status: CONFIRMED
+  proposed:
+    likelihood:
+      criterion: L3-AUTHENTICATED
+      evidence:
+        exposure: a third-party error reporter outside the organisation
+        access_required: an unhandled exception on a request carrying personal data
+        exploit_complexity: 'none: it happens by itself'
+        preconditions:
+        - Request context is serialised into the error report.
+        - No scrubbing runs before transmission.
+        observed_controls: []
+      rationale:
+      - This needs no attacker at all — an ordinary exception on an ordinary request sends
+        the data.
+    consequences:
+    - id: C-01
+      asset: basic_contact
+      axis: confidentiality
+      criterion: I2-LIMITED-SCOPE
+      affected_scope: contact fields present on failing requests
+      rationale:
+      - Basic contact data leaving to a processor is a disclosure and a processing-agreement
+        question, but it is not the transaction record.
+    impact:
+      selected_from: C-01
+  calculated:
+    likelihood: 3
+    impact: 2
+    score: 6
+    rating: medium
+- threat_id: T-04
+  status: CONFIRMED
+  proposed:
+    likelihood:
+      criterion: L4-PUBLIC-LOW-COMPLEXITY
+      evidence:
+        exposure: an inbound webhook endpoint
+        access_required: the ability to replay a captured request
+        exploit_complexity: 'low: resend with the same caller-supplied key'
+        preconditions:
+        - Idempotency is keyed on a value the caller supplies.
+        - A replayed refund is accepted as new.
+        observed_controls: []
+      rationale:
+      - The endpoint is reachable and the anti-replay key is chosen by the party being defended
+        against.
+    consequences:
+    - id: C-01
+      asset: transaction_history
+      axis: integrity
+      criterion: I4-CROSS-SYSTEM
+      affected_scope: financial records and the ledger downstream of them
+      rationale:
+      - A duplicated refund writes money movement that did not happen, and the error propagates
+        into reconciliation and reporting.
+    impact:
+      selected_from: C-01
+  calculated:
+    likelihood: 4
+    impact: 4
+    score: 16
+    rating: high
+- threat_id: T-05
+  status: CONFIRMED
+  proposed:
+    likelihood:
+      criterion: L3-AUTHENTICATED
+      evidence:
+        exposure: an internal analytics stream
+        access_required: read access to the event stream
+        exploit_complexity: 'low: join on a stable key'
+        preconditions:
+        - device_id persists across sessions.
+        - The stream also carries account identifiers.
+        observed_controls: []
+      rationale:
+      - The join is a query away for anyone who can already read analytics.
+    consequences:
+    - id: C-01
+      asset: app_logs
+      axis: confidentiality
+      criterion: I2-LIMITED-SCOPE
+      affected_scope: behavioural history linkable to a named account
+      rationale:
+      - Linkability turns pseudonymous telemetry into identified behaviour, which is a privacy
+        harm rather than a breach of the transaction store.
+    impact:
+      selected_from: C-01
+  calculated:
+    likelihood: 3
+    impact: 2
+    score: 6
+    rating: medium
+- threat_id: T-06
+  status: CONFIRMED
+  proposed:
+    likelihood:
+      criterion: L2-RESTRICTED
+      evidence:
+        exposure: the audit destination inside the account
+        access_required: control of the application role
+        exploit_complexity: requires prior compromise of the service
+        preconditions:
+        - The audit destination is writable by the application's own role.
+        observed_controls: []
+      rationale:
+      - 'This is a second step: it needs the application already compromised, but it is available
+        the moment that happens.'
+    consequences:
+    - id: C-01
+      asset: audit_logs
+      axis: integrity
+      criterion: I4-CROSS-SYSTEM
+      affected_scope: the record used to reconstruct any other incident
+      rationale:
+      - An attacker who can edit the audit trail removes the evidence of everything else,
+        so this consequence is about every investigation, not one.
+    impact:
+      selected_from: C-01
+  calculated:
+    likelihood: 2
+    impact: 4
+    score: 8
+    rating: medium
+- threat_id: T-07
+  status: CONFIRMED
+  proposed:
+    likelihood:
+      criterion: L2-RESTRICTED
+      evidence:
+        exposure: the internal network between service and database
+        access_required: a position on the internal network
+        exploit_complexity: 'moderate: intercept an unverified connection'
+        preconditions:
+        - The client does not verify the server certificate.
+        observed_controls: []
+      rationale:
+      - It needs network position first, which is restricted, but nothing after that is difficult.
+    consequences:
+    - id: C-01
+      asset: transaction_history
+      axis: confidentiality
+      criterion: I4-CROSS-SYSTEM
+      affected_scope: everything the application reads or writes
+      rationale:
+      - An intercepted database connection sees every tenant's traffic, not one session's.
+    impact:
+      selected_from: C-01
+  calculated:
+    likelihood: 2
+    impact: 4
+    score: 8
+    rating: medium
+- threat_id: T-08
+  status: CONFIRMED
+  proposed:
+    likelihood:
+      criterion: L5-DIRECT-AUTOMATABLE
+      evidence:
+        exposure: the public sign-in endpoint
+        access_required: none beyond a breached credential list
+        exploit_complexity: trivial and fully automated
+        preconditions:
+        - Credentials reused from other breaches.
+        - No rate limit or second factor observed on sign-in.
+        observed_controls: []
+      rationale:
+      - Credential stuffing is run continuously against every public sign-in endpoint by default.
+    consequences:
+    - id: C-01
+      asset: account_credentials
+      axis: confidentiality
+      criterion: I3-CORE-SERVICE
+      affected_scope: the accounts whose passwords were reused
+      rationale:
+      - Compromise is bounded to accounts that reused a breached password rather than to the
+        whole estate.
+    impact:
+      selected_from: C-01
+  calculated:
+    likelihood: 5
+    impact: 3
+    score: 15
+    rating: high

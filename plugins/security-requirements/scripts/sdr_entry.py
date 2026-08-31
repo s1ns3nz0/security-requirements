@@ -18,6 +18,7 @@ read from the files git already maintains, not from `git log`.
 from __future__ import annotations
 
 from collections.abc import Mapping
+import json
 from pathlib import Path
 import sys
 
@@ -123,6 +124,96 @@ def _branch_head_marker(project_root: Path) -> Path | None:
         return packed if packed.is_file() else head
     # Detached head: HEAD itself holds the sha and is what moves.
     return head
+
+
+def repository_head(project_root: Path) -> dict:
+    """The branch and commit under review, read from `.git` directly.
+
+    No subprocess (N36), which rules out `git rev-parse`. Git writes both
+    facts to disk in a documented, stable format: `HEAD` names the branch, and
+    the ref it names holds the sha — or `packed-refs` does, after a clone.
+
+    Whatever genuinely cannot be determined comes back `None`. A detached HEAD
+    has no branch, and naming it "HEAD" or "detached" would put a name in the
+    record that no checkout would find.
+    """
+
+    branch: str | None = None
+    commit: str | None = None
+    git_dir = Path(project_root) / ".git"
+    head = git_dir / "HEAD"
+    if not head.is_file():
+        return {"branch": branch, "commit": commit}
+
+    try:
+        pointer = head.read_text(encoding="utf-8").strip()
+    except OSError:
+        return {"branch": branch, "commit": commit}
+
+    if not pointer.startswith("ref:"):
+        # Detached: HEAD holds the sha itself. Anything else on that line is
+        # not a commit and is reported as no commit rather than as garbage.
+        return {"branch": None, "commit": pointer if _looks_like_sha(pointer) else None}
+
+    ref = pointer.removeprefix("ref:").strip()
+    # Split once: `refs/heads/feature/nested/name` is one branch whose name
+    # contains slashes, not a path to walk.
+    branch = ref.split("refs/heads/", 1)[-1] if "refs/heads/" in ref else None
+
+    loose = git_dir / ref
+    if loose.is_file():
+        try:
+            candidate = loose.read_text(encoding="utf-8").strip()
+        except OSError:
+            candidate = ""
+        if _looks_like_sha(candidate):
+            commit = candidate
+    else:
+        commit = _packed_ref(git_dir, ref)
+    return {"branch": branch, "commit": commit}
+
+
+def _looks_like_sha(value: str) -> bool:
+    return len(value) == 40 and all(char in "0123456789abcdef" for char in value.lower())
+
+
+def _packed_ref(git_dir: Path, ref: str) -> str | None:
+    """The sha `packed-refs` records for `ref`, if it records one.
+
+    A freshly cloned repository has no loose file for its branch, so a reader
+    that only looked there would report every clone as having no commit.
+    """
+
+    packed = git_dir / "packed-refs"
+    if not packed.is_file():
+        return None
+    try:
+        lines = packed.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        if line.startswith(("#", "^")):
+            continue
+        parts = line.split()
+        if len(parts) == 2 and parts[1] == ref and _looks_like_sha(parts[0]):
+            return parts[0]
+    return None
+
+
+def plugin_version() -> str | None:
+    """The shipped payload's own version, from its manifest.
+
+    Read rather than restated: a copy in Python drifts from the one that ships,
+    and the version's whole job is to say which payload produced a report.
+    """
+
+    manifest = Path(__file__).resolve().parent.parent / ".claude-plugin" / "plugin.json"
+    try:
+        declared = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    version = declared.get("version") if isinstance(declared, Mapping) else None
+    return version if isinstance(version, str) else None
 
 
 def profile_staleness(project_root: Path) -> dict:

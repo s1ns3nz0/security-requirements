@@ -1,0 +1,63 @@
+# Literal, hand-reviewed output expected from a design review of this case
+# under the `standard` appetite.
+#
+# Decision-level, not a byte dump of the report. Pinning the whole record would
+# churn on every field added and teach the next person to regenerate this file
+# without reading it, which is how a golden stops being a review and becomes a
+# snapshot. What is pinned here is what a reader acts on: the verdict, the
+# order and score of every finding, what was in scope, and what was disclosed.
+#
+# `inherent` below is identical to `expected-risk.yaml`'s. That is the point of
+# recording it twice: the design review and the risk pipeline score the same
+# register through different code, and the day they disagree one of them is
+# wrong.
+
+verdict:
+  release_threshold_rating: high
+  # Overall `high` against a `high` threshold. "Exceeds" means at or above:
+  # a finding level with the threshold is not under it.
+  exceeds_threshold: true
+
+inherent:
+  overall: high
+  status: confirmed
+  counts: {critical: 0, high: 5, medium: 3, low: 0}
+  coverage: 8/8
+
+# §4.3's order, and the whole reason this list is written out rather than
+# counted: rating rank first, then score descending, then id. T-03 precedes
+# T-04 on id alone; T-02 precedes T-08 likewise. A renderer that re-sorted, or
+# an ordering that reverted to document order, changes this list and nothing
+# else — which is exactly the regression a property test does not catch.
+findings:
+  - {id: T-03, rating: high, score: 15}
+  - {id: T-04, rating: high, score: 15}
+  - {id: T-02, rating: high, score: 12}
+  - {id: T-08, rating: high, score: 12}
+  - {id: T-07, rating: high, score: 10}
+  - {id: T-01, rating: medium, score: 8}
+  - {id: T-05, rating: medium, score: 8}
+  - {id: T-06, rating: medium, score: 8}
+
+scope:
+  # One actor, three components, three stores, five flows, two boundaries.
+  # Assets and dependencies are declared in the architecture and are not
+  # reviewable elements, so `sdr_scope` does not partition them.
+  included: 14
+  excluded: 0
+  filter: null
+
+disclosure:
+  # Absent, not empty. §8: with no AI component the taxonomy is "not applied
+  # and not mentioned". Worth pinning against this fixture in particular,
+  # because its `assumptions` block contains the sentence "No AI, LLM, or
+  # retrieval component is present in this service" — detection reads ids and
+  # names, never prose, so that sentence must not trigger it. A false positive
+  # here would be invisible in a unit test using invented data.
+  ai_coverage_present: false
+  untrusted_content: 0
+  disclosures_blocked: 0
+  # The static-analysis disclaimer alone. The profile is current, nothing was
+  # excluded by scope, and no critical fact went unconfirmed, so nothing else
+  # has a limitation to report.
+  limitations: 1
