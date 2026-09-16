@@ -8,19 +8,72 @@
      alt="Licence: Apache-2.0"></a>
 </p>
 
-Most security tooling is **discovery** — read the code, find the flaw. There is
-plenty of it.
+## Why this exists
 
-This is **prescription**. It derives what a service must satisfy from a proposed
-architecture description or an existing repository, plus a confirmed profile. At
-design time the owner supplies the intended components, flows, and trust
-boundaries; for an existing service the repository supplies that evidence.
-Seven owner questions supply the intent neither source can establish: data
-sensitivity, recovery objectives, users, external boundaries, obligations,
-existing controls, and jurisdiction.
+Most security tools start after implementation: read code or configuration,
+find a flaw, and report a finding. That discovery work matters, but it does not
+answer the earlier question: **what must this particular service satisfy?**
 
-What comes out is a reviewable contract for architecture and development: what
-the service must satisfy, why it applies, who acts, and how it can be verified.
+`security-requirements` is a prescription pipeline. It turns design intent or
+repository evidence into a reviewable security contract before, during, or
+independently of implementation. The contract states the required property,
+why it applies, who owns it, and how to verify it. Later reviewers and scanners
+can then test service-specific acceptance criteria instead of starting from a
+generic checklist.
+
+## What existing plugins do not cover
+
+Existing Claude Code security plugins cover valuable adjacent work:
+
+- `appsec-advisor` reconstructs architecture and audits a repository against an
+  AppSec catalog.
+- `tachi` produces threat and vulnerability assessments.
+- Claude Code Security Review and the Claude Security plugin inspect code that
+  exists and produce findings or patches.
+
+Their primary artefact is an audit, threat assessment, finding, or patch. The
+missing primary artefact is a **derived requirement set**: a contract selected
+from confirmed business impact, a control baseline, service-specific threats,
+regulatory overlays, and cloud responsibility. Threat modeling alone can miss
+baseline obligations; a baseline alone cannot express tenant isolation,
+business-logic replay, or personal data escaping in an error path. This plugin
+crosses both.
+
+The claim is not that AI-assisted security analysis is new, or that no other
+tool can overlap. No public plugin was found covering this complete chain; that
+is a search result, not a uniqueness proof.
+
+## How it works
+
+The input data model has two parts:
+
+1. A design description **or** repository evidence supplies components, data
+   flows, managed services, and trust boundaries.
+2. A confirmed profile supplies facts source code cannot establish: data
+   sensitivity, RTO/RPO, users, external boundaries, obligations, existing
+   controls, and jurisdiction.
+
+The confirmed profile is a hard gate. Unknown facts remain `UNDETERMINED`
+instead of being replaced with plausible guesses.
+
+```text
+design description OR repository evidence
+  + seven owner answers
+  -> confirmed profile
+     -> FIPS 199 impact -> SP 800-53B + ASVS baseline   completeness
+     -> DFD boundaries -> STRIDE / LINDDUN threats      relevance
+     -> declared regimes -> regulatory overlays         applicability
+     -> provider + service -> responsibility split      ownership
+  -> inherent-risk proposal -> human digest confirmation
+  -> atomic, trace-linked requirements
+  -> optional design review and later implementation evidence
+```
+
+The model interprets architecture, proposes threats and risk criteria, and
+drafts requirement prose. Deterministic scripts select catalogs, compute
+ratings, classify responsibility, merge state, validate identifiers, and
+render outputs. Humans confirm the profile and risk decisions; the model does
+not approve them.
 
 ## What comes out
 
@@ -70,7 +123,7 @@ The audit log destination must not be writable by any identity whose actions it 
 Only `docs/security/` is meant for publication. The internal files expose
 architecture, storage locations, unimplemented controls, and accepted risks.
 
-## How it derives them
+## Derivation details
 
 <p align="center">
   <img src="./assets/readme/crossing.svg" width="100%"
@@ -150,63 +203,12 @@ published documents or inventing approval. Only human confirmation advances
 the threat schema to `0.2.0`. Existing requirement exceptions remain in place
 until their proposed threat-level accepted-risk migration is reviewed.
 
-### Worked example: an AWS movie-rating API
-
-The `movie-rating-aws` witness starts with a public API Gateway endpoint, a
-Python Lambda, a DynamoDB `Movies` table, CloudWatch Logs, and an
-`app_config.json` credential path. Anonymous users can browse, create, delete,
-and rate movies.
-
-Those deployment assumptions matter. Public mutation routes raise likelihood;
-broad Lambda policies expand impact beyond one table; error and logging paths
-create separate disclosure boundaries. The model therefore does not begin with
-a generic list of web vulnerabilities.
-
-The workflow is:
-
-1. Draw five trust boundaries from the public client through API Gateway,
-   Lambda, DynamoDB, configuration, and CloudWatch.
-2. Apply STRIDE to each concrete flow and retain only service-specific attack
-   paths with a persona, affected asset, and related controls.
-3. Select likelihood and impact criteria from structured evidence. The model
-   proposes them; the deterministic engine computes `likelihood × impact`.
-4. Review all active threats as one batch. A human confirms the exact policy,
-   threat, and assessment digests before the result becomes authoritative.
-5. Recalculate residual risk only from current implementation evidence. A
-   planned requirement alone cannot lower a score.
-
-The confirmed inherent assessment is:
-
-| ID | Concrete attack path | L | I | Score | Rating |
-|---|---|---:|---:|---:|---|
-| T-01 | Long-lived AWS credentials copied into an artifact | 2 | 4 | 8 | Medium |
-| T-02 | Compromised Lambda abuses account-wide managed policies | 3 | 4 | 12 | High |
-| T-03 | Anonymous callers automate movie and rating mutation | 5 | 3 | 15 | High |
-| T-04 | Unbounded public input consumes Lambda and DynamoDB capacity | 5 | 3 | 15 | High |
-| T-05 | AWS SDK errors disclose operational metadata to clients | 4 | 2 | 8 | Medium |
-| T-06 | Attacker-controlled request data reaches CloudWatch Logs | 4 | 2 | 8 | Medium |
-| T-07 | Mutations lack an attributable security audit event | 5 | 2 | 10 | High |
-| T-08 | Final-path dispatch diverges from API Gateway route policy | 4 | 3 | 12 | High |
-
-The overall inherent rating is **High**: five High and three Medium threats,
-with all eight active threats assessed. It is not an average that hides the
-largest scenario; the aggregate retains the highest active rating and reports
-the complete distribution and coverage.
-
-Residual risk is **`UNDETERMINED` (0/8)**. The fixture contains proposed
-requirements but no passing implementation evidence, so it cannot claim that
-authentication, least privilege, schema validation, redaction, audit events,
-or exact route matching has reduced either likelihood or impact.
-
-That result drives requirements without turning requirement priority into a
-risk score. T-03 supports authentication and authorization properties; T-04
-supports bounded schema validation and capacity controls; T-07 supports an
-attributable, tamper-resistant audit trail. Each keeps its threat reference.
-
-The literal reviewed inputs and expected result live in
-[`golden/movie-rating-aws`](golden/movie-rating-aws). The regression suite
-replays the public confirmation API, verifies the external digest binding, and
-asserts the exact five-High/three-Medium distribution.
+The [`golden/movie-rating-aws`](golden/movie-rating-aws) witness shows this with
+a public API Gateway endpoint, Lambda, DynamoDB, configuration, and CloudWatch.
+Eight concrete attack paths produce five High and three Medium inherent risks.
+Residual risk remains `UNDETERMINED` (0/8), because proposed requirements are
+not implementation evidence. The fixture and regression suite pin the inputs,
+digest-bound confirmation, distribution, and publication behavior.
 
 ## Who has to do it
 
@@ -273,16 +275,15 @@ A valid control identifier does not make requirement prose correct. A correct
 requirement is not an implemented one. A provider claim without current evidence
 is not inheritance.
 
-## Where it sits
+## Comparison with existing tools
 
 <p align="center">
   <img src="./assets/readme/landscape.svg" width="100%"
        alt="security-requirements produces a derived requirement set. appsec-advisor produces an audit against a configured catalog. Tachi produces a threat assessment. The Claude Security plugin produces findings and then patches. /security-review produces findings on a branch. SAST, SCA, and dependency scanning produce rule matches and known CVEs.">
 </p>
 
-Similar Claude Code projects already exist. The claim is not that AI-assisted
-security analysis is new. The distinction is that the primary artefact here is a
-security contract derived before implementation, rather than a list of findings.
+The distinction is the primary artefact: a security contract derived before
+implementation, rather than a list of findings.
 
 | Claude Code project | Overlap | Difference here |
 |---|---|---|
@@ -290,17 +291,10 @@ security contract derived before implementation, rather than a list of findings.
 | [tachi](https://github.com/davidmatousek/tachi) | Claude Code threat-modeling and reasoning harness with STRIDE, AI-specific agents, risk scoring, control analysis, SARIF, and reports | Its primary artefact is a threat and vulnerability assessment. Here the threat model is one path, crossed with a compliance baseline to produce atomic development requirements |
 | [Claude Code Security Review](https://github.com/anthropics/claude-code-security-review) and the [Claude Security plugin](https://code.claude.com/docs/en/claude-security) | Use Claude to find vulnerabilities in code changes and produce review findings or patches | They review implementation that exists. This prescribes properties for architecture and development before or independently of implementation |
 
-`appsec-advisor` is the closest Claude Code plugin. It normally reconstructs
-architecture from a repository and audits against an existing catalog; this can
-start from design intent and derives the catalog the design must satisfy.
-
 Outside the plugin ecosystem, [OWASP SecurityRAT](https://owasp.org/www-project-securityrat/)
 and [SD Elements](https://docs.sdelements.com/release/latest/guide/) are the
 closest requirements-oriented predecessors, and SD Elements is the closest
 product concept.
-
-No public plugin was found combining the whole chain. That is a search result,
-not a uniqueness proof, and the ecosystem changes.
 
 ## Install from a clean clone
 
@@ -319,7 +313,7 @@ cd security-requirements
 /plugin install security-requirements@security-requirements
 ```
 
-Claude keeps four slash-command entry points. In the repository whose
+Claude keeps five slash-command entry points. In the repository whose
 requirements you are deriving, run:
 
 ```text
@@ -327,6 +321,7 @@ requirements you are deriving, run:
 /security-requirements:sec-req-build     threat model, responsibility split, write requirements
 /security-requirements:sec-req-refresh   re-derive after a change, preserving human edits
 /security-requirements:sec-req-risk      assess, review, evidence, residual risk, and policy
+/security-requirements:sec-req-design-review  review the confirmed design and report limitations
 ```
 
 You can also register the published repository directly with
@@ -340,14 +335,16 @@ codex plugin list --marketplace security-requirements
 codex plugin add security-requirements@security-requirements
 ```
 
-Codex exposes the same four workflows as natural-language skills rather than
-slash commands. For risk work, select `security-requirements-risk` or start a
-chat with the risk starter prompt. The four starter prompts are:
+Codex exposes the same five workflows as natural-language skills rather than
+slash commands. Select `security-requirements-risk` for focused risk work and
+`security-requirements-design-review` for a design review, or use one of these
+five starter prompts:
 
 - “Initialize the security requirements profile for this repository.”
 - “Build security requirements from the confirmed profile.”
 - “Refresh security requirements after service changes.”
 - “Assess and review threat risk for this repository.”
+- “Review this service design against its existing threat model.”
 
 The installed entry skill finds the shared payload from its own selected path;
 it never derives the payload from the target repository's working directory.

@@ -77,6 +77,23 @@ def _distribution_clone(tmp_path: Path) -> Path:
     return clone
 
 
+def test_readme_leads_with_problem_gap_and_workflow():
+    readme = _read(REPO_ROOT / "README.md")
+
+    headings = (
+        "## Why this exists",
+        "## What existing plugins do not cover",
+        "## How it works",
+    )
+    positions = [readme.index(heading) for heading in headings]
+
+    assert positions == sorted(positions)
+    assert positions[-1] < readme.index("## Install from a clean clone")
+    assert "prescription" in readme[positions[0] : positions[1]].lower()
+    assert "primary artefact" in readme[positions[1] : positions[2]].lower()
+    assert "confirmed profile" in readme[positions[2] :]
+
+
 def test_clean_clone_documentation_covers_claude_and_codex_installation():
     readme = _read(REPO_ROOT / "README.md")
 
@@ -92,14 +109,17 @@ def test_clean_clone_documentation_covers_claude_and_codex_installation():
     ):
         assert command in readme
 
-    for workflow in ("init", "build", "refresh"):
+    for workflow in ("init", "build", "refresh", "risk", "design-review"):
         assert f"/security-requirements:sec-req-{workflow}" in readme
     for prompt in (
         "Initialize the security requirements profile",
         "Build security requirements from the confirmed profile",
         "Refresh security requirements after service changes",
+        "Assess and review threat risk for this repository",
+        "Review this service design against its existing threat model",
     ):
         assert prompt in readme
+    assert "security-requirements-design-review" in readme
 
 
 def test_documentation_exposes_risk_rating_governance_on_both_hosts():
