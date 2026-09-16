@@ -89,9 +89,12 @@ def test_readme_leads_with_problem_gap_and_workflow():
 
     assert positions == sorted(positions)
     assert positions[-1] < readme.index("## Install from a clean clone")
-    assert "prescription" in readme[positions[0] : positions[1]].lower()
+    assert "prescript" in readme[positions[0] : positions[1]].lower()
     assert "primary artefact" in readme[positions[1] : positions[2]].lower()
     assert "confirmed profile" in readme[positions[2] :]
+    assert len(readme.splitlines()) <= 180
+    assert "[Usage and operations](docs/usage.md)" in readme
+    assert "[Design and derivation details](DESIGN.md)" in readme
 
 
 def test_clean_clone_documentation_covers_claude_and_codex_installation():
@@ -143,7 +146,12 @@ def test_documentation_exposes_risk_rating_governance_on_both_hosts():
 
 def test_clean_clone_documentation_covers_updates_dependencies_and_state():
     text = "\n".join(
-        _read(path) for path in (REPO_ROOT / "README.md", REPO_ROOT / "CONTRIBUTING.md")
+        _read(path)
+        for path in (
+            REPO_ROOT / "README.md",
+            REPO_ROOT / "docs" / "usage.md",
+            REPO_ROOT / "CONTRIBUTING.md",
+        )
     )
 
     for command in (
@@ -169,8 +177,9 @@ def test_clean_clone_documentation_covers_updates_dependencies_and_state():
 
     assert "python3 scripts/validate_distribution.py ." in text
     assert "python3 -m pytest tests/test_distribution_docs.py -q" in text
-    claude_update = text[
-        text.index("Claude Code uses the manifest version"):text.index("### Runtime requirements")
+    usage = _read(REPO_ROOT / "docs" / "usage.md")
+    claude_update = usage[
+        usage.index("Claude Code uses the manifest version"):usage.index("## Runtime requirements")
     ]
     ordered = (
         "/plugin marketplace update security-requirements",
@@ -185,6 +194,7 @@ def test_clean_clone_documentation_covers_updates_dependencies_and_state():
 
 def test_documentation_uses_packaged_payload_paths_for_runtime_assets():
     readme = _read(REPO_ROOT / "README.md")
+    usage = _read(REPO_ROOT / "docs" / "usage.md")
     contributing = _read(REPO_ROOT / "CONTRIBUTING.md")
     design = _read(REPO_ROOT / "DESIGN.md")
 
@@ -194,14 +204,16 @@ def test_documentation_uses_packaged_payload_paths_for_runtime_assets():
         "scripts/eval_golden.py",
         "scripts/axis_coverage.py",
     ):
-        assert f"plugins/{PLUGIN_NAME}/{path}" in readme
+        assert f"plugins/{PLUGIN_NAME}/{path}" in usage
     for stale in (
         "`scripts/lint.py`",
         "python3 scripts/rebuild_catalogs.py",
         "python3 scripts/eval_golden.py",
         "`scripts/axis_coverage.py`",
     ):
-        assert stale not in readme
+        assert stale not in usage
+
+    assert "plugins/security-requirements/scripts/" not in readme
 
     for path in (
         "responsibility/services/<provider>-<service>.yaml",

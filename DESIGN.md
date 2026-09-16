@@ -1,7 +1,7 @@
 # 보안 요구사항 도출 플러그인 — 설계 문서
 
 작성일: 2026-07-27
-상태: 설계 확정, 구현 착수 전
+상태: 프리릴리스
 
 ---
 
@@ -33,7 +33,7 @@
 | 6 | 규제 스코프 | v1 코어만 + 트리거 감지·미지원 선언 | 커버 못 하는 걸 커버한 척하지 않는다 |
 | 7 | 산출물 | YAML SSOT + MD 렌더 + 추적표 | ID 안정성·재실행 diff·후속 도구 연결점 |
 | 8 | 재실행 정책 | 필드 소유권 분리 + append-only 상태전이 | 사람 편집·예외승인 보존, 감사 이력 유지 |
-| 9 | 패키징 | 명령 4개 + 대응 스킬 + 결정론적 스크립트 | 조회는 스크립트, 판단은 모델 |
+| 9 | 패키징 | 명령 5개 + 대응 스킬 + 결정론적 스크립트 | 조회는 스크립트, 판단은 모델 |
 | 10 | 영향도 판정 | 데이터유형 테이블로 유도 + 게이트 확인 | 서비스 오너 어휘로 묻고, 산출 근거를 노출 |
 | 11 | 위협 모델링 | DFD → 경계별 STRIDE + LINDDUN + 페르소나 | 일반론 억제. 서비스 고유 위협이 제품 차별성 |
 | 12 | 검증 체계 | 단위테스트 + ID 빌드게이트 + 골든셋 커버리지 | 층마다 다른 검증 수단 |
@@ -98,11 +98,12 @@ profile
 
 Claude Code와 Codex는 별도 marketplace 엔트리를 갖지만, 둘 다
 `plugins/security-requirements/` 하나만 가리킨다. Claude는 `commands/`의
-`sec-req-init`·`sec-req-build`·`sec-req-refresh`·`sec-req-risk` slash command를 사용하고,
-Codex는 대응하는 `skills/security-requirements-{init,build,refresh,risk}/SKILL.md`
+`sec-req-init`·`sec-req-build`·`sec-req-refresh`·`sec-req-risk`·
+`sec-req-design-review` slash command를 사용하고, Codex는 대응하는
+`skills/security-requirements-{init,build,refresh,risk,design-review}/SKILL.md`
 자연어 진입 스킬을 사용한다. 어느 호스트도 런타임 스크립트·카탈로그·오버레이를 복사하지 않는다.
 릴리스 전 `python3 scripts/validate_distribution.py .`가 두 marketplace,
-manifest 상대 경로, 네 진입점, risk asset·policy schema·version agreement,
+manifest 상대 경로, 다섯 진입점, risk asset·policy schema·version agreement,
 symlink/junction과 중복 payload를 코드 실행 없이 읽기 전용으로 검사한다.
 
 ```
